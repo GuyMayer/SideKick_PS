@@ -72,7 +72,7 @@ if (Test-Path $Ahk2Exe) {
         Write-Host "  ERROR: Compilation failed - EXE not created!" -ForegroundColor Red
         exit 1
     }
-    Write-Host "  ✓ Compiled: SideKick_PS.exe" -ForegroundColor Green
+    Write-Host "  [OK] Compiled: SideKick_PS.exe" -ForegroundColor Green
 } else {
     Write-Host "  ERROR: Ahk2Exe not found!" -ForegroundColor Red
     exit 1
@@ -98,28 +98,48 @@ if (!$SkipPythonCompile) {
             Write-Host "  ERROR: Failed to install PyInstaller!" -ForegroundColor Red
             exit 1
         }
-        Write-Host "  ✓ PyInstaller installed" -ForegroundColor Green
+        Write-Host "  [OK] PyInstaller installed" -ForegroundColor Green
     } else {
         Write-Host "  PyInstaller already installed" -ForegroundColor Gray
     }
+    
+    # Find PyInstaller executable (check multiple locations)
+    $pyinstallerExe = "pyinstaller"
+    $userScriptsPath = "$env:APPDATA\Python\Python314\Scripts\pyinstaller.exe"
+    $userScriptsPath2 = "$env:APPDATA\Python\Python313\Scripts\pyinstaller.exe"
+    $userScriptsPath3 = "$env:APPDATA\Python\Python312\Scripts\pyinstaller.exe"
+    $venvPath = "C:\Stash\.venv\Scripts\pyinstaller.exe"
+    
+    if (Test-Path $venvPath) {
+        $pyinstallerExe = $venvPath
+    } elseif (Test-Path $userScriptsPath) {
+        $pyinstallerExe = $userScriptsPath
+    } elseif (Test-Path $userScriptsPath2) {
+        $pyinstallerExe = $userScriptsPath2
+    } elseif (Test-Path $userScriptsPath3) {
+        $pyinstallerExe = $userScriptsPath3
+    }
+    Write-Host "  Using: $pyinstallerExe" -ForegroundColor Gray
     
     foreach ($script in $pythonFiles) {
         $pyFile = "$SourceDir\$script.py"
         if (Test-Path $pyFile) {
             Write-Host "  Compiling: $script.py" -ForegroundColor Gray
             
-            # PyInstaller - single file, no console
-            $result = pyinstaller --onefile --noconsole --clean --distpath $ReleaseDir --workpath "$env:TEMP\pyinstaller_work" --specpath "$env:TEMP\pyinstaller_spec" --name $script $pyFile 2>&1
+            # PyInstaller - single file, no console (suppress stderr output)
+            $ErrorActionPreference = "SilentlyContinue"
+            & $pyinstallerExe --onefile --noconsole --clean --distpath $ReleaseDir --workpath "$env:TEMP\pyinstaller_work" --specpath "$env:TEMP\pyinstaller_spec" --name $script $pyFile 2>$null | Out-Null
+            $ErrorActionPreference = "Stop"
             
             if (Test-Path "$ReleaseDir\$script.exe") {
-                Write-Host "    ✓ $script.exe" -ForegroundColor Green
+                Write-Host "    [OK] $script.exe" -ForegroundColor Green
             } else {
-                Write-Host "    ✗ Failed: $script.py" -ForegroundColor Red
+                Write-Host "    [X] Failed: $script.py" -ForegroundColor Red
             }
         }
     }
 } else {
-    Write-Host "  Skipped (--SkipPythonCompile flag)" -ForegroundColor Gray
+    Write-Host '  Skipped (-SkipPythonCompile flag)' -ForegroundColor Gray
 }
 
 # Copy media files
@@ -156,7 +176,7 @@ if ($sourceFiles) {
     Write-Host "  Removing source scripts from release..." -ForegroundColor Yellow
     $sourceFiles | Remove-Item -Force
 }
-Write-Host "  ✓ Release contains EXE files only" -ForegroundColor Green
+Write-Host "  [OK] Release contains EXE files only" -ForegroundColor Green
 
 # Create version info file
 @"
@@ -255,8 +275,8 @@ if (Test-Path $InnoCompiler) {
     
     $installerPath = "$ArchiveDir\SideKick_PS_Setup_v$Version.exe"
     if (Test-Path $installerPath) {
-        $installerSize = (Get-Item $installerPath).Length / 1MB
-        Write-Host "  ✓ Created: SideKick_PS_Setup_v$Version.exe ($([math]::Round($installerSize, 2)) MB)" -ForegroundColor Green
+        $installerSize = [math]::Round((Get-Item $installerPath).Length / 1MB, 2)
+        Write-Host "  Created: SideKick_PS_Setup_v$Version.exe - $installerSize MB" -ForegroundColor Green
     } else {
         Write-Host "  ERROR: Installer not created!" -ForegroundColor Red
     }
@@ -267,8 +287,8 @@ if (Test-Path $InnoCompiler) {
     # Fallback to ZIP
     $zipPath = "$ArchiveDir\SideKick_PS_v$Version.zip"
     Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $zipPath -Force
-    $zipSize = (Get-Item $zipPath).Length / 1MB
-    Write-Host "  Created: SideKick_PS_v$Version.zip ($([math]::Round($zipSize, 2)) MB)" -ForegroundColor Green
+    $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
+    Write-Host "  Created: SideKick_PS_v$Version.zip - $zipSize MB" -ForegroundColor Green
 }
 
 Write-Host "`n========================================" -ForegroundColor Green
@@ -281,13 +301,14 @@ Write-Host " Contents:" -ForegroundColor Yellow
 Get-ChildItem $ArchiveDir -Name | ForEach-Object { Write-Host "   - $_" -ForegroundColor Gray }
 Write-Host ""
 Write-Host " Installer features:" -ForegroundColor Yellow
-Write-Host "   ✓ License agreement on install" -ForegroundColor Gray
-Write-Host "   ✓ Install to Program Files" -ForegroundColor Gray
-Write-Host "   ✓ Start Menu shortcuts" -ForegroundColor Gray
-Write-Host "   ✓ Desktop icon (optional)" -ForegroundColor Gray
-Write-Host "   ✓ Auto-start option" -ForegroundColor Gray
-Write-Host "   ✓ Add/Remove Programs entry" -ForegroundColor Gray
-Write-Host "   ✓ Uninstaller included" -ForegroundColor Gray
+Write-Host "   [OK] License agreement on install" -ForegroundColor Gray
+Write-Host "   [OK] Install to Program Files" -ForegroundColor Gray
+Write-Host "   [OK] Start Menu shortcuts" -ForegroundColor Gray
+Write-Host "   [OK] Desktop icon (optional)" -ForegroundColor Gray
+Write-Host "   [OK] Auto-start option" -ForegroundColor Gray
+Write-Host "   [OK] Add/Remove Programs entry" -ForegroundColor Gray
+Write-Host "   [OK] Uninstaller included" -ForegroundColor Gray
 Write-Host ""
 Write-Host " Ready for GitHub release!" -ForegroundColor Green
 Write-Host ""
+
