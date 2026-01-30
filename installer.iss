@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.4.19"
+#define MyAppVersion "2.4.20"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -63,6 +63,13 @@ Name: "startupicon"; Description: "Start with Windows"; GroupDescription: "Start
 ; Main executable (compiled AHK)
 Source: "Release\SideKick_PS.exe"; DestDir: "{app}"; Flags: ignoreversion
 
+; App icon
+Source: "Release\SideKick_PS.ico"; DestDir: "{app}"; Flags: ignoreversion
+
+; Logo images for Settings GUI
+Source: "Release\SideKick_Logo_2025_Dark.png"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Release\SideKick_Logo_2025_Light.png"; DestDir: "{app}"; Flags: ignoreversion
+
 ; Python executables (compiled - NO Python install needed)
 Source: "Release\validate_license.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Release\fetch_ghl_contact.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -87,14 +94,36 @@ Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: st
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// Update version in .iss file dynamically
+var
+  IniBackupPath: String;
+
+// Backup INI file before installation starts
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  IniSourcePath: String;
 begin
-  if CurStep = ssPostInstall then
+  if CurStep = ssInstall then
   begin
-    // Could add post-install tasks here
+    // Backup existing INI file before install overwrites anything
+    IniSourcePath := ExpandConstant('{app}\SideKick_PS.ini');
+    IniBackupPath := ExpandConstant('{tmp}\SideKick_PS.ini.backup');
+    if FileExists(IniSourcePath) then
+    begin
+      FileCopy(IniSourcePath, IniBackupPath, False);
+    end;
+  end
+  else if CurStep = ssPostInstall then
+  begin
+    // Restore INI file after installation
+    IniSourcePath := ExpandConstant('{app}\SideKick_PS.ini');
+    if FileExists(IniBackupPath) then
+    begin
+      FileCopy(IniBackupPath, IniSourcePath, False);
+      DeleteFile(IniBackupPath);
+    end;
   end;
 end;
+
 
 
 

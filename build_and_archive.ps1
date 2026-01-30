@@ -231,6 +231,20 @@ if (Test-Path $iconPath) {
     Write-Host "  Copied SideKick_PS.ico" -ForegroundColor Gray
 }
 
+# Copy logo PNG files for Settings GUI
+$logoDark = "$SourceDir\SideKick_Logo_2025_Dark.png"
+$logoLight = "$SourceDir\SideKick_Logo_2025_Light.png"
+if (!(Test-Path $logoDark)) { $logoDark = "$SourceDir\Media\SideKick_Logo_2025_Dark.png" }
+if (!(Test-Path $logoLight)) { $logoLight = "$SourceDir\Media\SideKick_Logo_2025_Light.png" }
+if (Test-Path $logoDark) {
+    Copy-Item $logoDark "$ReleaseDir\SideKick_Logo_2025_Dark.png"
+    Write-Host "  Copied SideKick_Logo_2025_Dark.png" -ForegroundColor Gray
+}
+if (Test-Path $logoLight) {
+    Copy-Item $logoLight "$ReleaseDir\SideKick_Logo_2025_Light.png"
+    Write-Host "  Copied SideKick_Logo_2025_Light.png" -ForegroundColor Gray
+}
+
 # Copy EULA/License
 Write-Host "`n[6/8] Copying license files..." -ForegroundColor Yellow
 $eulaFile = "$ScriptDir\LICENSE.txt"
