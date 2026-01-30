@@ -1,0 +1,63 @@
+SIDEKICK_PS SOFTWARE LICENSE AGREEMENT
+
+IMPORTANT: PLEASE READ THIS LICENSE AGREEMENT CAREFULLY BEFORE USING THIS SOFTWARE.
+
+By installing, copying, or otherwise using SideKick_PS ("Software"), you agree to be bound by the terms of this License Agreement. If you do not agree to the terms of this Agreement, do not install or use the Software.
+
+1. LICENSE GRANT
+Zoom Photography ("Licensor") grants you a non-exclusive, non-transferable license to use the Software subject to the terms of this Agreement and your valid license subscription.
+
+2. LICENSE TYPES
+   a) TRIAL LICENSE: A 14-day evaluation period with full functionality.
+   b) SUBSCRIPTION LICENSE: Annual subscription tied to your GoHighLevel Location ID.
+
+3. PERMITTED USE
+   - Install the Software on computers within your studio/business location
+   - Use the Software for its intended purpose (ProSelect automation and GHL integration)
+   - The license is tied to your GHL Location ID, allowing multiple computers at the same location
+
+4. RESTRICTIONS
+You may NOT:
+   - Distribute, sell, lease, or sublicense the Software
+   - Reverse engineer, decompile, or disassemble the Software
+   - Remove or modify any proprietary notices or labels
+   - Share your license key with third parties
+   - Use the Software after your subscription expires
+
+5. INTELLECTUAL PROPERTY
+The Software is protected by copyright laws. Zoom Photography retains all intellectual property rights in the Software.
+
+6. SUBSCRIPTION AND PAYMENT
+   - Subscription fees are billed annually through LemonSqueezy
+   - License activation requires a valid license key
+   - Failure to renew will result in loss of access to the Software
+
+7. UPDATES
+   - Software updates are provided during your active subscription period
+   - Updates may be installed automatically or manually
+
+8. DATA AND PRIVACY
+   - The Software connects to GoHighLevel API using your credentials
+   - License validation requires internet connection
+   - No personal data is collected beyond license validation
+
+9. DISCLAIMER OF WARRANTIES
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+10. LIMITATION OF LIABILITY
+IN NO EVENT SHALL ZOOM PHOTOGRAPHY BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE SOFTWARE.
+
+11. TERMINATION
+This license is effective until terminated. It will terminate automatically if you fail to comply with any term of this Agreement. Upon termination, you must destroy all copies of the Software.
+
+12. GOVERNING LAW
+This Agreement shall be governed by the laws of England and Wales.
+
+13. CONTACT INFORMATION
+Zoom Photography
+Email: support@zoomphotography.co.uk
+Website: https://zoomphotography.co.uk
+
+© 2026 Zoom Photography. All rights reserved.
+
+By clicking "I Accept" or installing the Software, you acknowledge that you have read this Agreement, understand it, and agree to be bound by its terms.
