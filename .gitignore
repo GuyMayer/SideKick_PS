@@ -1,0 +1,19 @@
+# Build outputs - don't track individual files, only ZIPs
+Release/
+
+# Keep archived ZIPs
+!Releases/
+!Releases/**/*.zip
+
+# Python cache
+__pycache__/
+*.pyc
+
+# PyInstaller
+*.spec
+build/
+dist/
+
+# Temp files
+*.tmp
+*.log

@@ -159,27 +159,27 @@ Write-Host "  ✓ Release contains EXE files only" -ForegroundColor Green
 }
 "@ | Out-File "$ReleaseDir\version.json" -Encoding UTF8
 
-# Archive release
-Write-Host "`n[6/6] Archiving to Releases\v$Version..." -ForegroundColor Yellow
-Copy-Item "$ReleaseDir\*" $ArchiveDir -Recurse -Force
+# Archive release - only keep ZIP in archive (not individual files)
+Write-Host "`n[6/6] Creating distribution ZIP..." -ForegroundColor Yellow
+New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
 
-# Create ZIP
+# Create ZIP only
 $zipPath = "$ArchiveDir\SideKick_PS_v$Version.zip"
 Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $zipPath -Force
 Write-Host "  Created: SideKick_PS_v$Version.zip" -ForegroundColor Green
+
+# Calculate ZIP size
+$zipSize = (Get-Item $zipPath).Length / 1MB
+Write-Host "  Size: $([math]::Round($zipSize, 2)) MB" -ForegroundColor Gray
 
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host " Build Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host " Release folder: $ReleaseDir" -ForegroundColor Cyan
-Write-Host " Archive folder: $ArchiveDir" -ForegroundColor Cyan
-Write-Host " ZIP file:       $zipPath" -ForegroundColor Cyan
+Write-Host " ZIP file: $zipPath" -ForegroundColor Cyan
 Write-Host ""
-Write-Host " Next steps:" -ForegroundColor Yellow
-Write-Host " 1. Go to https://github.com/GuyMayer/SideKick_PS/releases" -ForegroundColor White
-Write-Host " 2. Click 'Create a new release'" -ForegroundColor White
-Write-Host " 3. Tag: v$Version" -ForegroundColor White
-Write-Host " 4. Upload: $zipPath" -ForegroundColor White
-Write-Host " 5. Publish!" -ForegroundColor White
+Write-Host " The ZIP contains:" -ForegroundColor Yellow
+Get-ChildItem $ReleaseDir -Name | ForEach-Object { Write-Host "   - $_" -ForegroundColor Gray }
+Write-Host ""
+Write-Host " Ready for GitHub release!" -ForegroundColor Green
 Write-Host ""
