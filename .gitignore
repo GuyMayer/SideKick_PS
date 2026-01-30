@@ -1,6 +1,9 @@
 # Build outputs - don't track individual files, only ZIPs
 Release/
 
+# Build cache (compiled EXEs for faster rebuilds)
+.build_cache/
+
 # Keep archived ZIPs
 !Releases/
 !Releases/**/*.zip
@@ -17,3 +20,7 @@ dist/
 # Temp files
 *.tmp
 *.log
+run_build.bat
+git_push.bat
+gh_release.bat
+cleanup_releases.bat

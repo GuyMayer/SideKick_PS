@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.4.13"
+#define MyAppVersion "2.4.16"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -28,8 +28,8 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 
 ; Output settings
-OutputDir=Releases\\v2.4.13
-OutputBaseFilename=SideKick_PS_Setup_v{#MyAppVersion}
+OutputDir=Releases\\latest
+OutputBaseFilename=SideKick_PS_Setup
 ; SetupIconFile - use icon from Release folder (copied during build)
 SetupIconFile=Release\SideKick_PS.ico
 Compression=lzma2/ultra64
@@ -95,6 +95,14 @@ begin
     // Could add post-install tasks here
   end;
 end;
+
+
+
+
+
+
+
+
 
 
 
