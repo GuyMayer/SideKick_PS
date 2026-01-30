@@ -36,7 +36,7 @@ Payment plan calculator, client sync, and workflow automation for photographers.
 
 ## Support
 
-📧 support@zoomphotography.co.uk
+📧 guy@zoom-photo.co.uk
 
 ---
 
