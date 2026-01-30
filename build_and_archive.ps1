@@ -131,6 +131,14 @@ if (Test-Path $mediaDir) {
     Write-Host "  Copied media folder" -ForegroundColor Gray
 }
 
+# Copy icon file for installer
+$iconPath = "$SourceDir\Images\SideKick_PS.ico"
+if (!(Test-Path $iconPath)) { $iconPath = "$SourceDir\SideKick_PS.ico" }
+if (Test-Path $iconPath) {
+    Copy-Item $iconPath "$ReleaseDir\SideKick_PS.ico"
+    Write-Host "  Copied SideKick_PS.ico" -ForegroundColor Gray
+}
+
 # Copy EULA/License
 Write-Host "`n[6/8] Copying license files..." -ForegroundColor Yellow
 $eulaFile = "$ScriptDir\LICENSE.txt"
@@ -142,7 +150,7 @@ if (Test-Path $eulaFile) {
 }
 
 # Verify no source scripts in release (EXE ONLY!)
-Write-Host "`n[7/8] Verifying no source scripts..." -ForegroundColor Yellow
+Write-Host "`n[7/9] Verifying no source scripts..." -ForegroundColor Yellow
 $sourceFiles = Get-ChildItem $ReleaseDir -Include "*.py","*.ahk" -Recurse -ErrorAction SilentlyContinue
 if ($sourceFiles) {
     Write-Host "  Removing source scripts from release..." -ForegroundColor Yellow
@@ -159,27 +167,127 @@ Write-Host "  ✓ Release contains EXE files only" -ForegroundColor Green
 }
 "@ | Out-File "$ReleaseDir\version.json" -Encoding UTF8
 
-# Archive release - only keep ZIP in archive (not individual files)
-Write-Host "`n[6/6] Creating distribution ZIP..." -ForegroundColor Yellow
+# Update installer.iss version
+Write-Host "`n[8/9] Updating installer version..." -ForegroundColor Yellow
+$issFile = "$ScriptDir\installer.iss"
+if (Test-Path $issFile) {
+    $issContent = Get-Content $issFile -Raw
+    $issContent = $issContent -replace '#define MyAppVersion "[^"]+"', "#define MyAppVersion `"$Version`""
+    $issContent = $issContent -replace 'OutputDir=Releases\\[^\r\n]+', "OutputDir=Releases\\v$Version"
+    Set-Content $issFile $issContent
+    Write-Host "  Updated installer.iss to v$Version" -ForegroundColor Green
+}
+
+# Build Inno Setup installer
+Write-Host "`n[9/9] Building Inno Setup installer..." -ForegroundColor Yellow
+
+# Check all common Inno Setup locations
+$InnoLocations = @(
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe",
+    "${env:LOCALAPPDATA}\Programs\Inno Setup 6\ISCC.exe",
+    "$env:USERPROFILE\AppData\Local\Programs\Inno Setup 6\ISCC.exe"
+)
+
+$InnoCompiler = $null
+foreach ($loc in $InnoLocations) {
+    if (Test-Path $loc) {
+        $InnoCompiler = $loc
+        Write-Host "  Found Inno Setup at: $loc" -ForegroundColor Gray
+        break
+    }
+}
+
+# Install Inno Setup if not found
+if (!$InnoCompiler) {
+    Write-Host "  Inno Setup not found. Installing..." -ForegroundColor Yellow
+    
+    # Try winget first
+    $wingetCheck = Get-Command winget -ErrorAction SilentlyContinue
+    if ($wingetCheck) {
+        Write-Host "  Installing via winget..." -ForegroundColor Gray
+        winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        Start-Sleep -Seconds 3
+        
+        # Refresh path
+        $InnoCompiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+    }
+    
+    # If still not found, try chocolatey
+    if (!(Test-Path $InnoCompiler)) {
+        $chocoCheck = Get-Command choco -ErrorAction SilentlyContinue
+        if ($chocoCheck) {
+            Write-Host "  Installing via Chocolatey..." -ForegroundColor Gray
+            choco install innosetup -y 2>&1 | Out-Null
+            Start-Sleep -Seconds 3
+            $InnoCompiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        }
+    }
+    
+    # If still not found, download directly
+    if (!(Test-Path $InnoCompiler)) {
+        Write-Host "  Downloading Inno Setup installer..." -ForegroundColor Gray
+        $innoUrl = "https://jrsoftware.org/download.php/is.exe"
+        $innoInstaller = "$env:TEMP\innosetup_installer.exe"
+        
+        try {
+            Invoke-WebRequest -Uri $innoUrl -OutFile $innoInstaller -UseBasicParsing
+            Write-Host "  Running Inno Setup installer (silent)..." -ForegroundColor Gray
+            Start-Process -FilePath $innoInstaller -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+            Start-Sleep -Seconds 2
+            Remove-Item $innoInstaller -Force -ErrorAction SilentlyContinue
+            $InnoCompiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        } catch {
+            Write-Host "  ERROR: Failed to download Inno Setup" -ForegroundColor Red
+        }
+    }
+}
+
+# Create output directory for installer
+$ArchiveDir = "$ScriptDir\Releases\v$Version"
 New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
 
-# Create ZIP only
-$zipPath = "$ArchiveDir\SideKick_PS_v$Version.zip"
-Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $zipPath -Force
-Write-Host "  Created: SideKick_PS_v$Version.zip" -ForegroundColor Green
-
-# Calculate ZIP size
-$zipSize = (Get-Item $zipPath).Length / 1MB
-Write-Host "  Size: $([math]::Round($zipSize, 2)) MB" -ForegroundColor Gray
+if (Test-Path $InnoCompiler) {
+    Write-Host "  Compiling installer with Inno Setup..." -ForegroundColor Gray
+    & $InnoCompiler /Q $issFile
+    
+    $installerPath = "$ArchiveDir\SideKick_PS_Setup_v$Version.exe"
+    if (Test-Path $installerPath) {
+        $installerSize = (Get-Item $installerPath).Length / 1MB
+        Write-Host "  ✓ Created: SideKick_PS_Setup_v$Version.exe ($([math]::Round($installerSize, 2)) MB)" -ForegroundColor Green
+    } else {
+        Write-Host "  ERROR: Installer not created!" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  WARNING: Inno Setup not found. Creating ZIP instead." -ForegroundColor Yellow
+    Write-Host "  Download Inno Setup from: https://jrsoftware.org/isdl.php" -ForegroundColor Gray
+    
+    # Fallback to ZIP
+    $zipPath = "$ArchiveDir\SideKick_PS_v$Version.zip"
+    Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $zipPath -Force
+    $zipSize = (Get-Item $zipPath).Length / 1MB
+    Write-Host "  Created: SideKick_PS_v$Version.zip ($([math]::Round($zipSize, 2)) MB)" -ForegroundColor Green
+}
 
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host " Build Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host " ZIP file: $zipPath" -ForegroundColor Cyan
+Write-Host " Output: $ArchiveDir" -ForegroundColor Cyan
 Write-Host ""
-Write-Host " The ZIP contains:" -ForegroundColor Yellow
-Get-ChildItem $ReleaseDir -Name | ForEach-Object { Write-Host "   - $_" -ForegroundColor Gray }
+Write-Host " Contents:" -ForegroundColor Yellow
+Get-ChildItem $ArchiveDir -Name | ForEach-Object { Write-Host "   - $_" -ForegroundColor Gray }
+Write-Host ""
+Write-Host " Installer features:" -ForegroundColor Yellow
+Write-Host "   ✓ License agreement on install" -ForegroundColor Gray
+Write-Host "   ✓ Install to Program Files" -ForegroundColor Gray
+Write-Host "   ✓ Start Menu shortcuts" -ForegroundColor Gray
+Write-Host "   ✓ Desktop icon (optional)" -ForegroundColor Gray
+Write-Host "   ✓ Auto-start option" -ForegroundColor Gray
+Write-Host "   ✓ Add/Remove Programs entry" -ForegroundColor Gray
+Write-Host "   ✓ Uninstaller included" -ForegroundColor Gray
 Write-Host ""
 Write-Host " Ready for GitHub release!" -ForegroundColor Green
 Write-Host ""

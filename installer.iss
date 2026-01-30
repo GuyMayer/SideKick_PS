@@ -4,10 +4,11 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.4.1"
+#define MyAppVersion "2.4.2"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppURL "https://zoomphotography.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
+#define MyAppDescription "ProSelect Automation & GHL Integration"
 
 [Setup]
 ; Application info
@@ -19,6 +20,8 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL=https://github.com/GuyMayer/SideKick_PS/releases
+AppComments={#MyAppDescription}
+AppCopyright=Copyright (C) 2026 Zoom Photography
 
 ; Install location
 DefaultDirName={autopf}\{#MyAppName}
@@ -26,8 +29,9 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 
 ; Output settings
-OutputDir=dist
+OutputDir=Releases\\v2.4.2
 OutputBaseFilename=SideKick_PS_Setup_v{#MyAppVersion}
+; SetupIconFile - use icon from Release folder (copied during build)
 SetupIconFile=Release\SideKick_PS.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -41,12 +45,13 @@ PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
 WizardSizePercent=100
 
-; License Agreement
-LicenseFile=LICENSE_EULA.txt
+; License Agreement - REQUIRED acceptance before install
+LicenseFile=LICENSE.txt
 
 ; Uninstall
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
+CreateUninstallRegKey=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -91,3 +96,6 @@ begin
     // Could add post-install tasks here
   end;
 end;
+
+
+
