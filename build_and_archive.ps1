@@ -7,12 +7,14 @@
 # 4. Creates a ZIP for uploading to GitHub
 #
 # IMPORTANT: Only .exe files are distributed - NO source scripts!
+# OPTIMIZATION: Caches compiled EXEs and reuses them if source unchanged
 
 param(
     [Parameter(Mandatory=$true)]
     [string]$Version,
     
-    [switch]$SkipPythonCompile = $false
+    [switch]$SkipPythonCompile = $false,
+    [switch]$ForceRebuild = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,7 +23,52 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $SourceDir = "C:\Stash"
 $ReleaseDir = "$ScriptDir\Release"
-$ArchiveDir = "$ScriptDir\Releases\v$Version"
+$ArchiveDir = "$ScriptDir\Releases\latest"
+$CacheDir = "$ScriptDir\.build_cache"
+$HashFile = "$CacheDir\file_hashes.json"
+
+# Create cache directory
+if (!(Test-Path $CacheDir)) {
+    New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null
+}
+
+# Load cached hashes
+$cachedHashes = @{}
+if (Test-Path $HashFile) {
+    try {
+        $jsonContent = Get-Content $HashFile -Raw | ConvertFrom-Json
+        # Convert PSObject to hashtable
+        $jsonContent.PSObject.Properties | ForEach-Object {
+            $cachedHashes[$_.Name] = $_.Value
+        }
+        Write-Host "  Loaded cache with $($cachedHashes.Count) entries" -ForegroundColor Gray
+    } catch {
+        Write-Host "  Cache file invalid, starting fresh" -ForegroundColor Yellow
+        $cachedHashes = @{}
+    }
+}
+
+# Function to get file hash
+function Get-FileHashMD5($path) {
+    if (Test-Path $path) {
+        return (Get-FileHash -Path $path -Algorithm MD5).Hash
+    }
+    return $null
+}
+
+# Function to check if file needs recompile
+function Test-NeedsRecompile($sourceFile, $exeName) {
+    if ($ForceRebuild) { return $true }
+    
+    $currentHash = Get-FileHashMD5 $sourceFile
+    $cachedExe = "$CacheDir\$exeName"
+    
+    if (!(Test-Path $cachedExe)) { return $true }
+    if (!$cachedHashes.ContainsKey($sourceFile)) { return $true }
+    if ($cachedHashes[$sourceFile] -ne $currentHash) { return $true }
+    
+    return $false
+}
 
 # AHK Compiler path
 $Ahk2Exe = "C:\Program Files\AutoHotkey\Compiler\Ahk2Exe.exe"
@@ -35,6 +82,9 @@ if (!(Test-Path $Ahk2Exe)) {
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " SideKick_PS Build v$Version" -ForegroundColor Cyan
 Write-Host " (EXE only - no source scripts)" -ForegroundColor Cyan
+if ($ForceRebuild) {
+    Write-Host " [FORCE REBUILD - ignoring cache]" -ForegroundColor Yellow
+}
 Write-Host "========================================" -ForegroundColor Cyan
 
 # Clean up Release folder
@@ -45,12 +95,12 @@ New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
 # Create archive folder
 Write-Host "`n[2/8] Creating archive folder..." -ForegroundColor Yellow
 if (Test-Path $ArchiveDir) { 
-    Write-Host "  Archive v$Version already exists. Removing..." -ForegroundColor Yellow
+    Write-Host "  Archive folder exists. Cleaning..." -ForegroundColor Yellow
     Remove-Item $ArchiveDir -Recurse -Force 
 }
 New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
 
-# Compile AHK to EXE
+# Compile AHK to EXE (always recompile - it's fast and version changes each time)
 Write-Host "`n[3/8] Compiling SideKick_PS.ahk to EXE..." -ForegroundColor Yellow
 if (Test-Path $Ahk2Exe) {
     $ahkSource = "$SourceDir\SideKick_PS.ahk"
@@ -78,7 +128,7 @@ if (Test-Path $Ahk2Exe) {
     exit 1
 }
 
-# Compile Python scripts to EXE using PyInstaller
+# Compile Python scripts to EXE using PyInstaller (with caching)
 Write-Host "`n[4/8] Compiling Python scripts to EXE..." -ForegroundColor Yellow
 $pythonFiles = @(
     "validate_license",
@@ -87,6 +137,9 @@ $pythonFiles = @(
     "sync_ps_invoice_v2",
     "upload_ghl_media"
 )
+
+$compiledCount = 0
+$cachedCount = 0
 
 if (!$SkipPythonCompile) {
     # Check if PyInstaller is installed
@@ -99,8 +152,6 @@ if (!$SkipPythonCompile) {
             exit 1
         }
         Write-Host "  [OK] PyInstaller installed" -ForegroundColor Green
-    } else {
-        Write-Host "  PyInstaller already installed" -ForegroundColor Gray
     }
     
     # Find PyInstaller executable (check multiple locations)
@@ -119,25 +170,46 @@ if (!$SkipPythonCompile) {
     } elseif (Test-Path $userScriptsPath3) {
         $pyinstallerExe = $userScriptsPath3
     }
-    Write-Host "  Using: $pyinstallerExe" -ForegroundColor Gray
     
     foreach ($script in $pythonFiles) {
         $pyFile = "$SourceDir\$script.py"
+        $exeName = "$script.exe"
+        $cachedExe = "$CacheDir\$exeName"
+        
         if (Test-Path $pyFile) {
-            Write-Host "  Compiling: $script.py" -ForegroundColor Gray
-            
-            # PyInstaller - single file, no console (suppress stderr output)
-            $ErrorActionPreference = "SilentlyContinue"
-            & $pyinstallerExe --onefile --noconsole --clean --distpath $ReleaseDir --workpath "$env:TEMP\pyinstaller_work" --specpath "$env:TEMP\pyinstaller_spec" --name $script $pyFile 2>$null | Out-Null
-            $ErrorActionPreference = "Stop"
-            
-            if (Test-Path "$ReleaseDir\$script.exe") {
-                Write-Host "    [OK] $script.exe" -ForegroundColor Green
+            # Check if we can use cached version
+            if (!(Test-NeedsRecompile $pyFile $exeName)) {
+                # Use cached EXE
+                Copy-Item $cachedExe "$ReleaseDir\$exeName" -Force
+                Write-Host "  [CACHED] $script.exe" -ForegroundColor Cyan
+                $cachedCount++
             } else {
-                Write-Host "    [X] Failed: $script.py" -ForegroundColor Red
+                # Need to recompile
+                Write-Host "  Compiling: $script.py" -ForegroundColor Gray
+                
+                # PyInstaller - single file, no console (suppress stderr output)
+                $ErrorActionPreference = "SilentlyContinue"
+                & $pyinstallerExe --onefile --noconsole --clean --distpath $ReleaseDir --workpath "$env:TEMP\pyinstaller_work" --specpath "$env:TEMP\pyinstaller_spec" --name $script $pyFile 2>$null | Out-Null
+                $ErrorActionPreference = "Stop"
+                
+                if (Test-Path "$ReleaseDir\$exeName") {
+                    Write-Host "    [OK] $script.exe" -ForegroundColor Green
+                    $compiledCount++
+                    
+                    # Cache the compiled EXE and update hash
+                    Copy-Item "$ReleaseDir\$exeName" $cachedExe -Force
+                    $cachedHashes[$pyFile] = Get-FileHashMD5 $pyFile
+                } else {
+                    Write-Host "    [X] Failed: $script.py" -ForegroundColor Red
+                }
             }
         }
     }
+    
+    # Save updated hashes
+    $cachedHashes | ConvertTo-Json | Set-Content $HashFile -Force
+    
+    Write-Host "  Summary: $compiledCount compiled, $cachedCount from cache" -ForegroundColor Gray
 } else {
     Write-Host '  Skipped (-SkipPythonCompile flag)' -ForegroundColor Gray
 }
@@ -193,7 +265,7 @@ $issFile = "$ScriptDir\installer.iss"
 if (Test-Path $issFile) {
     $issContent = Get-Content $issFile -Raw
     $issContent = $issContent -replace '#define MyAppVersion "[^"]+"', "#define MyAppVersion `"$Version`""
-    $issContent = $issContent -replace 'OutputDir=Releases\\[^\r\n]+', "OutputDir=Releases\\v$Version"
+    $issContent = $issContent -replace 'OutputDir=Releases\\[^\r\n]+', "OutputDir=Releases\\latest"
     Set-Content $issFile $issContent
     Write-Host "  Updated installer.iss to v$Version" -ForegroundColor Green
 }
@@ -265,18 +337,21 @@ if (!$InnoCompiler) {
     }
 }
 
-# Create output directory for installer
-$ArchiveDir = "$ScriptDir\Releases\v$Version"
+# Create output directory for installer (always 'latest' for current version)
+$ArchiveDir = "$ScriptDir\Releases\latest"
+if (Test-Path $ArchiveDir) {
+    Remove-Item $ArchiveDir -Recurse -Force
+}
 New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
 
 if (Test-Path $InnoCompiler) {
     Write-Host "  Compiling installer with Inno Setup..." -ForegroundColor Gray
     & $InnoCompiler /Q $issFile
     
-    $installerPath = "$ArchiveDir\SideKick_PS_Setup_v$Version.exe"
+    $installerPath = "$ArchiveDir\SideKick_PS_Setup.exe"
     if (Test-Path $installerPath) {
         $installerSize = [math]::Round((Get-Item $installerPath).Length / 1MB, 2)
-        Write-Host "  Created: SideKick_PS_Setup_v$Version.exe - $installerSize MB" -ForegroundColor Green
+        Write-Host "  Created: SideKick_PS_Setup.exe - $installerSize MB" -ForegroundColor Green
     } else {
         Write-Host "  ERROR: Installer not created!" -ForegroundColor Red
     }
@@ -285,10 +360,10 @@ if (Test-Path $InnoCompiler) {
     Write-Host "  Download Inno Setup from: https://jrsoftware.org/isdl.php" -ForegroundColor Gray
     
     # Fallback to ZIP
-    $zipPath = "$ArchiveDir\SideKick_PS_v$Version.zip"
+    $zipPath = "$ArchiveDir\SideKick_PS.zip"
     Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $zipPath -Force
     $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
-    Write-Host "  Created: SideKick_PS_v$Version.zip - $zipSize MB" -ForegroundColor Green
+    Write-Host "  Created: SideKick_PS.zip - $zipSize MB" -ForegroundColor Green
 }
 
 Write-Host "`n========================================" -ForegroundColor Green
