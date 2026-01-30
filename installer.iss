@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.4.21"
+#define MyAppVersion "2.4.22"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -100,29 +100,47 @@ var
 // Backup INI file before installation starts
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  IniSourcePath: String;
+  IniSourcePath, IniAppDataFolder, IniAppDataPath: String;
 begin
   if CurStep = ssInstall then
   begin
     // Backup existing INI file before install overwrites anything
+    // Check both old location (app folder) and new location (AppData)
     IniSourcePath := ExpandConstant('{app}\SideKick_PS.ini');
+    IniAppDataPath := ExpandConstant('{userappdata}\SideKick_PS\SideKick_PS.ini');
     IniBackupPath := ExpandConstant('{tmp}\SideKick_PS.ini.backup');
-    if FileExists(IniSourcePath) then
+    
+    // Prefer AppData version (newer), fall back to app folder (older installs)
+    if FileExists(IniAppDataPath) then
+    begin
+      FileCopy(IniAppDataPath, IniBackupPath, False);
+    end
+    else if FileExists(IniSourcePath) then
     begin
       FileCopy(IniSourcePath, IniBackupPath, False);
     end;
   end
   else if CurStep = ssPostInstall then
   begin
-    // Restore INI file after installation
+    // Restore INI file to BOTH locations for compatibility
     IniSourcePath := ExpandConstant('{app}\SideKick_PS.ini');
+    IniAppDataFolder := ExpandConstant('{userappdata}\SideKick_PS');
+    IniAppDataPath := ExpandConstant('{userappdata}\SideKick_PS\SideKick_PS.ini');
+    
     if FileExists(IniBackupPath) then
     begin
+      // Create AppData folder if it doesn't exist
+      if not DirExists(IniAppDataFolder) then
+        CreateDir(IniAppDataFolder);
+      
+      // Restore to both locations
       FileCopy(IniBackupPath, IniSourcePath, False);
+      FileCopy(IniBackupPath, IniAppDataPath, False);
       DeleteFile(IniBackupPath);
     end;
   end;
 end;
+
 
 
 
