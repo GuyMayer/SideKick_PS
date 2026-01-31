@@ -12,6 +12,31 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.27 (2026-01-31)
+
+### Improvements
+- **Invoice Sync Enhancements**:
+  - Payment schedules now show as actual invoice line items with dates and amounts
+  - Added VAT/Tax summary on invoices (Subtotal ex VAT, VAT, Total)
+  - Only past payments recorded as transactions (future payments show as scheduled items)
+  - Automatic total verification and rounding adjustment (first payment)
+  - All payments labeled "Payment 1", "Payment 2", etc.
+- **Export Workflow Fixes**:
+  - Extended sleep after "Check All" button (2 seconds for ProSelect response)
+  - Added Cancel button click to close Export window after completion
+  - Uses configured Invoice Watch Folder as export location
+  - Clear tooltips after invoice sync completion
+- **Dark Mode Consistency**:
+  - Converted remaining MsgBox dialogs to DarkMsgBox
+  - Improved error messages with dark mode styling
+
+### Bug Fixes
+- Fixed script reference (sync_ps_invoice_v2 → sync_ps_invoice)
+- Fixed invoice sync early return issue preventing GHL upload
+- Fixed export timeout error messages
+
+---
+
 ## v2.4.26 (2026-01-31)
 
 ### Bug Fixes

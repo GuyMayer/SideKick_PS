@@ -1,11 +1,16 @@
 {
-  "version": "2.4.26",
+  "version": "2.4.27",
   "build_date": "2026-01-31",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fixed DateDiff function errors for AHK v1 compatibility",
+  "release_notes": "Invoice payment schedules, VAT summaries, export workflow improvements, dark mode fixes",
   "changelog": [
-    "FIX: DateDiff replaced with EnvSub for license expiry calculation",
-    "FIX: DateDiff replaced with EnvSub for trial period validation",
-    "FIX: DateDiff replaced with EnvSub for update check interval"
+    "IMPROVED: Payment schedules show as actual invoice line items with dates and amounts",
+    "NEW: VAT/Tax summary on invoices (Subtotal ex VAT, VAT, Total)",
+    "IMPROVED: Only past payments recorded as transactions (future scheduled)",
+    "IMPROVED: Automatic total verification and rounding adjustment",
+    "FIX: Extended Check All button delay (2 sec) for ProSelect response",
+    "FIX: Added Cancel button click to close Export window",
+    "FIX: Invoice sync early return preventing GHL upload",
+    "FIX: Converted remaining MsgBox to DarkMsgBox for consistency"
   ]
 }
