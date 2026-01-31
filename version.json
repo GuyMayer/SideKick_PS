@@ -1,15 +1,11 @@
 {
-  "version": "2.4.25",
+  "version": "2.4.26",
   "build_date": "2026-01-31",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "New DarkMsgBox function, Import/Export settings, Contact Sheet toggle, GHL Invoice Warning dialog with Cancel button, dark mode improvements",
+  "release_notes": "Fixed DateDiff function errors for AHK v1 compatibility",
   "changelog": [
-    "NEW: Universal DarkMsgBox with dark mode, word wrap, multiple buttons, checkbox, timeout",
-    "NEW: Import/Export Settings (.skp encrypted files) for sharing between computers",
-    "NEW: Contact Sheet with Order toggle in Invoice tab",
-    "NEW: GHL Invoice Warning dialog with Cancel button and dark mode styling",
-    "FIX: Bold font inheritance on toggle labels",
-    "FIX: Installer referencing non-existent Python files",
-    "IMPROVED: All message boxes now use consistent dark mode styling"
+    "FIX: DateDiff replaced with EnvSub for license expiry calculation",
+    "FIX: DateDiff replaced with EnvSub for trial period validation",
+    "FIX: DateDiff replaced with EnvSub for update check interval"
   ]
 }
