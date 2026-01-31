@@ -12,6 +12,35 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.29 (2026-01-31)
+
+### Bug Fixes
+- **PayPlan Calculator Button**: Fixed button click not opening calculator
+  - Timer was hiding button when focus shifted to PP GUI on click
+  - Now checks if PP GUI is active before hiding
+- **Payment Type Selection**: Fixed wrong payment type being applied
+  - Was sending only first letter (e.g., "D" selected "Discount" instead of "Direct Debit")
+  - Now uses `Control, ChooseString` for exact payment type matching
+- **Invoice Sync Script**: Fixed crash on compiled .exe
+  - `sys.stdout.reconfigure()` failed when stdout is None (hidden console)
+  - Added null checks for stdout/stderr before reconfiguring
+- **Client ID Validation**: Fixed false positive on missing Client ID
+  - Was checking for `<ClientId>` but XML uses `<Client_ID>` (with underscore)
+- **Build Script**: Fixed missing sync_ps_invoice.exe in releases
+  - Build script was looking for `sync_ps_invoice_v2` (old filename)
+  - Updated to compile `sync_ps_invoice` and `create_ghl_contactsheet`
+
+### Improvements
+- **Quick Publish**: Removed manual pauses from batch files
+  - Git push and GitHub release now run hidden with auto-timeouts
+  - No longer requires pressing Enter to continue
+- **Safety Check**: Added Client ID validation before invoice sync
+  - Prevents upload attempts when order not linked to GHL contact
+- **GuiSetup() Function**: Fixed global variable scope for PayMonthL
+  - Month dropdown now correctly populated in PayPlan calculator
+
+---
+
 ## v2.4.28 (2026-01-31)
 
 ### Improvements
