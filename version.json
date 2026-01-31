@@ -1,15 +1,15 @@
 {
-  "version": "2.4.28",
+  "version": "2.4.30",
   "build_date": "2026-01-31",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "DPI scaling for DarkMsgBox dialogs, high-DPI display support",
+  "release_notes": "Remote debug logging with GitHub Gist upload, verbose logging throughout sync process",
   "changelog": [
-    "IMPROVED: Full DPI scaling support for DarkMsgBox dialogs",
-    "FIX: Button dimensions, spacing, and fonts scale with display DPI",
-    "FIX: Button no longer obscures text on What's New dialog",
-    "FIX: Extended Check All button delay (2 sec) for ProSelect response",
-    "FIX: Added Cancel button click to close Export window",
-    "FIX: Invoice sync early return preventing GHL upload",
-    "FIX: Converted remaining MsgBox to DarkMsgBox for consistency"
+    "NEW: Remote debug logging - logs auto-uploaded to private GitHub Gist",
+    "NEW: Logs organized by GHL Location ID in subfolders",
+    "NEW: Send Logs button and Auto-send toggle on About tab",
+    "NEW: Auto-send ON by default for new installations",
+    "IMPROVED: Verbose logging for XML parsing, contact operations, invoices",
+    "IMPROVED: Media upload logging with file paths, sizes, API responses",
+    "IMPROVED: Contact sheet workflow logging with success/failure details"
   ]
 }
