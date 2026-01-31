@@ -12,6 +12,18 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.28 (2026-01-31)
+
+### Improvements
+- **DPI Scaling for DarkMsgBox**: Full high-DPI display support
+  - Button dimensions (width, height) scale with DPI
+  - Button spacing and positioning scale with DPI
+  - Font sizes scale with DPI
+  - Bottom padding scales with DPI
+  - Fixed button obscuring text on What's New dialog
+
+---
+
 ## v2.4.27 (2026-01-31)
 
 ### Improvements

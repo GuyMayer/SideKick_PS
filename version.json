@@ -1,13 +1,12 @@
 {
-  "version": "2.4.27",
+  "version": "2.4.28",
   "build_date": "2026-01-31",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Invoice payment schedules, VAT summaries, export workflow improvements, dark mode fixes",
+  "release_notes": "DPI scaling for DarkMsgBox dialogs, high-DPI display support",
   "changelog": [
-    "IMPROVED: Payment schedules show as actual invoice line items with dates and amounts",
-    "NEW: VAT/Tax summary on invoices (Subtotal ex VAT, VAT, Total)",
-    "IMPROVED: Only past payments recorded as transactions (future scheduled)",
-    "IMPROVED: Automatic total verification and rounding adjustment",
+    "IMPROVED: Full DPI scaling support for DarkMsgBox dialogs",
+    "FIX: Button dimensions, spacing, and fonts scale with display DPI",
+    "FIX: Button no longer obscures text on What's New dialog",
     "FIX: Extended Check All button delay (2 sec) for ProSelect response",
     "FIX: Added Cancel button click to close Export window",
     "FIX: Invoice sync early return preventing GHL upload",
