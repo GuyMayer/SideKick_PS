@@ -12,6 +12,29 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.30 (2026-01-31)
+
+### New Features
+- **Remote Debug Logging**: Added GitHub Gist upload for debug logs
+  - Logs automatically uploaded to private Gist when auto-send enabled
+  - Logs organized by GHL Location ID in subfolders
+  - Log header includes: Computer Name, Windows User, Location ID, Python Version
+- **Send Logs UI**: Added debug log controls to About tab
+  - "Send Logs" button to manually upload all log files
+  - "Auto-send" toggle to enable/disable automatic log upload
+  - Auto-send ON by default for new installations
+
+### Improvements
+- **Verbose Logging**: Comprehensive debug logging throughout sync process
+  - XML parsing: file stats, all extracted fields, line items
+  - Contact search: query, results, match details
+  - Contact update: before/after field values, API responses
+  - Invoice creation: all invoice fields, payment schedules, API responses
+  - Media uploads: file paths, sizes, request params, response codes
+  - Contact sheet: all workflow steps with success/failure details
+
+---
+
 ## v2.4.29 (2026-01-31)
 
 ### Bug Fixes
