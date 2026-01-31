@@ -134,8 +134,9 @@ $pythonFiles = @(
     "validate_license",
     "fetch_ghl_contact",
     "update_ghl_contact",
-    "sync_ps_invoice_v2",
-    "upload_ghl_media"
+    "sync_ps_invoice",
+    "upload_ghl_media",
+    "create_ghl_contactsheet"
 )
 
 $compiledCount = 0
