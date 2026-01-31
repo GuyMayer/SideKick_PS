@@ -20,7 +20,6 @@
 - Converted all MsgBox calls to DarkMsgBox for consistent styling
 
 ### Technical
-- Increased VS Code extension host memory limit to 4GB
 - Cleaned up Legacy folder organization for old Python scripts
 
 ---
