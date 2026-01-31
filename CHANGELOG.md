@@ -1,5 +1,27 @@
 # SideKick_PS Changelog
 
+<!--
+AI INSTRUCTIONS - When publishing a new version:
+1. Update this CHANGELOG.md with the new version entry
+2. Update version.json in this repo with:
+   - "version": new version number
+   - "build_date": current date (YYYY-MM-DD)
+   - "release_notes": brief summary
+   - "changelog": array of changes (NEW/FIX/IMPROVED prefixes)
+3. Commit and push both files to Git
+4. Run the build script to compile and create installer
+-->
+
+## v2.4.26 (2026-01-31)
+
+### Bug Fixes
+- Fixed `DateDiff` function errors - replaced with AHK v1 compatible `EnvSub` for date arithmetic
+  - `GetLicenseDaysRemaining()` - license expiry calculation
+  - `IsTrialValid()` - trial period validation
+  - `CheckMonthlyUpdateAndValidation()` - update check interval
+
+---
+
 ## v2.4.25 (2026-01-31)
 
 ### New Features
