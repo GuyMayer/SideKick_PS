@@ -2,12 +2,15 @@
 
 <!--
 AI INSTRUCTIONS - When publishing a new version:
-1. Update this CHANGELOG.md with the new version entry
+1. Update this CHANGELOG.md with the new version entry (technical details OK)
 2. Update version.json in this repo with:
    - "version": new version number
    - "build_date": current date (YYYY-MM-DD)
-   - "release_notes": brief summary
-   - "changelog": array of changes (NEW/FIX/IMPROVED prefixes)
+   - "release_notes": brief user-friendly summary
+   - Add new entry to "versions" array with user-friendly changelog
+   NOTE: version.json changelog should be USER-FRIENDLY (no file names, 
+   function names, or technical details - users don't care about 
+   "sync_ps_invoice.py" or "cyclomatic complexity")
 3. Commit and push both files to Git
 4. Run the build script to compile and create installer
 -->
