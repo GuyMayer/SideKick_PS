@@ -57,7 +57,7 @@ global DPI_Scale := A_ScreenDPI / 96
 #Include %A_ScriptDir%\Lib\Notes.ahk
 
 ; Script version info
-global ScriptVersion := "2.4.45"
+global ScriptVersion := "2.4.46"
 global BuildDate := "2026-01-26"
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
 
@@ -96,6 +96,9 @@ global Settings_BrowsDown := true         ; Open editor after download
 global Settings_AutoRenameImages := false ; Auto-rename by date
 global Settings_AutoDriveDetect := true   ; Detect SD card insertion
 global Settings_SDCardEnabled := true    ; Enable SD Card Download feature (show toolbar icon)
+
+; Export automation state
+global ExportInProgress := false  ; Flag to suspend file watcher during export
 
 ; Hotkey settings (modifiers: ^ = Ctrl, ! = Alt, + = Shift, # = Win)
 global Hotkey_GHLLookup := "^+g"  ; Ctrl+Shift+G
@@ -929,19 +932,67 @@ GHLWarning_Continue:
 
 Toolbar_GetInvoice_AfterWarning:
 
+; Suspend file watcher during export to prevent duplicate prompts
+ExportInProgress := true
+
 ; Open ProSelect Export Orders dialog (Orders menu -> Export Order)
 WinActivate, ahk_exe ProSelect.exe
-Sleep, 200
-Send, !o  ; Alt+O opens Orders menu
-Sleep, 200
-Send, e   ; E selects Export Order
-Sleep, 500
-; Wait for Export Orders dialog (must be ProSelect window)
-WinWait, Export Orders ahk_exe ProSelect.exe, , 3
-if ErrorLevel
+Sleep, 300
+
+; Wait for ProSelect to be active
+WinWaitActive, ahk_exe ProSelect.exe, , 2
+
+; Try multiple methods to open Export Orders dialog
+exportOpened := false
+
+; Method 1: WinMenuSelectItem - most reliable for standard menus
+WinMenuSelectItem, ahk_exe ProSelect.exe, , Orders, Export Orders...
+Sleep, 800
+if WinExist("Export Orders ahk_exe ProSelect.exe")
 {
-	DarkMsgBox("SideKick PS", "Export Orders dialog did not open", "warning")
-	Return
+	exportOpened := true
+}
+
+; Method 2: SendInput with longer delays (fallback)
+if (!exportOpened)
+{
+	WinActivate, ahk_exe ProSelect.exe
+	Sleep, 300
+	SendInput, {Alt down}o{Alt up}
+	Sleep, 500
+	SendInput, e
+	Sleep, 800
+	if WinExist("Export Orders ahk_exe ProSelect.exe")
+	{
+		exportOpened := true
+	}
+}
+
+; Method 3: Send with even longer delays (last resort)
+if (!exportOpened)
+{
+	WinActivate, ahk_exe ProSelect.exe
+	Sleep, 500
+	Send, !o
+	Sleep, 800
+	Send, e
+	Sleep, 1000
+	if WinExist("Export Orders ahk_exe ProSelect.exe")
+	{
+		exportOpened := true
+	}
+}
+
+; Only wait if dialog didn't open yet (skip 5s wait if already open)
+if (!exportOpened)
+{
+	WinWait, Export Orders ahk_exe ProSelect.exe, , 5
+	if ErrorLevel
+	{
+		ExportInProgress := false  ; Re-enable file watcher
+		DarkMsgBox("SideKick PS", "Export Orders dialog did not open.`n`nTry opening it manually: Orders menu → Export Orders...", "warning")
+		Return
+	}
 }
 Sleep, 300
 
@@ -962,6 +1013,7 @@ Sleep, 500
 ; Check if it worked by verifying window is still responsive
 if !WinExist("ahk_id " . exportWin)
 {
+	ExportInProgress := false  ; Re-enable file watcher
 	DarkMsgBox("SideKick PS", "Export Orders dialog closed unexpectedly", "warning")
 	Return
 }
@@ -980,6 +1032,7 @@ ExportFolder := Settings_InvoiceWatchFolder
 ; If no watch folder configured, show error
 if (ExportFolder = "" || !FileExist(ExportFolder))
 {
+	ExportInProgress := false  ; Re-enable file watcher
 	DarkMsgBox("Watch Folder Required", "Please set Invoice Watch Folder in Settings before exporting.", "warning")
 	Return
 }
@@ -1071,6 +1124,7 @@ if !ErrorLevel
 	
 	if (latestXml = "")
 	{
+		ExportInProgress := false  ; Re-enable file watcher
 		ToolTip, No XML files found in: %ExportFolder%
 		SetTimer, RemoveToolTip, -3000
 		Return
@@ -1093,6 +1147,7 @@ if !ErrorLevel
 	
 	if (!hasClientID)
 	{
+		ExportInProgress := false  ; Re-enable file watcher
 		DarkMsgBox("Missing Client ID", "Invoice XML is missing a Client ID.`n`nPlease link this order to a GHL contact before exporting.`n`nFile: " . latestXml, "warning")
 		Return
 	}
@@ -1103,6 +1158,7 @@ if !ErrorLevel
 	
 	if (!FileExist(scriptPath))
 	{
+		ExportInProgress := false  ; Re-enable file watcher
 		DarkMsgBox("Script Missing", "Invoice exported but sync_ps_invoice not found.`n`nLooking for: " . scriptPath . "`nScript Dir: " . A_ScriptDir, "warning")
 		Return
 	}
@@ -1117,10 +1173,12 @@ if !ErrorLevel
 	RunWait, %ComSpec% /c "%syncCmd%", , Hide
 	ToolTip  ; Clear the tooltip
 	
+	ExportInProgress := false  ; Re-enable file watcher
 	DarkMsgBox("Invoice Synced", "Invoice synced to GHL:`n" . latestXml, "success")
 }
 else
 {
+	ExportInProgress := false  ; Re-enable file watcher
 	DarkMsgBox("Export Timeout", "Export timeout - check ProSelect", "warning")
 }
 Return
@@ -1322,6 +1380,13 @@ UpdateToggleSlider(guiName, sliderName, newState, baseX)
 ToggleClick_StartOnBoot:
 Toggle_StartOnBoot_State := !Toggle_StartOnBoot_State
 UpdateToggleSlider("Settings", "StartOnBoot", Toggle_StartOnBoot_State, 590)
+; Update registry immediately for this critical setting
+Settings_StartOnBoot := Toggle_StartOnBoot_State
+if (Settings_StartOnBoot)
+	RegWrite, REG_SZ, HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run, SideKick_PS, %A_ScriptFullPath%
+else
+	RegDelete, HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run, SideKick_PS
+IniWrite, %Settings_StartOnBoot%, %IniFilename%, Settings, StartOnBoot
 Return
 
 ToggleClick_ShowTrayIcon:
@@ -5023,6 +5088,9 @@ SyncPathsFromLB(lbIniPath) {
 global LastInvoiceFiles := ""
 
 WatchInvoiceFolder:
+; Skip if export automation is in progress
+if (ExportInProgress)
+	return
 if (Settings_InvoiceWatchFolder = "" || !FileExist(Settings_InvoiceWatchFolder))
 	return
 currentFiles := ""
