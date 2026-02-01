@@ -15,7 +15,17 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
-## v2.4.46 (2026-02-01)
+## v2.4.51 (2026-02-01)
+
+### Bug Fixes
+- **Critical: Payment Recording Wrong Amount**: Fixed GHL invoice payments being recorded at 1/100th of actual value
+  - Was sending amounts in pounds instead of pence to GHL API
+  - e.g., £850 payment was recorded as £8.50
+  - Now correctly converts payment amounts to pence for GHL API consistency
+
+---
+
+## v2.4.50 (2026-02-01)
 
 ### Bug Fixes
 - **Critical: INI File Path**: Fixed compiled EXE looking for INI in wrong folder
