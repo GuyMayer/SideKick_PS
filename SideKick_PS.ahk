@@ -57,7 +57,7 @@ global DPI_Scale := A_ScreenDPI / 96
 #Include %A_ScriptDir%\Lib\Notes.ahk
 
 ; Script version info
-global ScriptVersion := "2.4.42"
+global ScriptVersion := "2.4.44"
 global BuildDate := "2026-01-26"
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
 
@@ -95,11 +95,13 @@ global Settings_EditorRunPath := "Explore"  ; Photo editor path or "Explore"
 global Settings_BrowsDown := true         ; Open editor after download
 global Settings_AutoRenameImages := false ; Auto-rename by date
 global Settings_AutoDriveDetect := true   ; Detect SD card insertion
+global Settings_SDCardEnabled := true    ; Enable SD Card Download feature (show toolbar icon)
 
 ; Hotkey settings (modifiers: ^ = Ctrl, ! = Alt, + = Shift, # = Win)
 global Hotkey_GHLLookup := "^+g"  ; Ctrl+Shift+G
 global Hotkey_PayPlan := "^+p"    ; Ctrl+Shift+P
 global Hotkey_Settings := "^+w"   ; Ctrl+Shift+W
+global Hotkey_DevReload := "^+r"  ; Ctrl+Shift+R (dev mode only)
 
 ; License settings
 global License_Key := ""          ; LemonSqueezy license key
@@ -750,7 +752,7 @@ CreateFloatingToolbar()
 	global
 	
 	; Toolbar dimensions (0.75x of 1.5x = 1.125x original)
-	toolbarWidth := 203
+	toolbarWidth := Settings_SDCardEnabled ? 203 : 152  ; Adjust width based on SD Card feature
 	toolbarHeight := 43
 	
 	; Transparent background with colored buttons
@@ -761,8 +763,14 @@ CreateFloatingToolbar()
 	; Colored icon buttons (0.75x: 44x38)
 	Gui, Toolbar:Add, Text, x2 y3 w44 h38 Center BackgroundBlue cWhite gToolbar_GetClient vTB_Client, 👤
 	Gui, Toolbar:Add, Text, x53 y3 w44 h38 Center BackgroundGreen cWhite gToolbar_GetInvoice vTB_Invoice, 📋
-	Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundOrange cWhite gToolbar_DownloadSD vTB_Download, 📥
-	Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+	
+	; SD Card Download button - only if enabled
+	if (Settings_SDCardEnabled) {
+		Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundOrange cWhite gToolbar_DownloadSD vTB_Download, 📥
+		Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+	} else {
+		Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+	}
 	
 	; Make background transparent
 	WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
@@ -817,11 +825,12 @@ if (psW < 800 || psH < 600)
 	return
 }
 
-; Position inline with window close X button
-newX := psX + psW - 350
+; Position inline with window close X button - adjust for toolbar width
+tbWidth := Settings_SDCardEnabled ? 203 : 152
+newX := psX + psW - (tbWidth + 147)
 newY := psY + 6
 
-Gui, Toolbar:Show, x%newX% y%newY% w203 h43 NoActivate
+Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h43 NoActivate
 Return
 
 Toolbar_GetClient:
@@ -934,13 +943,36 @@ if ErrorLevel
 	DarkMsgBox("SideKick PS", "Export Orders dialog did not open", "warning")
 	Return
 }
-Sleep, 200
-; Ensure Export To is set to "Standard XML" (ComboBox1)
-Control, ChooseString, Standard XML, ComboBox1, Export Orders ahk_exe ProSelect.exe
 Sleep, 300
-; Click "Check All" button (Button4) - explicitly target ProSelect Export Orders window
-ControlClick, Button4, Export Orders ahk_exe ProSelect.exe
-Sleep, 2000
+
+; Get the window handle for more reliable control interaction
+exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
+
+; Ensure Export To is set to "Standard XML" (ComboBox1)
+ControlFocus, ComboBox1, ahk_id %exportWin%
+Sleep, 100
+Control, ChooseString, Standard XML, ComboBox1, ahk_id %exportWin%
+Sleep, 300
+
+; Click "Check All" button (Button4) - try multiple methods for reliability
+; Method 1: ControlClick with window handle
+ControlClick, Button4, ahk_id %exportWin%, , , , NA
+Sleep, 500
+
+; Check if it worked by verifying window is still responsive
+if !WinExist("ahk_id " . exportWin)
+{
+	DarkMsgBox("SideKick PS", "Export Orders dialog closed unexpectedly", "warning")
+	Return
+}
+
+; Method 2: If first click didn't work, try sending BM_CLICK message directly
+ControlGet, checkAllHwnd, Hwnd, , Button4, ahk_id %exportWin%
+if (checkAllHwnd)
+{
+	SendMessage, 0x00F5, 0, 0, , ahk_id %checkAllHwnd%  ; BM_CLICK = 0x00F5
+}
+Sleep, 1500
 
 ; Use configured watch folder as the export folder (most reliable method)
 ExportFolder := Settings_InvoiceWatchFolder
@@ -952,19 +984,20 @@ if (ExportFolder = "" || !FileExist(ExportFolder))
 	Return
 }
 
-; Click Export Now (Button2)
+; Click Export Now (Button2) - use window handle for reliability
 Sleep, 300
-ControlClick, Button2, Export Orders ahk_exe ProSelect.exe
+ControlClick, Button2, ahk_id %exportWin%, , , , NA
 ; Wait for export completion popup (ProSelect confirmation dialog)
 WinWait, Export Orders ahk_exe ProSelect.exe, completed, 15
 if !ErrorLevel
 {
 	Sleep, 500
-	; Click OK on the completion dialog
-	ControlClick, Button1, Export Orders ahk_exe ProSelect.exe
+	; Click OK on the completion dialog - get fresh window handle
+	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
+	ControlClick, Button1, ahk_id %exportWin%, , , , NA
 	Sleep, 500
 	; Click Cancel to close the Export Orders window
-	ControlClick, Cancel, Export Orders ahk_exe ProSelect.exe
+	ControlClick, Cancel, ahk_id %exportWin%, , , , NA
 	Sleep, 300
 	
 	; Find the most recent XML file in the export folder
@@ -1317,6 +1350,12 @@ SaveSettings()
 Return
 
 ToggleClick_AutoDriveDetect:
+; Block if SD Card feature is disabled
+if (!Settings_SDCardEnabled) {
+	ToolTip, Enable SD Card Download first
+	SetTimer, RemoveSettingsTooltip, -1500
+	Return
+}
 Toggle_AutoDriveDetect_State := !Toggle_AutoDriveDetect_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 UpdateToggleSlider("Settings", "AutoDriveDetect", Toggle_AutoDriveDetect_State, 420)
@@ -1329,6 +1368,79 @@ if (Settings_AutoDriveDetect) {
 	SetTimer, checkNewDrives, Off
 }
 Return
+
+ToggleClick_SDCardEnabled:
+Toggle_SDCardEnabled_State := !Toggle_SDCardEnabled_State
+Settings_SDCardEnabled := Toggle_SDCardEnabled_State
+UpdateToggleSlider("Settings", "SDCardEnabled", Toggle_SDCardEnabled_State, 420)
+; If disabling SD Card, also disable auto-detect
+if (!Settings_SDCardEnabled) {
+	Toggle_AutoDriveDetect_State := false
+	Settings_AutoDriveDetect := false
+	UpdateToggleSlider("Settings", "AutoDriveDetect", false, 420)
+	SetTimer, checkNewDrives, Off
+}
+; Update enabled/disabled state of File Management controls
+UpdateFilesControlsState(Settings_SDCardEnabled)
+SaveSettings()
+; Recreate toolbar with new layout
+Gui, Toolbar:Destroy
+CreateFloatingToolbar()
+Return
+
+; Function to enable/disable File Management controls based on SD Card enabled state
+UpdateFilesControlsState(enabled) {
+	; Determine the command: Enable or Disable
+	cmd := enabled ? "Enable" : "Disable"
+	
+	; Edit controls
+	GuiControl, Settings:%cmd%, FilesCardDriveEdit
+	GuiControl, Settings:%cmd%, FilesDownloadEdit
+	GuiControl, Settings:%cmd%, FilesArchiveEdit
+	GuiControl, Settings:%cmd%, FilesPrefixEdit
+	GuiControl, Settings:%cmd%, FilesSuffixEdit
+	GuiControl, Settings:%cmd%, FilesEditorEdit
+	
+	; Buttons
+	GuiControl, Settings:%cmd%, FilesCardDriveBrowse
+	GuiControl, Settings:%cmd%, FilesDownloadBrowse
+	GuiControl, Settings:%cmd%, FilesArchiveBrowse
+	GuiControl, Settings:%cmd%, FilesEditorBrowse
+	GuiControl, Settings:%cmd%, FilesSyncFromLBBtn
+	
+	; Toggle sliders (these are Text controls)
+	GuiControl, Settings:%cmd%, Toggle_AutoShootYear
+	GuiControl, Settings:%cmd%, Toggle_AutoRenameImages
+	GuiControl, Settings:%cmd%, Toggle_BrowsDown
+	GuiControl, Settings:%cmd%, Toggle_AutoDriveDetect
+	
+	; Labels - gray them out visually
+	if (enabled) {
+		labelColor := Settings_DarkMode ? "CCCCCC" : "444444"
+		sectionColor := Settings_DarkMode ? "4FC3F7" : "0078D4"
+	} else {
+		labelColor := Settings_DarkMode ? "666666" : "999999"
+		sectionColor := Settings_DarkMode ? "666666" : "999999"
+	}
+	
+	; Update label colors
+	GuiControl, Settings:+c%labelColor%, FilesCardDriveLabel
+	GuiControl, Settings:+c%labelColor%, FilesDownloadLabel
+	GuiControl, Settings:+c%labelColor%, FilesArchiveLabel
+	GuiControl, Settings:+c%labelColor%, FilesPrefixLabel
+	GuiControl, Settings:+c%labelColor%, FilesSuffixLabel
+	GuiControl, Settings:+c%labelColor%, FilesEditorLabel
+	GuiControl, Settings:+c%labelColor%, FilesAutoYear
+	GuiControl, Settings:+c%labelColor%, FilesAutoRename
+	GuiControl, Settings:+c%labelColor%, FilesOpenEditor
+	GuiControl, Settings:+c%labelColor%, FilesAutoDrive
+	
+	; Section headers
+	GuiControl, Settings:+c%sectionColor%, FilesSDCard
+	GuiControl, Settings:+c%sectionColor%, FilesArchive
+	GuiControl, Settings:+c%sectionColor%, FilesNaming
+	GuiControl, Settings:+c%sectionColor%, FilesEditor
+}
 
 ; ============================================================
 ; DarkMsgBox - Dark mode aware message box function
@@ -2027,29 +2139,36 @@ CreateHotkeysPanel()
 	
 	; Settings hotkey
 	Gui, Settings:Add, Text, x200 y220 w180 BackgroundTrans vHKLabelSettings Hidden HwndHwndHKSettings, Open Settings:
-	RegisterSettingsTooltip(HwndHKSettings, "OPEN SETTINGS`n`nOpen this Settings window.`nClick field and press your hotkey.`n`nDefault: Ctrl+Shift+S")
+	RegisterSettingsTooltip(HwndHKSettings, "OPEN SETTINGS`n`nOpen this Settings window.`nClick field and press your hotkey.`n`nDefault: Ctrl+Shift+W")
 	displaySettings := FormatHotkeyDisplay(Hotkey_Settings)
 	Gui, Settings:Add, Edit, x400 y217 w150 h25 vHotkey_Settings_Edit ReadOnly Hidden, %displaySettings%
 	Gui, Settings:Add, Button, x560 y216 w60 h27 gCaptureHotkey_Settings vHKCaptureSettings Hidden, Set
 	
+	; Dev Reload hotkey (only visible in dev mode - not compiled)
+	if (!A_IsCompiled) {
+		Gui, Settings:Font, s10 cFF9900, Segoe UI  ; Orange for dev-only
+		Gui, Settings:Add, Text, x200 y260 w180 BackgroundTrans vHKLabelDevReload Hidden HwndHwndHKDevReload, 🔧 Reload Script:
+		RegisterSettingsTooltip(HwndHwndHKDevReload, "RELOAD SCRIPT (Dev Only)`n`nReloads the script for testing changes.`nOnly available when running as script.`n`nDefault: Ctrl+Shift+R")
+		displayDevReload := FormatHotkeyDisplay(Hotkey_DevReload)
+		Gui, Settings:Add, Edit, x400 y257 w150 h25 vHotkey_DevReload_Edit ReadOnly Hidden, %displayDevReload%
+		Gui, Settings:Add, Button, x560 y256 w60 h27 gCaptureHotkey_DevReload vHKCaptureDevReload Hidden, Set
+		Gui, Settings:Font, s10 c%labelColor%, Segoe UI
+	}
+	
 	; Clear buttons section
 	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y280 w200 BackgroundTrans vHKActionsTitle Hidden, Actions
+	Gui, Settings:Add, Text, x200 y320 w200 BackgroundTrans vHKActionsTitle Hidden, Actions
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x200 y315 w150 h30 gResetHotkeysToDefault vHKResetBtn Hidden, Reset to Defaults
-	Gui, Settings:Add, Button, x370 y315 w150 h30 gClearAllHotkeys vHKClearBtn Hidden, Clear All
+	Gui, Settings:Add, Button, x200 y355 w150 h30 gResetHotkeysToDefault vHKResetBtn Hidden, Reset to Defaults
+	Gui, Settings:Add, Button, x370 y355 w150 h30 gClearAllHotkeys vHKClearBtn Hidden, Clear All
 	
 	; Instructions
 	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y370 w430 BackgroundTrans vHKInstructions1 Hidden, How to set a hotkey:
-	Gui, Settings:Add, Text, x200 y390 w430 BackgroundTrans vHKInstructions2 Hidden, 1. Click the "Set" button next to the action
-	Gui, Settings:Add, Text, x200 y410 w430 BackgroundTrans vHKInstructions3 Hidden, 2. Press your desired key combination
-	Gui, Settings:Add, Text, x200 y430 w430 BackgroundTrans vHKInstructions4 Hidden, 3. The hotkey will be captured automatically
-	
-	; Note about changes
-	Gui, Settings:Font, s9 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y460 w400 BackgroundTrans vHKNote Hidden, Changes take effect when you click Apply or close Settings
+	Gui, Settings:Add, Text, x200 y410 w430 BackgroundTrans vHKInstructions1 Hidden, How to set a hotkey:
+	Gui, Settings:Add, Text, x200 y430 w430 BackgroundTrans vHKInstructions2 Hidden, 1. Click the "Set" button next to the action
+	Gui, Settings:Add, Text, x200 y450 w430 BackgroundTrans vHKInstructions3 Hidden, 2. Press your desired key combination
+	Gui, Settings:Add, Text, x200 y470 w430 BackgroundTrans vHKInstructions4 Hidden, 3. The hotkey will be captured automatically
 }
 
 CreateFilesPanel()
@@ -2078,87 +2197,95 @@ CreateFilesPanel()
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
 	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vFilesHeader Hidden, 📁 File Management
 	
+	; Enable SD Card Download Toggle (master switch)
+	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x200 y55 w200 BackgroundTrans vFilesEnableSDCard Hidden, Enable SD Card Download:
+	CreateToggleSlider("Settings", "SDCardEnabled", 420, 53, Settings_SDCardEnabled)
+	GuiControl, Settings:Hide, Toggle_SDCardEnabled
+	Gui, Settings:Add, Text, x455 y55 w180 c%mutedColor% BackgroundTrans vFilesEnableSDCardNote Hidden, (shows toolbar icon)
+	
 	; SD Card Download Section
 	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y60 w300 BackgroundTrans vFilesSDCard Hidden, SD Card Download
+	Gui, Settings:Add, Text, x200 y90 w300 BackgroundTrans vFilesSDCard Hidden, SD Card Download
 	
 	; Card Drive Path
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y95 w120 BackgroundTrans vFilesCardDriveLabel Hidden, Card Path:
+	Gui, Settings:Add, Text, x200 y125 w120 BackgroundTrans vFilesCardDriveLabel Hidden, Card Path:
 	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x320 y92 w230 h25 vFilesCardDriveEdit Hidden, %Settings_CardDrive%
+	Gui, Settings:Add, Edit, x320 y122 w230 h25 vFilesCardDriveEdit Hidden, %Settings_CardDrive%
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x555 y90 w60 h28 gFilesCardDriveBrowseBtn vFilesCardDriveBrowse Hidden, Browse
+	Gui, Settings:Add, Button, x555 y120 w60 h28 gFilesCardDriveBrowseBtn vFilesCardDriveBrowse Hidden, Browse
 	
 	; Download Folder
-	Gui, Settings:Add, Text, x200 y125 w120 BackgroundTrans vFilesDownloadLabel Hidden, Download To:
+	Gui, Settings:Add, Text, x200 y155 w120 BackgroundTrans vFilesDownloadLabel Hidden, Download To:
 	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x320 y122 w230 h25 vFilesDownloadEdit Hidden, %Settings_CameraDownloadPath%
+	Gui, Settings:Add, Edit, x320 y152 w230 h25 vFilesDownloadEdit Hidden, %Settings_CameraDownloadPath%
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x555 y120 w60 h28 gFilesDownloadBrowseBtn vFilesDownloadBrowse Hidden, Browse
+	Gui, Settings:Add, Button, x555 y150 w60 h28 gFilesDownloadBrowseBtn vFilesDownloadBrowse Hidden, Browse
 	
 	; Archive Section
 	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y160 w300 BackgroundTrans vFilesArchive Hidden, Archive Settings
+	Gui, Settings:Add, Text, x200 y190 w300 BackgroundTrans vFilesArchive Hidden, Archive Settings
 	
 	; Archive Path
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y195 w120 BackgroundTrans vFilesArchiveLabel Hidden, Archive Path:
+	Gui, Settings:Add, Text, x200 y225 w120 BackgroundTrans vFilesArchiveLabel Hidden, Archive Path:
 	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x320 y192 w230 h25 vFilesArchiveEdit Hidden, %Settings_ShootArchivePath%
+	Gui, Settings:Add, Edit, x320 y222 w230 h25 vFilesArchiveEdit Hidden, %Settings_ShootArchivePath%
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x555 y190 w60 h28 gFilesArchiveBrowseBtn vFilesArchiveBrowse Hidden, Browse
+	Gui, Settings:Add, Button, x555 y220 w60 h28 gFilesArchiveBrowseBtn vFilesArchiveBrowse Hidden, Browse
 	
 	; Naming Convention Section
 	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y230 w300 BackgroundTrans vFilesNaming Hidden, File Naming
+	Gui, Settings:Add, Text, x200 y260 w300 BackgroundTrans vFilesNaming Hidden, File Naming
 	
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y265 w80 BackgroundTrans vFilesPrefixLabel Hidden, Prefix:
+	Gui, Settings:Add, Text, x200 y295 w80 BackgroundTrans vFilesPrefixLabel Hidden, Prefix:
 	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x280 y262 w60 h25 vFilesPrefixEdit Hidden, %Settings_ShootPrefix%
+	Gui, Settings:Add, Edit, x280 y292 w60 h25 vFilesPrefixEdit Hidden, %Settings_ShootPrefix%
 	
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x360 y265 w80 BackgroundTrans vFilesSuffixLabel Hidden, Suffix:
+	Gui, Settings:Add, Text, x360 y295 w80 BackgroundTrans vFilesSuffixLabel Hidden, Suffix:
 	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x440 y262 w60 h25 vFilesSuffixEdit Hidden, %Settings_ShootSuffix%
+	Gui, Settings:Font, s10 c000000, Segoe UI
+	Gui, Settings:Add, Edit, x440 y292 w60 h25 vFilesSuffixEdit Hidden, %Settings_ShootSuffix%
 	
 	; Auto Year Toggle
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y300 w200 BackgroundTrans vFilesAutoYear Hidden, Include Year in Shoot No:
-	CreateToggleSlider("Settings", "AutoShootYear", 420, 298, Settings_AutoShootYear)
+	Gui, Settings:Add, Text, x200 y330 w200 BackgroundTrans vFilesAutoYear Hidden, Include Year in Shoot No:
+	CreateToggleSlider("Settings", "AutoShootYear", 420, 328, Settings_AutoShootYear)
 	GuiControl, Settings:Hide, Toggle_AutoShootYear
 	
 	; Auto Rename Toggle
-	Gui, Settings:Add, Text, x200 y330 w200 BackgroundTrans vFilesAutoRename Hidden, Auto-Rename by Date:
-	CreateToggleSlider("Settings", "AutoRenameImages", 420, 328, Settings_AutoRenameImages)
+	Gui, Settings:Add, Text, x200 y360 w200 BackgroundTrans vFilesAutoRename Hidden, Auto-Rename by Date:
+	CreateToggleSlider("Settings", "AutoRenameImages", 420, 358, Settings_AutoRenameImages)
 	GuiControl, Settings:Hide, Toggle_AutoRenameImages
 	
 	; Editor Section
 	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y370 w300 BackgroundTrans vFilesEditor Hidden, Photo Editor
+	Gui, Settings:Add, Text, x200 y400 w300 BackgroundTrans vFilesEditor Hidden, Photo Editor
 	
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y405 w120 BackgroundTrans vFilesEditorLabel Hidden, Editor Path:
+	Gui, Settings:Add, Text, x200 y435 w120 BackgroundTrans vFilesEditorLabel Hidden, Editor Path:
 	editorDisplay := (Settings_EditorRunPath = "Explore" || Settings_EditorRunPath = "") ? "Windows Explorer" : Settings_EditorRunPath
 	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x320 y402 w230 h25 vFilesEditorEdit Hidden, %editorDisplay%
+	Gui, Settings:Add, Edit, x320 y432 w230 h25 vFilesEditorEdit Hidden, %editorDisplay%
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x555 y400 w60 h28 gFilesEditorBrowseBtn vFilesEditorBrowse Hidden, Browse
+	Gui, Settings:Add, Button, x555 y430 w60 h28 gFilesEditorBrowseBtn vFilesEditorBrowse Hidden, Browse
 	
 	; Open Editor After Download Toggle
-	Gui, Settings:Add, Text, x200 y440 w200 BackgroundTrans vFilesOpenEditor Hidden, Open Editor After Download:
-	CreateToggleSlider("Settings", "BrowsDown", 420, 438, Settings_BrowsDown)
+	Gui, Settings:Add, Text, x200 y470 w200 BackgroundTrans vFilesOpenEditor Hidden, Open Editor After Download:
+	CreateToggleSlider("Settings", "BrowsDown", 420, 468, Settings_BrowsDown)
 	GuiControl, Settings:Hide, Toggle_BrowsDown
 	
 	; Auto Drive Detection Toggle
-	Gui, Settings:Add, Text, x200 y470 w200 BackgroundTrans vFilesAutoDrive Hidden, Auto-Detect SD Cards:
-	CreateToggleSlider("Settings", "AutoDriveDetect", 420, 468, Settings_AutoDriveDetect)
+	Gui, Settings:Add, Text, x200 y500 w200 BackgroundTrans vFilesAutoDrive Hidden, Auto-Detect SD Cards:
+	CreateToggleSlider("Settings", "AutoDriveDetect", 420, 498, Settings_AutoDriveDetect)
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
 	
 	; Sync from SideKick_LB button
 	Gui, Settings:Font, s10 Norm, Segoe UI
-	Gui, Settings:Add, Button, x480 y465 w135 h28 gFilesSyncFromLB vFilesSyncFromLBBtn Hidden, 🔄 Sync from LB
+	Gui, Settings:Add, Button, x480 y495 w135 h28 gFilesSyncFromLB vFilesSyncFromLBBtn Hidden, 🔄 Sync from LB
 }
 
 CreateLicensePanel()
@@ -3207,6 +3334,9 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, HKLabelSettings
 	GuiControl, Settings:Hide, Hotkey_Settings_Edit
 	GuiControl, Settings:Hide, HKCaptureSettings
+	GuiControl, Settings:Hide, HKLabelDevReload
+	GuiControl, Settings:Hide, Hotkey_DevReload_Edit
+	GuiControl, Settings:Hide, HKCaptureDevReload
 	GuiControl, Settings:Hide, HKActionsTitle
 	GuiControl, Settings:Hide, HKResetBtn
 	GuiControl, Settings:Hide, HKClearBtn
@@ -3274,6 +3404,9 @@ ShowSettingsTab(tabName)
 	; Hide all panels - Files
 	GuiControl, Settings:Hide, PanelFiles
 	GuiControl, Settings:Hide, FilesHeader
+	GuiControl, Settings:Hide, FilesEnableSDCard
+	GuiControl, Settings:Hide, Toggle_SDCardEnabled
+	GuiControl, Settings:Hide, FilesEnableSDCardNote
 	GuiControl, Settings:Hide, FilesSDCard
 	GuiControl, Settings:Hide, FilesCardDriveLabel
 	GuiControl, Settings:Hide, FilesCardDriveEdit
@@ -3402,6 +3535,12 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, HKLabelSettings
 		GuiControl, Settings:Show, Hotkey_Settings_Edit
 		GuiControl, Settings:Show, HKCaptureSettings
+		; Dev Reload hotkey only in dev mode
+		if (!A_IsCompiled) {
+			GuiControl, Settings:Show, HKLabelDevReload
+			GuiControl, Settings:Show, Hotkey_DevReload_Edit
+			GuiControl, Settings:Show, HKCaptureDevReload
+		}
 		GuiControl, Settings:Show, HKActionsTitle
 		GuiControl, Settings:Show, HKResetBtn
 		GuiControl, Settings:Show, HKClearBtn
@@ -3446,6 +3585,9 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabFilesBg
 		GuiControl, Settings:Show, PanelFiles
 		GuiControl, Settings:Show, FilesHeader
+		GuiControl, Settings:Show, FilesEnableSDCard
+		GuiControl, Settings:Show, Toggle_SDCardEnabled
+		GuiControl, Settings:Show, FilesEnableSDCardNote
 		GuiControl, Settings:Show, FilesSDCard
 		GuiControl, Settings:Show, FilesCardDriveLabel
 		GuiControl, Settings:Show, FilesCardDriveEdit
@@ -3475,6 +3617,9 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, FilesAutoDrive
 		GuiControl, Settings:Show, Toggle_AutoDriveDetect
 		GuiControl, Settings:Show, FilesSyncFromLBBtn
+		
+		; Update enabled/disabled state based on SD Card setting
+		UpdateFilesControlsState(Settings_SDCardEnabled)
 	}
 	else if (tabName = "About")
 	{
@@ -4396,6 +4541,21 @@ CaptureHotkey_Settings:
 	GuiControl, Settings:, HKCaptureSettings, Set
 Return
 
+CaptureHotkey_DevReload:
+	GuiControl, Settings:, HKCaptureDevReload, Press key...
+	KeyWait, Control
+	KeyWait, Shift
+	KeyWait, Alt
+	
+	hotkeyStr := CaptureHotkeyCombo()
+	
+	if (hotkeyStr != "") {
+		Hotkey_DevReload := hotkeyStr
+		GuiControl, Settings:, Hotkey_DevReload_Edit, % FormatHotkeyDisplay(hotkeyStr)
+	}
+	GuiControl, Settings:, HKCaptureDevReload, Set
+Return
+
 ; Function to capture a hotkey combination
 CaptureHotkeyCombo() {
 	; Wait for user to press and release modifiers, then a key
@@ -4481,6 +4641,10 @@ if (result = "Yes")
 	GuiControl, Settings:, Hotkey_GHLLookup_Edit, % FormatHotkeyDisplay("^+g")
 	GuiControl, Settings:, Hotkey_PayPlan_Edit, % FormatHotkeyDisplay("^+p")
 	GuiControl, Settings:, Hotkey_Settings_Edit, % FormatHotkeyDisplay("^+w")
+	if (!A_IsCompiled) {
+		Hotkey_DevReload := "^+r"
+		GuiControl, Settings:, Hotkey_DevReload_Edit, % FormatHotkeyDisplay("^+r")
+	}
 	ToolTip, Hotkeys reset to defaults
 	SetTimer, RemoveSettingsTooltip, -1500
 }
@@ -4496,6 +4660,10 @@ if (result = "Yes")
 	GuiControl, Settings:, Hotkey_GHLLookup_Edit, None
 	GuiControl, Settings:, Hotkey_PayPlan_Edit, None
 	GuiControl, Settings:, Hotkey_Settings_Edit, None
+	if (!A_IsCompiled) {
+		Hotkey_DevReload := "None"
+		GuiControl, Settings:, Hotkey_DevReload_Edit, None
+	}
 	ToolTip, All hotkeys cleared
 	SetTimer, RemoveSettingsTooltip, -1500
 }
@@ -4526,6 +4694,7 @@ Settings_AutoShootYear := Toggle_AutoShootYear_State
 Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
+Settings_SDCardEnabled := Toggle_SDCardEnabled_State
 ; Save settings
 SaveSettings()
 ToolTip, Settings saved!
@@ -4562,6 +4731,7 @@ Settings_AutoShootYear := Toggle_AutoShootYear_State
 Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
+Settings_SDCardEnabled := Toggle_SDCardEnabled_State
 ; Save settings
 SaveSettings()
 Gui, Settings:Destroy
@@ -5952,13 +6122,15 @@ RefreshSettingsDisplay() {
 ; ============================================
 RegisterHotkeys()
 {
-	global Hotkey_GHLLookup, Hotkey_PayPlan, Hotkey_Settings
+	global Hotkey_GHLLookup, Hotkey_PayPlan, Hotkey_Settings, Hotkey_DevReload
 	
 	; Clear any existing hotkeys first (in case we're re-registering)
 	try {
 		Hotkey, %Hotkey_GHLLookup%, Off, UseErrorLevel
 		Hotkey, %Hotkey_PayPlan%, Off, UseErrorLevel
 		Hotkey, %Hotkey_Settings%, Off, UseErrorLevel
+		if (!A_IsCompiled)
+			Hotkey, %Hotkey_DevReload%, Off, UseErrorLevel
 	}
 	
 	; Register new hotkeys
@@ -5970,6 +6142,10 @@ RegisterHotkeys()
 	}
 	if (Hotkey_Settings != "" && Hotkey_Settings != "None") {
 		Hotkey, %Hotkey_Settings%, HK_Settings, On
+	}
+	; Dev reload hotkey - only in dev mode (not compiled)
+	if (!A_IsCompiled && Hotkey_DevReload != "" && Hotkey_DevReload != "None") {
+		Hotkey, %Hotkey_DevReload%, HK_DevReload, On
 	}
 }
 
@@ -5984,6 +6160,10 @@ Return
 
 HK_Settings:
 GoSub, ShowSettings
+Return
+
+HK_DevReload:
+Reload
 Return
 
 ; Settings persistence functions
@@ -6016,6 +6196,7 @@ LoadSettings()
 	IniRead, Hotkey_GHLLookup, %IniFilename%, Hotkeys, GHLLookup, ^+g
 	IniRead, Hotkey_PayPlan, %IniFilename%, Hotkeys, PayPlan, ^+p
 	IniRead, Hotkey_Settings, %IniFilename%, Hotkeys, Settings, ^+w
+	IniRead, Hotkey_DevReload, %IniFilename%, Hotkeys, DevReload, ^+r
 	
 	; Invoice folder settings
 	IniRead, Settings_InvoiceWatchFolder, %IniFilename%, GHL, InvoiceWatchFolder, %A_Space%
@@ -6040,6 +6221,7 @@ LoadSettings()
 	IniRead, Settings_BrowsDown, %IniFilename%, FileManagement, BrowsDown, 1
 	IniRead, Settings_AutoRenameImages, %IniFilename%, FileManagement, AutoRenameImages, 0
 	IniRead, Settings_AutoDriveDetect, %IniFilename%, FileManagement, AutoDriveDetect, 1
+	IniRead, Settings_SDCardEnabled, %IniFilename%, FileManagement, SDCardEnabled, 1
 	
 	; Build GHL payment settings URL from location ID
 	if (GHL_LocationID != "")
@@ -6099,6 +6281,7 @@ SaveSettings()
 	IniWrite, %Hotkey_GHLLookup%, %IniFilename%, Hotkeys, GHLLookup
 	IniWrite, %Hotkey_PayPlan%, %IniFilename%, Hotkeys, PayPlan
 	IniWrite, %Hotkey_Settings%, %IniFilename%, Hotkeys, Settings
+	IniWrite, %Hotkey_DevReload%, %IniFilename%, Hotkeys, DevReload
 	
 	; Save invoice folder settings
 	IniWrite, %Settings_InvoiceWatchFolder%, %IniFilename%, GHL, InvoiceWatchFolder
@@ -6126,6 +6309,7 @@ SaveSettings()
 	IniWrite, %Settings_BrowsDown%, %IniFilename%, FileManagement, BrowsDown
 	IniWrite, %Settings_AutoRenameImages%, %IniFilename%, FileManagement, AutoRenameImages
 	IniWrite, %Settings_AutoDriveDetect%, %IniFilename%, FileManagement, AutoDriveDetect
+	IniWrite, %Settings_SDCardEnabled%, %IniFilename%, FileManagement, SDCardEnabled
 	
 	; Update invoice folder monitor
 	if (Settings_InvoiceWatchFolder != "" && FileExist(Settings_InvoiceWatchFolder))

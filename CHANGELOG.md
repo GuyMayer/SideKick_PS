@@ -15,6 +15,30 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.43 (2026-02-01)
+
+### New Features
+- **SideKick_LB Integration**: Sync settings from LB with one click
+  - New "Sync from LB" button in File Management tab
+  - Compares and syncs Card Path, Download Folder, Archive, Prefix/Suffix, Editor paths
+  - Shows differences before syncing with option to apply
+- **LB Conflict Detection**: Warns when both LB and PS have SD card auto-detect enabled
+  - Offers to disable LB auto-detect to prevent conflicts
+- **Dev Reload Hotkey**: Ctrl+Shift+R to reload script (dev mode only)
+  - Orange-colored in Hotkeys panel to indicate dev-only feature
+  - Only visible/active when running as script (not compiled)
+
+### Improvements
+- **Toggle Switches**: Consistent ✓/✗ style across all tabs
+- **Settings Persistence**: All File Management settings save immediately on change
+- **Settings Hotkey**: Changed default from Ctrl+Shift+S to Ctrl+Shift+W
+- **Developer Tab**: Added Reload button, removed unused Git Status section
+
+### Fixes
+- **Black Text**: File Management input fields now use black text for visibility
+
+---
+
 ## v2.4.33 (2026-02-01)
 
 ### Enhancement
