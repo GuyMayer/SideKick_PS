@@ -1036,7 +1036,6 @@ def _build_invoice_payload(
         "items": ghl_items,
         "issueDate": issue_date,
         "dueDate": due_date,
-        "businessDetails": {"name": "Zoom Photography"},
         "contactDetails": {
             "id": contact_id,
             "name": client_name,
