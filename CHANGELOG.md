@@ -15,6 +15,26 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.46 (2026-02-01)
+
+### Bug Fixes
+- **Critical: INI File Path**: Fixed compiled EXE looking for INI in wrong folder
+  - Was looking in `C:\Program Files (x86)\` instead of `C:\Program Files (x86)\SideKick_PS\`
+  - Affected `sync_ps_invoice.exe` and `create_ghl_contactsheet.exe`
+- **Permission Denied Error**: Python scripts now write output files to `%APPDATA%\SideKick_PS\`
+  - Fixes "Permission denied" error when running from Program Files
+  - Affected: result JSON files, trial data files
+- **Double Export Click**: Removed redundant second click on Export Now button
+- **Send Logs Button**: Now uses built-in Gist token (no configuration required)
+- **Start on Boot**: Toggle now updates Windows Registry immediately when clicked
+
+### Technical
+- `sys.frozen` detection for PyInstaller EXE path handling
+- `_get_output_dir()` helper writes to APPDATA with TEMP fallback
+- Registry update in `ToggleClick_StartOnBoot` handler
+
+---
+
 ## v2.4.45 (2026-02-01)
 
 ### Improvements
