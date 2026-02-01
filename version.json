@@ -1,9 +1,19 @@
 {
-  "version": "2.4.50",
+  "version": "2.4.51",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Invoices now show product line items instead of payment schedule",
+  "release_notes": "Fixed payment recording - amounts now correct in GHL",
   "versions": [
+    {
+      "version": "2.4.51",
+      "build_date": "2026-02-01",
+      "release_notes": "Fixed payment recording - amounts now correct in GHL",
+      "changelog": [
+        "CRITICAL: Fixed payment amounts being recorded at 1/100th of actual value",
+        "FIXED: £850 payment was being recorded as £8.50 in GHL",
+        "FIXED: Recorded payments now use correct pence conversion"
+      ]
+    },
     {
       "version": "2.4.50",
       "build_date": "2026-02-01",

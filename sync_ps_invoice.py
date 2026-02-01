@@ -655,7 +655,7 @@ def record_ghl_payment(invoice_id: str, payment: dict, max_retries: int = 3) -> 
     payload = {
         "altId": CONFIG.get('LOCATION_ID', ''),
         "altType": "location",
-        "amount": int(payment['amount']),  # Amount in pounds (not pence)
+        "amount": int(round(payment['amount'] * 100)),  # Convert pounds to pence for GHL API
         "mode": ghl_method,
         "notes": f"{payment.get('MethodName', 'Payment')} - {payment.get('date', '')}",
     }
