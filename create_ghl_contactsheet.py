@@ -97,12 +97,26 @@ def _parse_ini_sections(file_path: str) -> dict:
     config = {}
     current_section = None
 
-    with open(file_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith(';'):
-                continue
-            current_section = _parse_ini_line(line, current_section, config)
+    # Try multiple encodings (AHK often writes UTF-16)
+    encodings = ['utf-8', 'utf-16', 'utf-16-le', 'cp1252', 'latin-1']
+    content = None
+
+    for encoding in encodings:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                content = f.read()
+            break
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+
+    if content is None:
+        raise ValueError(f"Could not decode INI file: {file_path}")
+
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith(';'):
+            continue
+        current_section = _parse_ini_line(line, current_section, config)
 
     return config
 
@@ -572,7 +586,12 @@ def create_contact_sheet_jpg(
     if image_labels is None:
         image_labels = {}
 
+    # Look for Product_*.jpg or Print_*.jpg or any jpg in folder
     images = sorted(glob.glob(os.path.join(image_folder, "Product_*.jpg")))
+    if not images:
+        images = sorted(glob.glob(os.path.join(image_folder, "Print_*.jpg")))
+    if not images:
+        images = sorted(glob.glob(os.path.join(image_folder, "*.jpg")))
     if not images:
         print("No images found!")
         return None
@@ -618,7 +637,9 @@ def create_contact_sheet_jpg(
         credit_width = bbox[2] - bbox[0]
     except Exception:
         credit_width = len(credit_text) * 6
-    draw.text((canvas_width - credit_width - padding, canvas_height - 18), credit_text, fill=(150, 150, 150), font=credit_font)
+    credit_x = canvas_width - credit_width - padding
+    credit_y = canvas_height - 18
+    draw.text((credit_x, credit_y), credit_text, fill=(150, 150, 150), font=credit_font)
 
     canvas_img.save(output_path, 'JPEG', quality=90, optimize=True)
     return output_path
@@ -732,7 +753,12 @@ def main() -> None:
 
     # Add contact note with embedded image
     print(f"\n5. Adding note to contact...")
+    # Count images - try different patterns
     image_count = len(glob.glob(os.path.join(thumb_folder, "Product_*.jpg")))
+    if image_count == 0:
+        image_count = len(glob.glob(os.path.join(thumb_folder, "Print_*.jpg")))
+    if image_count == 0:
+        image_count = len(glob.glob(os.path.join(thumb_folder, "*.jpg")))
 
     # Note with the image URL - GHL will display it as a link that shows the image
     note_body = f"""📸 Product Contact Sheet - {data['shoot_no']}

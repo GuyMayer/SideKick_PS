@@ -24,7 +24,7 @@ try {
 
 # Paths
 $ScriptDir = $PSScriptRoot
-$SourceDir = "C:\Stash"
+$SourceDir = $PSScriptRoot
 $ReleaseDir = "$ScriptDir\Release"
 $ArchiveDir = "$ScriptDir\Releases\latest"
 $CacheDir = "$ScriptDir\.build_cache"

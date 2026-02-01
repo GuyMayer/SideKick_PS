@@ -1,17 +1,26 @@
 {
-  "version": "2.4.51",
+  "version": "2.4.53",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fixed payment recording - amounts now correct in GHL",
+  "release_notes": "Client ID now saved in album name for easy GHL lookup",
   "versions": [
     {
-      "version": "2.4.51",
+      "version": "2.4.53",
       "build_date": "2026-02-01",
-      "release_notes": "Fixed payment recording - amounts now correct in GHL",
+      "release_notes": "Client ID now saved in album name for easy GHL lookup",
       "changelog": [
-        "CRITICAL: Fixed payment amounts being recorded at 1/100th of actual value",
-        "FIXED: £850 payment was being recorded as £8.50 in GHL",
-        "FIXED: Recorded payments now use correct pence conversion"
+        "NEW: Album name now includes GHL Client ID when importing a client",
+        "NEW: Open GHL button checks album name first, then XML exports",
+        "FIXED: Payment amounts now recorded correctly in GHL"
+      ]
+    },
+    {
+      "version": "2.4.52",
+      "build_date": "2026-02-01",
+      "release_notes": "New Open GHL Client button on toolbar",
+      "changelog": [
+        "NEW: Open GHL Client button (🌐) on toolbar opens client page in browser",
+        "FIXED: Payment amounts now recorded correctly in GHL (pence conversion)"
       ]
     },
     {

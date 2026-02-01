@@ -17,15 +17,72 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 
 # =============================================================================
-# DEBUG MODE - Set to True for verbose logging
+# DEBUG MODE - Read from INI file (Settings > DebugLogging)
 # =============================================================================
-DEBUG_MODE = True
-DEBUG_LOCATION_ID = "W0fg9KOTXUtvCyS18jwM"  # Hardcoded for debugging
+def get_debug_mode_setting() -> bool:
+    """Read DebugLogging setting from INI file.
+    
+    Defaults to OFF. Auto-disables after 24 hours.
 
-# Debug log folder on user's Desktop, organized by Location ID
-DEBUG_LOG_FOLDER = os.path.join(os.path.expanduser("~"), "Desktop", "SideKick_Logs", DEBUG_LOCATION_ID)
-os.makedirs(DEBUG_LOG_FOLDER, exist_ok=True)  # Create folder structure
+    Returns:
+        bool: True if DebugLogging is enabled and within 24hrs, False otherwise.
+    """
+    try:
+        import configparser
+        from datetime import datetime, timedelta
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        possible_paths = [
+            os.path.join(script_dir, "SideKick_PS.ini"),
+            os.path.join(os.path.dirname(script_dir), "SideKick_PS.ini"),
+            os.path.join(os.environ.get('APPDATA', ''), "SideKick_PS", "SideKick_PS.ini"),
+        ]
+        for ini_path in possible_paths:
+            if os.path.exists(ini_path):
+                config = configparser.ConfigParser()
+                config.read(ini_path)
+                enabled = config.get('Settings', 'DebugLogging', fallback='0') == '1'
+                if not enabled:
+                    return False
+                # Check timestamp - auto-disable after 24 hours
+                timestamp_str = config.get('Settings', 'DebugLoggingTimestamp', fallback='')
+                if timestamp_str:
+                    try:
+                        enabled_time = datetime.strptime(timestamp_str, '%Y%m%d%H%M%S')
+                        if datetime.now() - enabled_time > timedelta(hours=24):
+                            return False  # Expired
+                    except ValueError:
+                        pass
+                return True
+        return False  # Default to disabled
+    except Exception:
+        return False  # Default to disabled on error
+
+DEBUG_MODE = get_debug_mode_setting()
+DEBUG_LOCATION_ID = ""  # Leave empty to use INI value (set to override for testing)
+
+# Debug log folder in AppData (hidden from user)
+DEBUG_LOG_FOLDER = os.path.join(os.environ.get('APPDATA', os.path.expanduser("~")), "SideKick_PS", "Logs")
+if DEBUG_MODE:
+    os.makedirs(DEBUG_LOG_FOLDER, exist_ok=True)  # Only create if logging enabled
 DEBUG_LOG_FILE = os.path.join(DEBUG_LOG_FOLDER, f"sync_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+
+# Progress file for non-blocking GUI updates (AHK reads this)
+PROGRESS_FILE = os.path.join(os.environ.get('TEMP', '.'), 'sidekick_sync_progress.txt')
+
+def write_progress(step: int, total: int, message: str, status: str = 'running') -> None:
+    """Write progress to temp file for AHK GUI to read.
+
+    Args:
+        step: Current step number (1-based).
+        total: Total number of steps.
+        message: Status message to display.
+        status: 'running', 'success', or 'error'.
+    """
+    try:
+        with open(PROGRESS_FILE, 'w', encoding='utf-8') as f:
+            f.write(f"{step}|{total}|{message}|{status}")
+    except Exception:
+        pass  # Don't fail if progress file can't be written
 
 # GitHub Gist for auto-uploading debug logs (assembled from parts to avoid secret scanning)
 GIST_TOKEN = "ghp" + "_" + "5iyc62vax5VllMndhvrRzk" + "ItNRJeom3cShIM"
@@ -256,23 +313,36 @@ def _parse_ini_file(ini_path: str) -> dict:
     config = {}
     current_section = None
 
-    with open(ini_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith(';'):
-                continue
-            current_section = _parse_ini_line(line, current_section, config)
+    # Try multiple encodings (AHK often writes UTF-16)
+    encodings = ['utf-8', 'utf-16', 'utf-16-le', 'cp1252', 'latin-1']
+    content = None
+
+    for encoding in encodings:
+        try:
+            with open(ini_path, 'r', encoding=encoding) as f:
+                content = f.read()
+            break
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+
+    if content is None:
+        raise ValueError(f"Could not decode INI file with any known encoding: {ini_path}")
+
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith(';'):
+            continue
+        current_section = _parse_ini_line(line, current_section, config)
 
     return config
 
-    return config
 
-
-def _decode_api_key(ghl_config: dict) -> str:
+def _decode_api_key(ghl_config: dict, key_name: str = None) -> str:
     """Decode Base64 API key from GHL config section.
 
     Args:
         ghl_config: The GHL section dictionary from INI.
+        key_name: Specific key name to decode (e.g., 'API_Key_V1_B64' or 'API_Key_V2_B64')
 
     Returns:
         str: Decoded API key.
@@ -281,13 +351,19 @@ def _decode_api_key(ghl_config: dict) -> str:
         ValueError: If no API key found.
     """
     import base64
-    # Try new key name first, then fallback to legacy name
-    api_b64 = ghl_config.get('API_Key_B64', '') or ghl_config.get('API_Key_V2_B64', '')
+
+    if key_name:
+        api_b64 = ghl_config.get(key_name, '')
+    else:
+        # Try new key name first, then fallback to legacy name
+        api_b64 = ghl_config.get('API_Key_B64', '') or ghl_config.get('API_Key_V2_B64', '')
 
     if api_b64:
         api_b64_clean = api_b64.replace(' ', '').replace('\n', '').replace('\r', '')
         return base64.b64decode(api_b64_clean).decode('utf-8')
     else:
+        if key_name:
+            return ''  # Optional key not found
         raise ValueError("No API key found in INI file (need API_Key_B64 or API_Key_V2_B64)")
 
 
@@ -325,6 +401,37 @@ except Exception as e:
     print(f"⚠ Config Error: {e}")
     debug_log("CONFIG ERROR", str(e))
     API_KEY = ""
+
+# Cache for business name
+_BUSINESS_NAME_CACHE = None
+
+def get_business_name() -> str:
+    """Get business name from GHL location settings.
+
+    Returns:
+        str: Business name, or 'Business' as fallback.
+    """
+    global _BUSINESS_NAME_CACHE
+    if _BUSINESS_NAME_CACHE:
+        return _BUSINESS_NAME_CACHE
+
+    try:
+        location_id = CONFIG.get('LOCATION_ID', '')
+        url = f"https://services.leadconnectorhq.com/locations/{location_id}"
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json",
+            "Version": "2021-07-28"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json().get('location', {})
+            name = data.get('name') or data.get('business', {}).get('name') or 'Business'
+            _BUSINESS_NAME_CACHE = name
+            return name
+    except Exception:
+        pass
+    return 'Business'
 
 def get_media_folder_id() -> str | None:
     """Get saved media folder ID from INI file.
@@ -620,7 +727,7 @@ def create_order_summary(items: list) -> str:
 
     return "\n".join(summary_lines)
 
-def record_ghl_payment(invoice_id: str, payment: dict, max_retries: int = 3) -> bool:
+def record_ghl_payment(invoice_id: str, payment: dict, max_retries: int = 5) -> tuple[bool, bool]:
     """Record a payment transaction against a GHL invoice.
 
     Args:
@@ -629,7 +736,7 @@ def record_ghl_payment(invoice_id: str, payment: dict, max_retries: int = 3) -> 
         max_retries: Maximum retry attempts.
 
     Returns:
-        bool: True if payment recorded successfully.
+        tuple[bool, bool]: (success, was_slow) - success if recorded, was_slow if needed retries.
     """
 
     url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/record-payment"
@@ -655,14 +762,15 @@ def record_ghl_payment(invoice_id: str, payment: dict, max_retries: int = 3) -> 
     payload = {
         "altId": CONFIG.get('LOCATION_ID', ''),
         "altType": "location",
-        "amount": int(round(payment['amount'] * 100)),  # Convert pounds to pence for GHL API
+        "amount": float(payment['amount']),  # GHL uses pounds, not pence
         "mode": ghl_method,
         "notes": f"{payment.get('MethodName', 'Payment')} - {payment.get('date', '')}",
     }
 
     debug_log(f"RECORD PAYMENT REQUEST: {url}", payload)
 
-    # Retry with exponential backoff for race conditions
+    # Retry with backoff for race conditions (409)
+    was_slow = False
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=60)
@@ -673,27 +781,28 @@ def record_ghl_payment(invoice_id: str, payment: dict, max_retries: int = 3) -> 
             })
 
             if response.status_code in [200, 201]:
-                return True
+                return (True, was_slow)
             elif response.status_code == 409:
                 # Race condition - payment recording in progress, wait and retry
-                wait_time = (attempt + 1) * 2  # 2s, 4s, 6s
+                was_slow = True
+                wait_time = (attempt + 1) * 1.0  # 1s, 2s, 3s
                 if attempt < max_retries - 1:
                     time.sleep(wait_time)
                     continue
                 else:
                     print(f"    Payment failed after {max_retries} retries (409 conflict)")
-                    return False
+                    return (False, True)
             else:
                 print(f"    Payment failed ({response.status_code}): {response.text[:100]}")
-                return False
+                return (False, was_slow)
         except Exception as e:
             print(f"    Payment error: {e}")
             if attempt < max_retries - 1:
                 time.sleep(2)
                 continue
-            return False
+            return (False, True)
 
-    return False
+    return (False, True)
 
 # =============================================================================
 # GHL Media Upload Functions
@@ -822,8 +931,6 @@ def upload_to_ghl_media(file_path: str) -> str | None:
 # =============================================================================
 def _build_payment_invoice_items(payments: list, order: dict) -> list:
     """Build invoice line items from payment schedule.
-    
-    DEPRECATED: Now we always show product items. This is kept for reference.
 
     Args:
         payments: List of payment dictionaries.
@@ -862,43 +969,6 @@ def _build_payment_invoice_items(payments: list, order: dict) -> list:
         })
 
     return invoice_items
-
-
-def _consolidate_product_items(items: list) -> list:
-    """Consolidate duplicate product items by name.
-    
-    Args:
-        items: List of product item dictionaries.
-        
-    Returns:
-        list: Consolidated items with quantities summed.
-    """
-    consolidated = {}
-    
-    for item in items:
-        # Create a key from product name
-        product_name = item.get('product', '') or item.get('description', 'Item')
-        price = item.get('price', 0)
-        
-        # Skip zero-price items like mats
-        if price == 0:
-            continue
-            
-        key = f"{product_name}_{price}"
-        
-        if key in consolidated:
-            consolidated[key]['quantity'] += item.get('quantity', 1)
-        else:
-            consolidated[key] = {
-                'name': product_name,
-                'description': item.get('description', product_name),
-                'price': float(price),
-                'quantity': item.get('quantity', 1),
-                'type': item.get('type', ''),
-                'currency': 'GBP'
-            }
-    
-    return list(consolidated.values())
 
 
 def _should_skip_item(item: dict, financials_only: bool) -> bool:
@@ -966,13 +1036,13 @@ def _convert_to_ghl_items(invoice_items: list) -> list:
         invoice_items: Internal invoice items list.
 
     Returns:
-        list: GHL-formatted items with amounts in pence.
+        list: GHL-formatted items with amounts in pounds (invoice API uses pounds, not pence).
     """
     return [
         {
             "name": str(item['name']),
             "description": str(item['description']),
-            "amount": int(round(item['price'] * 100)),  # Convert pounds to pence
+            "amount": float(item['price']),  # Invoice items use pounds (record-payment uses pence)
             "qty": int(item['quantity']),
             "currency": "GBP"
         }
@@ -1031,11 +1101,13 @@ def _build_invoice_payload(
         "altId": CONFIG.get('LOCATION_ID', ''),
         "altType": "location",
         "name": invoice_name,
-        "contactId": contact_id,
         "currency": "GBP",
         "items": ghl_items,
         "issueDate": issue_date,
         "dueDate": due_date,
+        "businessDetails": {
+            "name": get_business_name()  # Fetched from GHL location
+        },
         "contactDetails": {
             "id": contact_id,
             "name": client_name,
@@ -1046,7 +1118,7 @@ def _build_invoice_payload(
     if total_discounts_credits > 0:
         payload["discount"] = {
             "type": "fixed",
-            "value": int(round(total_discounts_credits * 100))  # Convert pounds to pence
+            "value": float(total_discounts_credits)  # Invoice discounts use pounds
         }
 
     return payload
@@ -1054,6 +1126,9 @@ def _build_invoice_payload(
 
 def _process_invoice_payments(invoice_id: str, payments: list) -> int:
     """Record past payments for an invoice.
+
+    Records each payment individually so they appear separately in GHL.
+    Note: GHL API requires ~3s delay between payments to avoid 409 conflicts.
 
     Args:
         invoice_id: GHL invoice ID.
@@ -1069,13 +1144,17 @@ def _process_invoice_payments(invoice_id: str, payments: list) -> int:
     payments_recorded = 0
 
     if past_payments:
-        print(f"\n💳 Recording {len(past_payments)} past payment(s)...")
+        total_payments = len(past_payments)
+        print(f"\n💳 Recording {total_payments} past payment(s)...")
         for i, payment in enumerate(past_payments):
+            # Update progress for each payment
+            write_progress(4, 5, f"Recording payment {i+1}/{total_payments}...")
             if i > 0:
-                time.sleep(1)
-            if record_ghl_payment(invoice_id, payment):
+                time.sleep(3)  # GHL needs ~3s between payments to avoid 409 conflicts
+            success, _ = record_ghl_payment(invoice_id, payment)
+            if success:
                 payments_recorded += 1
-        print(f"  ✓ Recorded {payments_recorded}/{len(past_payments)} past payments")
+        print(f"  ✓ Recorded {payments_recorded}/{total_payments} past payments")
 
     if future_payments:
         print(f"  📅 {len(future_payments)} future payments shown on invoice (not recorded yet)")
@@ -1102,7 +1181,7 @@ def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total:
 
     Args:
         invoice_items: Internal invoice items list (prices in pounds).
-        ghl_items: GHL-formatted items list (amounts in pence).
+        ghl_items: GHL-formatted items list (amounts in pounds).
         ps_order_total: ProSelect order total in pounds.
     """
     ghl_invoice_total = sum(i['price'] for i in invoice_items if i['price'] > 0)
@@ -1110,14 +1189,13 @@ def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total:
         return
 
     adjustment = ps_order_total - ghl_invoice_total
-    adjustment_pence = int(round(adjustment * 100))  # Convert adjustment to pence
     for item in invoice_items:
         if item['price'] > 0:
             item['price'] = round(item['price'] + adjustment, 2)
             break
     for ghl_item in ghl_items:
         if ghl_item['amount'] > 0:
-            ghl_item['amount'] = ghl_item['amount'] + adjustment_pence
+            ghl_item['amount'] = round(ghl_item['amount'] + adjustment, 2)
             break
     print(f"  ✓ Totals adjusted (rounding fix: £{adjustment:.2f} on Payment 1)")
 
@@ -1156,34 +1234,21 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
 
 
 def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False) -> dict | None:
-    """Create an actual invoice in GHL Payments → Invoices using V2 API.
-    
-    Always shows actual product line items (what the client is buying).
-    Payment schedule info is recorded separately as invoice payments.
-    """
+    """Create an actual invoice in GHL Payments → Invoices using V2 API."""
     debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only})
 
     order = ps_data.get('order', {})
     items = order.get('items', [])
     payments = order.get('payments', [])
 
-    if not items:
-        debug_log("ERROR: No items to invoice")
-        print("✗ No items to invoice")
+    if not items and not payments:
+        debug_log("ERROR: No items or payments to invoice")
+        print("✗ No items or payments to invoice")
         return None
 
-    # Always build from product items - show what the client is buying
+    # Always use product items for the invoice (not payment schedule)
     print(f"  Building invoice from {len(items)} product items...")
     invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only)
-    
-    # Consolidate duplicate items (e.g., multiple prints at same price)
-    consolidated_items = _consolidate_product_items(items)
-    if consolidated_items:
-        print(f"  Consolidated to {len(consolidated_items)} unique line items")
-        # Use consolidated items for cleaner invoice
-        invoice_items = consolidated_items
-        # Recalculate discounts from original items
-        total_discounts_credits = sum(abs(item['price']) for item in items if item.get('price', 0) < 0)
 
     if not invoice_items:
         print("✗ No invoice items after building")
@@ -1199,7 +1264,10 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     due_date = today if issue_date < today else issue_date
 
     ghl_items = _convert_to_ghl_items(invoice_items)
-    _adjust_invoice_totals(invoice_items, ghl_items, ps_order_total)
+
+    # Only adjust if no discounts (discounts already account for the difference)
+    if total_discounts_credits == 0:
+        _adjust_invoice_totals(invoice_items, ghl_items, ps_order_total)
 
     payload = _build_invoice_payload(
         contact_id, invoice_name, ghl_items, issue_date, due_date,
@@ -1215,7 +1283,8 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
 
     try:
         response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=60)
-        debug_log(f"CREATE INVOICE RESPONSE: Status={response.status_code}", {"body": response.text[:3000] if response.text else "EMPTY"})
+        response_body = response.text[:3000] if response.text else "EMPTY"
+        debug_log(f"CREATE INVOICE RESPONSE: Status={response.status_code}", {"body": response_body})
 
         if response.status_code in [200, 201]:
             return _handle_invoice_success(response, payments, balance_due, order)
@@ -1295,7 +1364,8 @@ def update_ghl_contact(contact_id: str, ps_data: dict) -> dict | None:
 
     try:
         response = requests.put(url, headers=headers, json=payload, timeout=60)
-        debug_log(f"UPDATE CONTACT RESPONSE: Status={response.status_code}", {"body": response.text[:2000] if response.text else "EMPTY"})
+        response_body = response.text[:2000] if response.text else "EMPTY"
+        debug_log(f"UPDATE CONTACT RESPONSE: Status={response.status_code}", {"body": response_body})
         response.raise_for_status()
 
         result = {
@@ -1429,12 +1499,15 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str) -> None:
 
     try:
         debug_log("CONTACT SHEET - Importing module")
-        from create_ghl_contactsheet import parse_xml as cs_parse_xml, create_contact_sheet_jpg, find_folder_by_name, upload_to_folder
+        from create_ghl_contactsheet import (
+            parse_xml as cs_parse_xml, create_contact_sheet_jpg,
+            find_folder_by_name, upload_to_folder
+        )
         debug_log("CONTACT SHEET - Module imported successfully")
 
         cs_data = cs_parse_xml(xml_path)
         debug_log("CONTACT SHEET - XML parsed", {"shoot_no": cs_data.get('shoot_no', 'unknown')})
-        
+
         thumb_folder = get_thumbnail_folder(xml_path)
 
         if not thumb_folder:
@@ -1443,11 +1516,11 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str) -> None:
             return
 
         debug_log("CONTACT SHEET - Thumbnail folder found", {"thumb_folder": thumb_folder})
-        
+
         jpg_path = _generate_contact_sheet_path(cs_data)
         title = f"Product Gallery - {cs_data['shoot_no']}"
         subtitle = f"{cs_data['first_name']} {cs_data['last_name']} - {cs_data.get('order_date', '')}"
-        
+
         debug_log("CONTACT SHEET - Creating JPG", {"jpg_path": jpg_path, "title": title})
         result_path = create_contact_sheet_jpg(thumb_folder, jpg_path, title, subtitle, cs_data.get('image_labels', {}))
 
@@ -1460,7 +1533,7 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str) -> None:
 
         folder_id = get_media_folder_id() or find_folder_by_name("Order Sheets")
         debug_log("CONTACT SHEET - Uploading to folder", {"folder_id": folder_id})
-        
+
         jpg_url = upload_to_folder(jpg_path, folder_id)
         if not jpg_url:
             print(f"   ⚠ Failed to upload JPG")
@@ -1533,12 +1606,18 @@ def _parse_cli_args():
     import argparse
     parser = argparse.ArgumentParser(description='Sync ProSelect invoice to GHL')
     parser.add_argument('xml_path', nargs='?', help='Path to ProSelect XML export file')
-    parser.add_argument('--financials-only', action='store_true', help='Only include lines with monetary values')
-    parser.add_argument('--create-invoice', action='store_true', default=True, help='Create actual GHL invoice (default: True)')
-    parser.add_argument('--no-invoice', action='store_true', help='Skip invoice creation, only update contact fields')
-    parser.add_argument('--contact-sheet', action='store_true', default=True, help='Create and upload JPG contact sheet (default: True)')
-    parser.add_argument('--no-contact-sheet', action='store_true', help='Skip contact sheet creation')
-    parser.add_argument('--list-folders', action='store_true', help='List all folders in GHL Media and exit')
+    parser.add_argument('--financials-only', action='store_true',
+                        help='Only include lines with monetary values')
+    parser.add_argument('--create-invoice', action='store_true', default=True,
+                        help='Create actual GHL invoice (default: True)')
+    parser.add_argument('--no-invoice', action='store_true',
+                        help='Skip invoice creation, only update contact fields')
+    parser.add_argument('--contact-sheet', action='store_true', default=True,
+                        help='Create and upload JPG contact sheet (default: True)')
+    parser.add_argument('--no-contact-sheet', action='store_true',
+                        help='Skip contact sheet creation')
+    parser.add_argument('--list-folders', action='store_true',
+                        help='List all folders in GHL Media and exit')
     return parser.parse_args()
 
 
@@ -1554,12 +1633,26 @@ def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, cr
     Returns:
         dict: Result dictionary.
     """
+    # Calculate total steps for progress
+    total_steps = 3  # Parse, Update Contact, Done
+    if create_contact_sheet:
+        total_steps += 1
+    if create_invoice:
+        total_steps += 1
+    current_step = 0
+
+    # Step 1: Parse XML
+    current_step += 1
+    write_progress(current_step, total_steps, "Parsing invoice XML...")
+
     ps_data = parse_proselect_xml(xml_path)
     if not ps_data:
         print("Failed to parse XML")
+        write_progress(current_step, total_steps, "Failed to parse XML", 'error')
         sys.exit(1)
 
-    print(f"Client: {ps_data.get('first_name')} {ps_data.get('last_name')}")
+    client_name = f"{ps_data.get('first_name')} {ps_data.get('last_name')}"
+    print(f"Client: {client_name}")
     print(f"Email: {ps_data.get('email')}")
 
     contact_id = ps_data.get('ghl_contact_id')
@@ -1571,20 +1664,37 @@ def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, cr
 
     if not contact_id:
         print("✗ No GHL Contact ID in XML")
+        write_progress(current_step, total_steps, "No GHL Contact ID in XML", 'error')
         return {'success': False, 'error': 'No GHL Contact ID in XML (Client_ID field)'}
 
+    # Step 2: Contact sheet (optional)
     if create_contact_sheet:
+        current_step += 1
+        write_progress(current_step, total_steps, f"Creating contact sheet for {client_name}...")
         _create_and_upload_contact_sheet(xml_path, contact_id)
 
+    # Step 3: Update contact
+    current_step += 1
+    write_progress(current_step, total_steps, f"Updating GHL contact...")
     result = update_ghl_contact(contact_id, ps_data)
 
+    # Step 4: Create invoice (optional)
     if create_invoice and result.get('success'):
+        current_step += 1
+        write_progress(current_step, total_steps, f"Creating invoice & recording payments...")
         print(f"\n📄 Creating GHL invoice...")
         invoice_result = create_ghl_invoice(contact_id, ps_data, financials_only)
         if invoice_result:
             result['invoice'] = invoice_result
     elif not create_invoice:
         print("\n⏭ Skipping invoice creation (--no-invoice flag)")
+
+    # Final step: Done
+    current_step = total_steps
+    if result.get('success'):
+        write_progress(current_step, total_steps, f"Sync complete for {client_name}", 'success')
+    else:
+        write_progress(current_step, total_steps, f"Sync failed: {result.get('error', 'Unknown error')}", 'error')
 
     return result
 
