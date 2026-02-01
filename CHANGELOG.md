@@ -12,6 +12,29 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.31 (2026-02-01)
+
+### Code Quality Improvements
+- **Complexity Refactoring**: Reduced cyclomatic complexity in all Python modules
+  - All functions now have complexity ≤ 10 (was up to 54 in some cases)
+  - Added 29 new helper functions across 3 files for better maintainability
+  - `sync_ps_invoice.py`: 11 new helpers (invoice building, contact updates, CLI)
+  - `create_ghl_contactsheet.py`: 6 new helpers (image processing, fonts, logo)
+  - `validate_license.py`: 12 new helpers (API handling, trial management, CLI)
+
+### Refactored Functions
+- **sync_ps_invoice.py**:
+  - `create_ghl_invoice` 54→10, `main` 15→6, `update_ghl_contact` 15→8
+  - `_build_product_invoice_items` 13→6, `_create_and_upload_contact_sheet` 11→5
+- **create_ghl_contactsheet.py**:
+  - `_build_image_labels` 18→5, `create_contact_sheet_jpg` 12→7
+  - `_parse_ini_sections` 11→7
+- **validate_license.py**:
+  - `activate_license` 16→7, `validate_license` 13→8
+  - `get_trial_info` 11→6, `main` 11→5
+
+---
+
 ## v2.4.30 (2026-01-31)
 
 ### New Features
