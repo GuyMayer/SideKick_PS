@@ -11,6 +11,7 @@
       "changelog": [
         "FIXED: GHL invoices now display actual products ordered (prints, packages, etc.)",
         "FIXED: Was showing 'Payment 1, Payment 2...' instead of product names",
+        "FIXED: Business details now use GHL location settings (not hardcoded)",
         "IMPROVED: Duplicate products consolidated into single line items with quantities",
         "IMPROVED: Payment schedule still recorded as invoice payments separately"
       ]
