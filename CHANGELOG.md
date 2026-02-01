@@ -15,6 +15,28 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.45 (2026-02-01)
+
+### Improvements
+- **Export Orders Menu Reliability**: Multi-method approach for opening Export Orders dialog
+  - Method 1: `WinMenuSelectItem` - most reliable, uses Windows menu system directly
+  - Method 2: `SendInput` with longer delays as fallback
+  - Method 3: `Send` with extended delays as last resort
+  - Added `WinWaitActive` to ensure ProSelect is fully active before menu navigation
+  - Extended dialog wait timeout from 3s to 5s
+  - Better error message with manual instructions if automation fails
+
+### Bug Fixes
+- **File Watcher Timing**: Added `ExportInProgress` flag to prevent "New Invoice XML" popup from appearing during export automation
+  - Flag suspends file watcher at export start
+  - Flag is reset at all exit points (success, error, timeout)
+
+### Technical
+- `WinMenuSelectItem` for reliable menu item selection
+- `ExportInProgress` global flag coordinates export automation with file watcher
+
+---
+
 ## v2.4.44 (2026-02-01)
 
 ### New Features
