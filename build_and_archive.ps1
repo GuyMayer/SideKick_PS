@@ -48,10 +48,19 @@ if (Test-Path $HashFile) {
     }
 }
 
-# Function to get file hash
+# Function to get file hash (using .NET for compatibility)
 function Get-FileHashMD5($path) {
     if (Test-Path $path) {
-        return (Get-FileHash -Path $path -Algorithm MD5).Hash
+        try {
+            $md5 = [System.Security.Cryptography.MD5]::Create()
+            $stream = [System.IO.File]::OpenRead($path)
+            $hashBytes = $md5.ComputeHash($stream)
+            $stream.Close()
+            $md5.Dispose()
+            return [BitConverter]::ToString($hashBytes) -replace '-', ''
+        } catch {
+            return $null
+        }
     }
     return $null
 }
