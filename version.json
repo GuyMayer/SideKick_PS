@@ -1,9 +1,21 @@
 {
-  "version": "2.4.43",
+  "version": "2.4.44",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "LB integration, improved settings, dev tools",
+  "release_notes": "SD Card feature toggle, improved reliability",
   "versions": [
+    {
+      "version": "2.4.44",
+      "build_date": "2026-02-01",
+      "release_notes": "SD Card feature toggle, improved reliability",
+      "changelog": [
+        "NEW: Enable/Disable SD Card Download feature with master toggle",
+        "NEW: All File Management controls gray out when SD Card disabled",
+        "IMPROVED: More reliable button clicks in ProSelect Export Orders",
+        "IMPROVED: Silent GitHub release cleanup (no popup window)",
+        "IMPROVED: Toolbar dynamically resizes based on enabled features"
+      ]
+    },
     {
       "version": "2.4.43",
       "build_date": "2026-02-01",
