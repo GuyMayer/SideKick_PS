@@ -2,66 +2,59 @@
   "version": "2.4.31",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Code quality improvements - reduced cyclomatic complexity in all Python modules",
+  "release_notes": "Code quality and stability improvements",
   "versions": [
     {
       "version": "2.4.31",
       "build_date": "2026-02-01",
-      "release_notes": "Code quality improvements - reduced cyclomatic complexity in all Python modules",
+      "release_notes": "Code quality and stability improvements",
       "changelog": [
-        "IMPROVED: Reduced cyclomatic complexity in all Python modules (all functions now ≤10)",
-        "IMPROVED: sync_ps_invoice.py - added 11 helper functions, create_ghl_invoice 54→10",
-        "IMPROVED: create_ghl_contactsheet.py - added 6 helper functions, _build_image_labels 18→5",
-        "IMPROVED: validate_license.py - added 12 helper functions, activate_license 16→7",
-        "IMPROVED: Better code maintainability and testability across all sync scripts"
+        "IMPROVED: Internal code restructuring for better stability",
+        "IMPROVED: Invoice sync reliability improvements",
+        "IMPROVED: Contact sheet generation reliability improvements",
+        "IMPROVED: License validation reliability improvements"
       ]
     },
     {
       "version": "2.4.30",
       "build_date": "2026-01-31",
-      "release_notes": "Remote debug logging with GitHub Gist upload, verbose logging throughout sync process",
+      "release_notes": "Remote debug logging for easier support",
       "changelog": [
-        "NEW: Remote debug logging - logs auto-uploaded to private GitHub Gist",
-        "NEW: Logs organized by GHL Location ID in subfolders",
-        "NEW: Send Logs button and Auto-send toggle on About tab",
-        "NEW: Auto-send ON by default for new installations",
-        "IMPROVED: Verbose logging for XML parsing, contact operations, invoices",
-        "IMPROVED: Media upload logging with file paths, sizes, API responses",
-        "IMPROVED: Contact sheet workflow logging with success/failure details"
+        "NEW: Remote debug logging - logs can be sent to support automatically",
+        "NEW: Send Logs button on About tab for easy troubleshooting",
+        "NEW: Auto-send option for automatic log uploads",
+        "IMPROVED: Better logging throughout sync process for diagnostics"
       ]
     },
     {
       "version": "2.4.29",
       "build_date": "2026-01-31",
-      "release_notes": "Bug fixes for PayPlan calculator, invoice sync, and build script",
+      "release_notes": "Bug fixes for PayPlan calculator and invoice sync",
       "changelog": [
-        "FIX: PayPlan Calculator button click not opening calculator",
-        "FIX: Payment Type selection sending wrong value",
-        "FIX: Invoice sync crash on compiled .exe (stdout None check)",
-        "FIX: Client ID validation false positive (<Client_ID> vs <ClientId>)",
-        "FIX: Build script missing sync_ps_invoice.exe in releases",
-        "IMPROVED: Quick Publish removed manual pauses",
-        "IMPROVED: Client ID validation before invoice sync"
+        "FIX: PayPlan Calculator button now opens correctly",
+        "FIX: Payment Type selection now applies correctly",
+        "FIX: Invoice sync no longer crashes on startup",
+        "FIX: Client ID validation now works correctly",
+        "IMPROVED: Smoother Quick Publish workflow"
       ]
     },
     {
       "version": "2.4.28",
       "build_date": "2026-01-31",
-      "release_notes": "DPI scaling improvements for DarkMsgBox",
+      "release_notes": "Display improvements for high-DPI monitors",
       "changelog": [
-        "IMPROVED: Full high-DPI display support for DarkMsgBox",
-        "IMPROVED: Button dimensions, spacing, and fonts scale with DPI",
-        "FIX: Button obscuring text on What's New dialog"
+        "IMPROVED: Better display scaling on high-DPI monitors",
+        "FIX: Dialog buttons no longer overlap text"
       ]
     },
     {
       "version": "2.4.27",
       "build_date": "2026-01-31",
-      "release_notes": "Invoice sync improvements and contact sheet generation",
+      "release_notes": "Contact sheet generation and invoice improvements",
       "changelog": [
-        "NEW: Contact sheet JPG generation from ProSelect orders",
-        "NEW: Auto-upload contact sheets to GHL Media",
-        "IMPROVED: Invoice sync with payment schedule support"
+        "NEW: Contact sheet JPG automatically generated from orders",
+        "NEW: Contact sheets auto-uploaded to GHL Media",
+        "IMPROVED: Invoice sync now supports payment schedules"
       ]
     }
   ]
