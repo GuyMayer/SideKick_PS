@@ -19,6 +19,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Wrap entire script in try-catch for clean error handling
+try {
+
 # Paths
 $ScriptDir = $PSScriptRoot
 $SourceDir = "C:\Stash"
@@ -410,4 +413,16 @@ Write-Host "   [OK] Uninstaller included" -ForegroundColor Gray
 Write-Host ""
 Write-Host " Ready for GitHub release!" -ForegroundColor Green
 Write-Host ""
+
+} catch {
+    Write-Host "`n========================================" -ForegroundColor Red
+    Write-Host " BUILD FAILED!" -ForegroundColor Red
+    Write-Host "========================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host " Error: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host " Location: $($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Yellow
+    Write-Host ""
+    exit 1
+}
 
