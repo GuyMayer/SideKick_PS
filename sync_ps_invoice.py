@@ -822,6 +822,8 @@ def upload_to_ghl_media(file_path: str) -> str | None:
 # =============================================================================
 def _build_payment_invoice_items(payments: list, order: dict) -> list:
     """Build invoice line items from payment schedule.
+    
+    DEPRECATED: Now we always show product items. This is kept for reference.
 
     Args:
         payments: List of payment dictionaries.
@@ -860,6 +862,43 @@ def _build_payment_invoice_items(payments: list, order: dict) -> list:
         })
 
     return invoice_items
+
+
+def _consolidate_product_items(items: list) -> list:
+    """Consolidate duplicate product items by name.
+    
+    Args:
+        items: List of product item dictionaries.
+        
+    Returns:
+        list: Consolidated items with quantities summed.
+    """
+    consolidated = {}
+    
+    for item in items:
+        # Create a key from product name
+        product_name = item.get('product', '') or item.get('description', 'Item')
+        price = item.get('price', 0)
+        
+        # Skip zero-price items like mats
+        if price == 0:
+            continue
+            
+        key = f"{product_name}_{price}"
+        
+        if key in consolidated:
+            consolidated[key]['quantity'] += item.get('quantity', 1)
+        else:
+            consolidated[key] = {
+                'name': product_name,
+                'description': item.get('description', product_name),
+                'price': float(price),
+                'quantity': item.get('quantity', 1),
+                'type': item.get('type', ''),
+                'currency': 'GBP'
+            }
+    
+    return list(consolidated.values())
 
 
 def _should_skip_item(item: dict, financials_only: bool) -> bool:
@@ -1118,24 +1157,34 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
 
 
 def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False) -> dict | None:
-    """Create an actual invoice in GHL Payments → Invoices using V2 API."""
+    """Create an actual invoice in GHL Payments → Invoices using V2 API.
+    
+    Always shows actual product line items (what the client is buying).
+    Payment schedule info is recorded separately as invoice payments.
+    """
     debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only})
 
     order = ps_data.get('order', {})
     items = order.get('items', [])
     payments = order.get('payments', [])
 
-    if not items and not payments:
-        debug_log("ERROR: No items or payments to invoice")
-        print("✗ No items or payments to invoice")
+    if not items:
+        debug_log("ERROR: No items to invoice")
+        print("✗ No items to invoice")
         return None
 
-    total_discounts_credits = 0.0
-    if payments:
-        print(f"  Building invoice from {len(payments)} payment schedule entries...")
-        invoice_items = _build_payment_invoice_items(payments, order)
-    else:
-        invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only)
+    # Always build from product items - show what the client is buying
+    print(f"  Building invoice from {len(items)} product items...")
+    invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only)
+    
+    # Consolidate duplicate items (e.g., multiple prints at same price)
+    consolidated_items = _consolidate_product_items(items)
+    if consolidated_items:
+        print(f"  Consolidated to {len(consolidated_items)} unique line items")
+        # Use consolidated items for cleaner invoice
+        invoice_items = consolidated_items
+        # Recalculate discounts from original items
+        total_discounts_credits = sum(abs(item['price']) for item in items if item.get('price', 0) < 0)
 
     if not invoice_items:
         print("✗ No invoice items after building")

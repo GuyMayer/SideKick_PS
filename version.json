@@ -1,9 +1,20 @@
 {
-  "version": "2.4.49",
+  "version": "2.4.50",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fixed invoice totals - amounts now correct in GHL",
+  "release_notes": "Invoices now show product line items instead of payment schedule",
   "versions": [
+    {
+      "version": "2.4.50",
+      "build_date": "2026-02-01",
+      "release_notes": "Invoices now show product line items instead of payment schedule",
+      "changelog": [
+        "FIXED: GHL invoices now display actual products ordered (prints, packages, etc.)",
+        "FIXED: Was showing 'Payment 1, Payment 2...' instead of product names",
+        "IMPROVED: Duplicate products consolidated into single line items with quantities",
+        "IMPROVED: Payment schedule still recorded as invoice payments separately"
+      ]
+    },
     {
       "version": "2.4.49",
       "build_date": "2026-02-01",
