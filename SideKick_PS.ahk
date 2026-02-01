@@ -99,7 +99,7 @@ global Settings_AutoDriveDetect := true   ; Detect SD card insertion
 ; Hotkey settings (modifiers: ^ = Ctrl, ! = Alt, + = Shift, # = Win)
 global Hotkey_GHLLookup := "^+g"  ; Ctrl+Shift+G
 global Hotkey_PayPlan := "^+p"    ; Ctrl+Shift+P
-global Hotkey_Settings := "^+s"   ; Ctrl+Shift+S
+global Hotkey_Settings := "^+w"   ; Ctrl+Shift+W
 
 ; License settings
 global License_Key := ""          ; LemonSqueezy license key
@@ -4472,15 +4472,15 @@ CaptureHotkeyCombo() {
 Return
 
 ResetHotkeysToDefault:
-result := DarkMsgBox("Reset Hotkeys", "Reset all hotkeys to defaults?`n`nGHL Lookup: Ctrl+Shift+G`nPayPlan: Ctrl+Shift+P`nSettings: Ctrl+Shift+S", "question", {buttons: ["Yes", "No"]})
+result := DarkMsgBox("Reset Hotkeys", "Reset all hotkeys to defaults?`n`nGHL Lookup: Ctrl+Shift+G`nPayPlan: Ctrl+Shift+P`nSettings: Ctrl+Shift+W", "question", {buttons: ["Yes", "No"]})
 if (result = "Yes")
 {
 	Hotkey_GHLLookup := "^+g"
 	Hotkey_PayPlan := "^+p"
-	Hotkey_Settings := "^+s"
+	Hotkey_Settings := "^+w"
 	GuiControl, Settings:, Hotkey_GHLLookup_Edit, % FormatHotkeyDisplay("^+g")
 	GuiControl, Settings:, Hotkey_PayPlan_Edit, % FormatHotkeyDisplay("^+p")
-	GuiControl, Settings:, Hotkey_Settings_Edit, % FormatHotkeyDisplay("^+s")
+	GuiControl, Settings:, Hotkey_Settings_Edit, % FormatHotkeyDisplay("^+w")
 	ToolTip, Hotkeys reset to defaults
 	SetTimer, RemoveSettingsTooltip, -1500
 }
@@ -6015,7 +6015,7 @@ LoadSettings()
 	; Load hotkey settings
 	IniRead, Hotkey_GHLLookup, %IniFilename%, Hotkeys, GHLLookup, ^+g
 	IniRead, Hotkey_PayPlan, %IniFilename%, Hotkeys, PayPlan, ^+p
-	IniRead, Hotkey_Settings, %IniFilename%, Hotkeys, Settings, ^+s
+	IniRead, Hotkey_Settings, %IniFilename%, Hotkeys, Settings, ^+w
 	
 	; Invoice folder settings
 	IniRead, Settings_InvoiceWatchFolder, %IniFilename%, GHL, InvoiceWatchFolder, %A_Space%
