@@ -1,9 +1,23 @@
 {
-  "version": "2.4.33",
+  "version": "2.4.43",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Download progress bar for update/reinstall",
+  "release_notes": "LB integration, improved settings, dev tools",
   "versions": [
+    {
+      "version": "2.4.43",
+      "build_date": "2026-02-01",
+      "release_notes": "LB integration, improved settings, dev tools",
+      "changelog": [
+        "NEW: Sync paths from SideKick_LB with one click",
+        "NEW: Conflict detection when both LB and PS have auto-detect enabled",
+        "NEW: Dev Reload hotkey (Ctrl+Shift+R) for developers",
+        "IMPROVED: Toggle switches now use consistent checkmark/cross style",
+        "IMPROVED: All File Management settings now save immediately",
+        "IMPROVED: Settings hotkey changed to Ctrl+Shift+W",
+        "FIXED: Black text in File Management input fields for better visibility"
+      ]
+    },
     {
       "version": "2.4.33",
       "build_date": "2026-02-01",
