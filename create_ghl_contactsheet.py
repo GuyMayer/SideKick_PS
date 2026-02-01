@@ -126,17 +126,38 @@ def load_config() -> dict:
     }
 
 
-CONFIG = load_config()
-API_KEY = CONFIG['API_KEY']
-LOCATION_ID = CONFIG['LOCATION_ID']
+# Lazy config loading - only load when needed, not at import time
+_CONFIG = None
+_API_KEY = None
+_LOCATION_ID = None
 BASE_URL = "https://services.leadconnectorhq.com"
+
+def _ensure_config():
+    """Load config if not already loaded."""
+    global _CONFIG, _API_KEY, _LOCATION_ID
+    if _CONFIG is None:
+        try:
+            _CONFIG = load_config()
+            _API_KEY = _CONFIG['API_KEY']
+            _LOCATION_ID = _CONFIG['LOCATION_ID']
+        except Exception as e:
+            print(f"⚠ Config error: {e}")
+            _CONFIG = {}
+            _API_KEY = ""
+            _LOCATION_ID = ""
 
 def get_headers() -> dict:
     """Get authorization headers for GHL API requests."""
+    _ensure_config()
     return {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {_API_KEY}",
         "Version": "2021-07-28"
     }
+
+def get_location_id() -> str:
+    """Get location ID from config."""
+    _ensure_config()
+    return _LOCATION_ID
 
 # =============================================================================
 # System Date Format Detection (Windows)
@@ -323,7 +344,7 @@ def find_folder_by_name(folder_name: str) -> str | None:
     headers = get_headers()
 
     params = {
-        'altId': LOCATION_ID,
+        'altId': get_location_id(),
         'altType': 'location',
         'sortBy': 'createdAt',
         'sortOrder': 'desc',
@@ -353,7 +374,7 @@ def create_folder(folder_name: str) -> str | None:
     headers = get_headers()
 
     params = {
-        'altId': LOCATION_ID,
+        'altId': get_location_id(),
         'altType': 'location'
     }
 
@@ -405,7 +426,7 @@ def upload_to_folder(file_path: str, folder_id: str | None = None) -> str | None
 
     headers = get_headers()
     params = {
-        'altId': LOCATION_ID,
+        'altId': get_location_id(),
         'altType': 'location'
     }
 
@@ -612,7 +633,7 @@ def add_contact_note(contact_id: str, note_body: str) -> bool:
 
     payload = {
         "body": note_body,
-        "userId": LOCATION_ID
+        "userId": get_location_id()
     }
 
     response = requests.post(
