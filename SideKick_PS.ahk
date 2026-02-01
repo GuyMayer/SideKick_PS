@@ -57,8 +57,8 @@ global DPI_Scale := A_ScreenDPI / 96
 #Include %A_ScriptDir%\Lib\Notes.ahk
 
 ; Script version info
-global ScriptVersion := "2.4.49"
-global BuildDate := "2026-01-26"
+global ScriptVersion := "2.4.50"
+global BuildDate := "2026-02-01"
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
 
 ; GHL Integration variables
