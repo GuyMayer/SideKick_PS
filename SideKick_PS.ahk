@@ -984,20 +984,75 @@ if (ExportFolder = "" || !FileExist(ExportFolder))
 	Return
 }
 
-; Click Export Now (Button2) - use window handle for reliability
+; Click Export Now (Button2) - use multiple methods for reliability
 Sleep, 300
+
+; Method 1: ControlClick with window handle
 ControlClick, Button2, ahk_id %exportWin%, , , , NA
-; Wait for export completion popup (ProSelect confirmation dialog)
-WinWait, Export Orders ahk_exe ProSelect.exe, completed, 15
+
+; Wait 1 second to see if export dialog appears
+Sleep, 1000
+
+; Check if completion dialog already appeared - if so, skip Method 2
+IfWinExist, Export Orders, completed
+{
+	; First click worked, continue to handle dialog
+}
+else
+{
+	; Method 2: If first click didn't trigger export, try BM_CLICK message
+	ControlGet, exportNowHwnd, Hwnd, , Button2, ahk_id %exportWin%
+	if (exportNowHwnd)
+	{
+		SendMessage, 0x00F5, 0, 0, , ahk_id %exportNowHwnd%  ; BM_CLICK = 0x00F5
+	}
+}
+
+; Wait for "Export in Standard XML format completed" confirmation dialog
+WinWait, Export Orders, completed, 15
 if !ErrorLevel
 {
 	Sleep, 500
-	; Click OK on the completion dialog - get fresh window handle
-	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
-	ControlClick, Button1, ahk_id %exportWin%, , , , NA
+	; Get the completion dialog window handle (the one with "completed" text)
+	completedWin := WinExist("Export Orders")
+	
+	; Click OK on the completion dialog - try multiple methods
+	; Method 1: ControlClick
+	ControlClick, OK, ahk_id %completedWin%, , , , NA
+	Sleep, 300
+	
+	; Method 2: Try Button1 with ControlClick
+	ControlClick, Button1, ahk_id %completedWin%, , , , NA
+	Sleep, 300
+	
+	; Method 3: Send Enter key to the window
+	ControlSend, , {Enter}, ahk_id %completedWin%
 	Sleep, 500
+	
+	; Wait for the completion dialog to close
+	WinWaitClose, ahk_id %completedWin%, , 3
+	
+	; Now find and close the main Export Orders window
+	Sleep, 300
+	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
+	
 	; Click Cancel to close the Export Orders window
-	ControlClick, Cancel, ahk_id %exportWin%, , , , NA
+	if (exportWin) {
+		; Try Cancel button
+		ControlClick, Cancel, ahk_id %exportWin%, , , , NA
+		Sleep, 300
+		
+		; Try Button3 (Cancel is often Button3)
+		ControlClick, Button3, ahk_id %exportWin%, , , , NA
+		Sleep, 300
+		
+		; Send Escape key as fallback
+		ControlSend, , {Escape}, ahk_id %exportWin%
+		Sleep, 500
+		
+		; Wait for window to close
+		WinWaitClose, ahk_id %exportWin%, , 3
+	}
 	Sleep, 300
 	
 	; Find the most recent XML file in the export folder
@@ -5004,6 +5059,16 @@ if (LastInvoiceFiles != "" && currentFiles != LastInvoiceFiles)
 		{
 			; New XML file found!
 			newFile := Settings_InvoiceWatchFolder . "\" . A_LoopField
+			
+			; Wait for ProSelect Export Orders dialog to close before prompting
+			; (In case this was triggered by our own export action)
+			Loop, 10
+			{
+				if !WinExist("Export Orders ahk_exe ProSelect.exe")
+					break
+				Sleep, 500
+			}
+			
 			result := DarkMsgBox("📋 New Invoice XML", "New invoice file detected:`n`n" . A_LoopField . "`n`nLoad this invoice to GHL?", "question", {buttons: ["Yes", "No"]})
 			if (result = "Yes")
 			{

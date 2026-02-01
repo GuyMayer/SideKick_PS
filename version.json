@@ -1,9 +1,19 @@
 {
-  "version": "2.4.44",
+  "version": "2.4.45",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "SD Card feature toggle, improved reliability",
+  "release_notes": "More reliable Export Orders automation",
   "versions": [
+    {
+      "version": "2.4.45",
+      "build_date": "2026-02-01",
+      "release_notes": "More reliable Export Orders automation",
+      "changelog": [
+        "IMPROVED: Export Orders dialog now opens more reliably",
+        "IMPROVED: Uses Windows menu system for better compatibility",
+        "FIXED: 'New Invoice XML' popup no longer appears during export"
+      ]
+    },
     {
       "version": "2.4.44",
       "build_date": "2026-02-01",
