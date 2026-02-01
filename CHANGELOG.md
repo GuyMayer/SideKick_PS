@@ -15,6 +15,38 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.32 (2026-02-01)
+
+### Major New Feature
+- **SD Card Download**: Complete file management workflow ported from SideKick_LB
+  - New toolbar button (📥) for quick access to SD card download
+  - New **File Management** settings tab with all configuration options
+  - Automatic DCIM folder detection on SD cards
+  - Multi-card support for shoots spanning multiple cards
+  - Auto-rename files with configurable shoot prefix/suffix
+  - Year-based shoot numbering option
+  - Auto-detect SD card insertion and prompt to download
+  - Integration with photo editor launch after download
+
+### Settings Added
+- Card Path: SD card/DCIM path configuration
+- Download Folder: Temporary download location
+- Archive Path: Final archive destination
+- Shoot Prefix/Suffix: File naming convention (e.g., P26001P)
+- Include Year in Shoot No: Toggle for year-based numbering
+- Auto-Rename by Date: Sort and rename files by timestamp
+- Open Editor After Download: Launch photo editor when complete
+- Auto-Detect SD Cards: Automatic detection when cards inserted
+
+### Technical Details
+- Expanded toolbar width from 152px to 203px for 4th button
+- Added `CreateFilesPanel()` for File Management settings GUI
+- Ported `SearchShootNoInFolder`, `RemoveDir`, `RenameFiles`, `RenumberByDate`
+- Ported `Unz()` shell copy function with Windows progress dialog
+- Added `checkNewDrives` timer for SD card auto-detection
+
+---
+
 ## v2.4.31 (2026-02-01)
 
 ### Code Quality Improvements
