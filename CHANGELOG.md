@@ -15,6 +15,29 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.44 (2026-02-01)
+
+### New Features
+- **Enable/Disable SD Card Feature**: Master toggle to show/hide SD card toolbar icon
+  - When disabled, all File Management controls are grayed out
+  - Auto-Detect SD Cards is automatically disabled when feature is off
+  - Toolbar dynamically resizes (3 buttons when disabled, 4 when enabled)
+
+### Improvements
+- **Export Orders Reliability**: Improved button click reliability for ProSelect Export Orders
+  - Uses window handle (HWND) for more reliable control targeting
+  - Sends BM_CLICK message as fallback method
+  - Added NA (No Activate) option to prevent focus issues
+- **Silent Release Cleanup**: GitHub release cleanup now runs silently (only shows errors)
+- **File Management Visual Feedback**: All labels and section headers gray out when disabled
+
+### Technical
+- `UpdateFilesControlsState()` function enables/disables all File Management controls
+- `ControlClick` with `ahk_id` for reliable ProSelect automation
+- Cleanup batch runs with `Hide` flag, no pause required
+
+---
+
 ## v2.4.43 (2026-02-01)
 
 ### New Features
