@@ -1,9 +1,19 @@
 {
-  "version": "2.4.32",
+  "version": "2.4.33",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "New SD Card Download feature for importing photos",
+  "release_notes": "Download progress bar for update/reinstall",
   "versions": [
+    {
+      "version": "2.4.33",
+      "build_date": "2026-02-01",
+      "release_notes": "Download progress bar for update/reinstall",
+      "changelog": [
+        "NEW: Progress bar shows download status when updating or reinstalling",
+        "IMPROVED: Uses Windows BITS for reliable background downloads",
+        "IMPROVED: Real-time percentage display during download"
+      ]
+    },
     {
       "version": "2.4.32",
       "build_date": "2026-02-01",
