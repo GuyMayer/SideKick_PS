@@ -1294,6 +1294,42 @@ UpdateToggleSlider("Settings", "AutoSendLogs", Toggle_AutoSendLogs_State, 590)
 SaveSettings()
 Return
 
+; File Management toggle click handlers
+ToggleClick_AutoShootYear:
+Toggle_AutoShootYear_State := !Toggle_AutoShootYear_State
+Settings_AutoShootYear := Toggle_AutoShootYear_State
+UpdateToggleSlider("Settings", "AutoShootYear", Toggle_AutoShootYear_State, 420)
+SaveSettings()
+Return
+
+ToggleClick_AutoRenameImages:
+Toggle_AutoRenameImages_State := !Toggle_AutoRenameImages_State
+Settings_AutoRenameImages := Toggle_AutoRenameImages_State
+UpdateToggleSlider("Settings", "AutoRenameImages", Toggle_AutoRenameImages_State, 420)
+SaveSettings()
+Return
+
+ToggleClick_BrowsDown:
+Toggle_BrowsDown_State := !Toggle_BrowsDown_State
+Settings_BrowsDown := Toggle_BrowsDown_State
+UpdateToggleSlider("Settings", "BrowsDown", Toggle_BrowsDown_State, 420)
+SaveSettings()
+Return
+
+ToggleClick_AutoDriveDetect:
+Toggle_AutoDriveDetect_State := !Toggle_AutoDriveDetect_State
+Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
+UpdateToggleSlider("Settings", "AutoDriveDetect", Toggle_AutoDriveDetect_State, 420)
+SaveSettings()
+; Start or stop the drive detection timer
+if (Settings_AutoDriveDetect) {
+	CheckLBAutoDetectConflict()
+	SetTimer, checkNewDrives, 2000
+} else {
+	SetTimer, checkNewDrives, Off
+}
+Return
+
 ; ============================================================
 ; DarkMsgBox - Dark mode aware message box function
 ; ============================================================
@@ -2049,12 +2085,16 @@ CreateFilesPanel()
 	; Card Drive Path
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x200 y95 w120 BackgroundTrans vFilesCardDriveLabel Hidden, Card Path:
+	Gui, Settings:Font, s10 c000000, Segoe UI
 	Gui, Settings:Add, Edit, x320 y92 w230 h25 vFilesCardDriveEdit Hidden, %Settings_CardDrive%
+	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Button, x555 y90 w60 h28 gFilesCardDriveBrowseBtn vFilesCardDriveBrowse Hidden, Browse
 	
 	; Download Folder
 	Gui, Settings:Add, Text, x200 y125 w120 BackgroundTrans vFilesDownloadLabel Hidden, Download To:
+	Gui, Settings:Font, s10 c000000, Segoe UI
 	Gui, Settings:Add, Edit, x320 y122 w230 h25 vFilesDownloadEdit Hidden, %Settings_CameraDownloadPath%
+	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Button, x555 y120 w60 h28 gFilesDownloadBrowseBtn vFilesDownloadBrowse Hidden, Browse
 	
 	; Archive Section
@@ -2064,7 +2104,9 @@ CreateFilesPanel()
 	; Archive Path
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x200 y195 w120 BackgroundTrans vFilesArchiveLabel Hidden, Archive Path:
+	Gui, Settings:Font, s10 c000000, Segoe UI
 	Gui, Settings:Add, Edit, x320 y192 w230 h25 vFilesArchiveEdit Hidden, %Settings_ShootArchivePath%
+	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Button, x555 y190 w60 h28 gFilesArchiveBrowseBtn vFilesArchiveBrowse Hidden, Browse
 	
 	; Naming Convention Section
@@ -2073,19 +2115,24 @@ CreateFilesPanel()
 	
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x200 y265 w80 BackgroundTrans vFilesPrefixLabel Hidden, Prefix:
+	Gui, Settings:Font, s10 c000000, Segoe UI
 	Gui, Settings:Add, Edit, x280 y262 w60 h25 vFilesPrefixEdit Hidden, %Settings_ShootPrefix%
 	
+	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x360 y265 w80 BackgroundTrans vFilesSuffixLabel Hidden, Suffix:
+	Gui, Settings:Font, s10 c000000, Segoe UI
 	Gui, Settings:Add, Edit, x440 y262 w60 h25 vFilesSuffixEdit Hidden, %Settings_ShootSuffix%
 	
 	; Auto Year Toggle
+	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x200 y300 w200 BackgroundTrans vFilesAutoYear Hidden, Include Year in Shoot No:
-	autoYearState := Settings_AutoShootYear ? "On" : "Off"
-	Gui, Settings:Add, Checkbox, x420 y300 w20 h20 vToggle_AutoShootYear gToggle_AutoShootYear Checked%Settings_AutoShootYear% Hidden
+	CreateToggleSlider("Settings", "AutoShootYear", 420, 298, Settings_AutoShootYear)
+	GuiControl, Settings:Hide, Toggle_AutoShootYear
 	
 	; Auto Rename Toggle
 	Gui, Settings:Add, Text, x200 y330 w200 BackgroundTrans vFilesAutoRename Hidden, Auto-Rename by Date:
-	Gui, Settings:Add, Checkbox, x420 y330 w20 h20 vToggle_AutoRenameImages gToggle_AutoRenameImages Checked%Settings_AutoRenameImages% Hidden
+	CreateToggleSlider("Settings", "AutoRenameImages", 420, 328, Settings_AutoRenameImages)
+	GuiControl, Settings:Hide, Toggle_AutoRenameImages
 	
 	; Editor Section
 	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
@@ -2094,16 +2141,24 @@ CreateFilesPanel()
 	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x200 y405 w120 BackgroundTrans vFilesEditorLabel Hidden, Editor Path:
 	editorDisplay := (Settings_EditorRunPath = "Explore" || Settings_EditorRunPath = "") ? "Windows Explorer" : Settings_EditorRunPath
+	Gui, Settings:Font, s10 c000000, Segoe UI
 	Gui, Settings:Add, Edit, x320 y402 w230 h25 vFilesEditorEdit Hidden, %editorDisplay%
+	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
 	Gui, Settings:Add, Button, x555 y400 w60 h28 gFilesEditorBrowseBtn vFilesEditorBrowse Hidden, Browse
 	
 	; Open Editor After Download Toggle
 	Gui, Settings:Add, Text, x200 y440 w200 BackgroundTrans vFilesOpenEditor Hidden, Open Editor After Download:
-	Gui, Settings:Add, Checkbox, x420 y440 w20 h20 vToggle_BrowsDown gToggle_BrowsDown Checked%Settings_BrowsDown% Hidden
+	CreateToggleSlider("Settings", "BrowsDown", 420, 438, Settings_BrowsDown)
+	GuiControl, Settings:Hide, Toggle_BrowsDown
 	
 	; Auto Drive Detection Toggle
 	Gui, Settings:Add, Text, x200 y470 w200 BackgroundTrans vFilesAutoDrive Hidden, Auto-Detect SD Cards:
-	Gui, Settings:Add, Checkbox, x420 y470 w20 h20 vToggle_AutoDriveDetect gToggle_AutoDriveDetect Checked%Settings_AutoDriveDetect% Hidden
+	CreateToggleSlider("Settings", "AutoDriveDetect", 420, 468, Settings_AutoDriveDetect)
+	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
+	
+	; Sync from SideKick_LB button
+	Gui, Settings:Font, s10 Norm, Segoe UI
+	Gui, Settings:Add, Button, x480 y465 w135 h28 gFilesSyncFromLB vFilesSyncFromLBBtn Hidden, 🔄 Sync from LB
 }
 
 CreateLicensePanel()
@@ -3055,25 +3110,18 @@ CreateDeveloperPanel()
 	Gui, Settings:Add, Button, x350 y235 w140 h40 gDevUpdateVersion vDevUpdateBtn Hidden, 🔢 Update Version
 	Gui, Settings:Add, Button, x500 y235 w120 h40 gDevPushGitHub vDevPushBtn Hidden, 🚀 Push GitHub
 	
-	; Git section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y305 w300 BackgroundTrans vDevGitTitle Hidden, Git Status
-	
-	Gui, Settings:Font, s9 c%mutedColor%, Consolas
-	Gui, Settings:Add, Edit, x200 y335 w420 h120 ReadOnly vDevGitOutput Hidden, (Click Refresh to see git status)
-	
-	Gui, Settings:Font, s10 Norm, Segoe UI
-	Gui, Settings:Add, Button, x200 y465 w100 h30 gDevRefreshGit vDevRefreshBtn Hidden, 🔄 Refresh
-	Gui, Settings:Add, Button, x310 y465 w120 h30 gDevOpenFolder vDevOpenFolderBtn Hidden, 📂 Open Folder
-	
 	; Quick actions
 	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y515 w300 BackgroundTrans vDevQuickTitle Hidden, Quick Actions
+	Gui, Settings:Add, Text, x200 y300 w300 BackgroundTrans vDevQuickTitle Hidden, Quick Actions
 	
 	Gui, Settings:Font, s10 Norm, Segoe UI
-	Gui, Settings:Add, Button, x200 y545 w130 h30 gDevTestBuild vDevTestBtn Hidden, 🧪 Test Build
-	Gui, Settings:Add, Button, x340 y545 w130 h30 gDevOpenGitHub vDevGitHubBtn Hidden, 🌐 Open GitHub
-	Gui, Settings:Add, Button, x480 y545 w140 h30 gDevQuickPush vDevQuickPushBtn Hidden, ⚡ Quick Publish
+	Gui, Settings:Add, Button, x200 y335 w100 h35 gDevReloadScript vDevReloadBtn Hidden, 🔄 Reload
+	Gui, Settings:Add, Button, x310 y335 w110 h35 gDevTestBuild vDevTestBtn Hidden, 🧪 Test Build
+	Gui, Settings:Add, Button, x430 y335 w100 h35 gDevOpenGitHub vDevGitHubBtn Hidden, 🌐 GitHub
+	Gui, Settings:Add, Button, x540 y335 w80 h35 gDevQuickPush vDevQuickPushBtn Hidden, ⚡ Publish
+	
+	; Second row of quick actions
+	Gui, Settings:Add, Button, x200 y380 w120 h35 gDevOpenFolder vDevOpenFolderBtn Hidden, 📂 Open Folder
 }
 
 ShowSettingsTab(tabName)
@@ -3254,6 +3302,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_BrowsDown
 	GuiControl, Settings:Hide, FilesAutoDrive
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
+	GuiControl, Settings:Hide, FilesSyncFromLBBtn
 	
 	; Hide all panels - Developer
 	GuiControl, Settings:Hide, PanelDeveloper
@@ -3268,11 +3317,9 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, DevCreateBtn
 	GuiControl, Settings:Hide, DevUpdateBtn
 	GuiControl, Settings:Hide, DevPushBtn
-	GuiControl, Settings:Hide, DevGitTitle
-	GuiControl, Settings:Hide, DevGitOutput
-	GuiControl, Settings:Hide, DevRefreshBtn
 	GuiControl, Settings:Hide, DevOpenFolderBtn
 	GuiControl, Settings:Hide, DevQuickTitle
+	GuiControl, Settings:Hide, DevReloadBtn
 	GuiControl, Settings:Hide, DevTestBtn
 	GuiControl, Settings:Hide, DevGitHubBtn
 	GuiControl, Settings:Hide, DevQuickPushBtn
@@ -3427,6 +3474,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_BrowsDown
 		GuiControl, Settings:Show, FilesAutoDrive
 		GuiControl, Settings:Show, Toggle_AutoDriveDetect
+		GuiControl, Settings:Show, FilesSyncFromLBBtn
 	}
 	else if (tabName = "About")
 	{
@@ -3475,17 +3523,12 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, DevCreateBtn
 		GuiControl, Settings:Show, DevUpdateBtn
 		GuiControl, Settings:Show, DevPushBtn
-		GuiControl, Settings:Show, DevGitTitle
-		GuiControl, Settings:Show, DevGitOutput
-		GuiControl, Settings:Show, DevRefreshBtn
 		GuiControl, Settings:Show, DevOpenFolderBtn
 		GuiControl, Settings:Show, DevQuickTitle
+		GuiControl, Settings:Show, DevReloadBtn
 		GuiControl, Settings:Show, DevTestBtn
 		GuiControl, Settings:Show, DevGitHubBtn
 		GuiControl, Settings:Show, DevQuickPushBtn
-		
-		; Refresh git status
-		RefreshDevGitStatus()
 	}
 	
 	Settings_CurrentTab := tabName
@@ -3562,6 +3605,11 @@ Return
 
 DevOpenFolder:
 	Run, explorer.exe "%A_ScriptDir%\SideKick_PS"
+Return
+
+DevReloadScript:
+	; Reload the script (useful for development)
+	Reload
 Return
 
 DevTestBuild:
@@ -4465,6 +4513,19 @@ Settings_GHL_Enabled := Toggle_GHL_Enabled_State
 Settings_GHL_AutoLoad := Toggle_GHL_AutoLoad_State
 ; Get dropdown values
 Settings_DefaultRecurring := Settings_DefaultRecurring_DDL
+; File Management settings from edit controls
+Settings_CardDrive := FilesCardDriveEdit
+Settings_CameraDownloadPath := FilesDownloadEdit
+Settings_ShootArchivePath := FilesArchiveEdit
+Settings_ShootPrefix := FilesPrefixEdit
+Settings_ShootSuffix := FilesSuffixEdit
+; Handle editor path - if "Windows Explorer", save as "Explore"
+Settings_EditorRunPath := (FilesEditorEdit = "Windows Explorer") ? "Explore" : FilesEditorEdit
+; File Management toggles (using _State from toggle sliders)
+Settings_AutoShootYear := Toggle_AutoShootYear_State
+Settings_AutoRenameImages := Toggle_AutoRenameImages_State
+Settings_BrowsDown := Toggle_BrowsDown_State
+Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 ; Save settings
 SaveSettings()
 ToolTip, Settings saved!
@@ -4488,6 +4549,19 @@ Settings_GHL_Enabled := Toggle_GHL_Enabled_State
 Settings_GHL_AutoLoad := Toggle_GHL_AutoLoad_State
 ; Get dropdown values
 Settings_DefaultRecurring := Settings_DefaultRecurring_DDL
+; File Management settings from edit controls
+Settings_CardDrive := FilesCardDriveEdit
+Settings_CameraDownloadPath := FilesDownloadEdit
+Settings_ShootArchivePath := FilesArchiveEdit
+Settings_ShootPrefix := FilesPrefixEdit
+Settings_ShootSuffix := FilesSuffixEdit
+; Handle editor path - if "Windows Explorer", save as "Explore"
+Settings_EditorRunPath := (FilesEditorEdit = "Windows Explorer") ? "Explore" : FilesEditorEdit
+; File Management toggles (using _State from toggle sliders)
+Settings_AutoShootYear := Toggle_AutoShootYear_State
+Settings_AutoRenameImages := Toggle_AutoRenameImages_State
+Settings_BrowsDown := Toggle_BrowsDown_State
+Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 ; Save settings
 SaveSettings()
 Gui, Settings:Destroy
@@ -4576,21 +4650,152 @@ if (selectedFile != "")
 }
 Return
 
-Toggle_AutoShootYear:
-Gui, Settings:Submit, NoHide
+FilesSyncFromLB:
+	; Manual sync settings from SideKick_LB
+	lbIniPath := FindLBIniPath()
+	if (lbIniPath = "") {
+		DarkMsgBox("SideKick_LB Not Found", "Could not find SideKick_LB configuration file.`n`nLBSidekick.ini was not found in:`n• Script folder`n• AppData`n• Documents", "warning")
+		return
+	}
+	SyncPathsFromLB(lbIniPath)
 Return
 
-Toggle_AutoRenameImages:
-Gui, Settings:Submit, NoHide
-Return
+; Check if SideKick_LB has auto-detect enabled and warn user
+CheckLBAutoDetectConflict() {
+	global
+	
+	lbIniPath := FindLBIniPath()
+	if (lbIniPath = "")
+		return  ; LB not installed or INI not found
+	
+	; Read LB's auto-detect setting
+	IniRead, lbAutoDetect, %lbIniPath%, Config, AutoDriveDetect, 0
+	
+	if (lbAutoDetect = 1) {
+		; Both have auto-detect enabled - warn user
+		result := DarkMsgBox("⚠ SD Card Detection Conflict"
+			, "SideKick_LB also has Auto-Detect SD Cards enabled.`n`n"
+			. "Having both enabled may cause conflicts when an SD card is inserted.`n`n"
+			. "Would you like to disable auto-detect in SideKick_LB?"
+			, "warning"
+			, {buttons: ["Disable in LB", "Keep Both"]})
+		
+		if (result = "Disable in LB") {
+			; Write to LB's INI file to disable auto-detect
+			IniWrite, 0, %lbIniPath%, Config, AutoDriveDetect
+			DarkMsgBox("✓ Updated", "Auto-detect has been disabled in SideKick_LB.`n`nSideKick_PS will now handle SD card detection.", "success")
+		}
+	}
+	
+	; Also offer to sync other file management paths from LB
+	SyncPathsFromLB(lbIniPath)
+}
 
-Toggle_BrowsDown:
-Gui, Settings:Submit, NoHide
-Return
+; Find the LBSidekick.ini file path
+FindLBIniPath() {
+	; Try common locations for LBSidekick.ini
+	lbIniPaths := [A_ScriptDir . "\LBSidekick.ini"
+		, A_AppData . "\SideKick_LB\LBSidekick.ini"
+		, A_MyDocuments . "\SideKick_LB\LBSidekick.ini"]
+	
+	for i, path in lbIniPaths {
+		if (FileExist(path))
+			return path
+	}
+	return ""
+}
 
-Toggle_AutoDriveDetect:
-Gui, Settings:Submit, NoHide
-Return
+; Sync file management paths from SideKick_LB if different/missing
+SyncPathsFromLB(lbIniPath) {
+	global Settings_CardDrive, Settings_CameraDownloadPath, Settings_ShootArchivePath
+	global Settings_ShootPrefix, Settings_ShootSuffix, Settings_EditorRunPath
+	
+	; Read LB settings
+	IniRead, lb_CardDrive, %lbIniPath%, Config, CardDrive, %A_Space%
+	IniRead, lb_CardPath, %lbIniPath%, Config, CardPath, %A_Space%
+	IniRead, lb_CameraDownloadPath, %lbIniPath%, Config, CameraDownloadPath, %A_Space%
+	IniRead, lb_ShootArchivePath, %lbIniPath%, Config, ShootArchivePath, %A_Space%
+	IniRead, lb_ShootPrefix, %lbIniPath%, Config, ShootPrefix, %A_Space%
+	IniRead, lb_ShootSuffix, %lbIniPath%, Config, ShootSuffix, %A_Space%
+	IniRead, lb_EditorRunPath, %lbIniPath%, Config, EditorRunPath, %A_Space%
+	
+	; Clean up quoted paths
+	lb_CameraDownloadPath := StrReplace(lb_CameraDownloadPath, """", "")
+	lb_ShootArchivePath := StrReplace(lb_ShootArchivePath, """", "")
+	lb_EditorRunPath := StrReplace(lb_EditorRunPath, """", "")
+	
+	; Use CardPath if available, otherwise CardDrive + \DCIM
+	lb_CardDrive := lb_CardPath != "" ? lb_CardPath : (lb_CardDrive != "" ? lb_CardDrive . "\DCIM" : "")
+	
+	; Build list of differences
+	differences := []
+	
+	if (lb_CardDrive != "" && Settings_CardDrive != lb_CardDrive)
+		differences.Push({name: "Card Path", current: Settings_CardDrive, lb: lb_CardDrive, setting: "CardDrive"})
+	
+	if (lb_CameraDownloadPath != "" && Settings_CameraDownloadPath != lb_CameraDownloadPath)
+		differences.Push({name: "Download Folder", current: Settings_CameraDownloadPath, lb: lb_CameraDownloadPath, setting: "CameraDownloadPath"})
+	
+	if (lb_ShootArchivePath != "" && Settings_ShootArchivePath != lb_ShootArchivePath)
+		differences.Push({name: "Archive Path", current: Settings_ShootArchivePath, lb: lb_ShootArchivePath, setting: "ShootArchivePath"})
+	
+	if (lb_ShootPrefix != "" && Settings_ShootPrefix != lb_ShootPrefix)
+		differences.Push({name: "File Prefix", current: Settings_ShootPrefix, lb: lb_ShootPrefix, setting: "ShootPrefix"})
+	
+	if (lb_ShootSuffix != "" && Settings_ShootSuffix != lb_ShootSuffix)
+		differences.Push({name: "File Suffix", current: Settings_ShootSuffix, lb: lb_ShootSuffix, setting: "ShootSuffix"})
+	
+	if (lb_EditorRunPath != "" && lb_EditorRunPath != "Explore" && Settings_EditorRunPath != lb_EditorRunPath)
+		differences.Push({name: "Photo Editor", current: Settings_EditorRunPath, lb: lb_EditorRunPath, setting: "EditorRunPath"})
+	
+	; If no differences, return
+	if (differences.Length() = 0)
+		return
+	
+	; Build message showing differences
+	msg := "SideKick_LB has different file management settings:`n`n"
+	for i, diff in differences {
+		currentDisplay := diff.current = "" ? "(not set)" : diff.current
+		msg .= "• " . diff.name . ":`n"
+		msg .= "   PS: " . currentDisplay . "`n"
+		msg .= "   LB: " . diff.lb . "`n`n"
+	}
+	msg .= "Would you like to copy these settings from SideKick_LB?"
+	
+	result := DarkMsgBox("📋 Sync Settings from LB?", msg, "question", {buttons: ["Copy from LB", "Keep Current"]})
+	
+	if (result = "Copy from LB") {
+		; Apply each difference
+		for i, diff in differences {
+			if (diff.setting = "CardDrive")
+				Settings_CardDrive := diff.lb
+			else if (diff.setting = "CameraDownloadPath")
+				Settings_CameraDownloadPath := diff.lb
+			else if (diff.setting = "ShootArchivePath")
+				Settings_ShootArchivePath := diff.lb
+			else if (diff.setting = "ShootPrefix")
+				Settings_ShootPrefix := diff.lb
+			else if (diff.setting = "ShootSuffix")
+				Settings_ShootSuffix := diff.lb
+			else if (diff.setting = "EditorRunPath")
+				Settings_EditorRunPath := diff.lb
+		}
+		
+		; Save settings
+		SaveSettings()
+		
+		; Update the Files panel controls if visible
+		GuiControl, Settings:, FilesCardDriveEdit, %Settings_CardDrive%
+		GuiControl, Settings:, FilesDownloadEdit, %Settings_CameraDownloadPath%
+		GuiControl, Settings:, FilesArchiveEdit, %Settings_ShootArchivePath%
+		GuiControl, Settings:, FilesPrefixEdit, %Settings_ShootPrefix%
+		GuiControl, Settings:, FilesSuffixEdit, %Settings_ShootSuffix%
+		editorDisplay := (Settings_EditorRunPath = "Explore" || Settings_EditorRunPath = "") ? "Windows Explorer" : Settings_EditorRunPath
+		GuiControl, Settings:, FilesEditorEdit, %editorDisplay%
+		
+		DarkMsgBox("✓ Settings Synced", "File management settings have been copied from SideKick_LB.", "success")
+	}
+}
 
 ; Global variable for invoice folder watcher
 global LastInvoiceFiles := ""
