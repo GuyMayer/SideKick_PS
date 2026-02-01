@@ -112,12 +112,13 @@ def load_config() -> dict:
     config = _parse_ini_sections(INI_FILE)
     ghl = config.get('GHL', {})
 
-    v2_b64 = ghl.get('API_Key_V2_B64', '')
-    if not v2_b64:
-        raise ValueError("No V2 API key found in INI file")
+    # Try new key name first, then fallback to legacy name
+    api_b64 = ghl.get('API_Key_B64', '') or ghl.get('API_Key_V2_B64', '')
+    if not api_b64:
+        raise ValueError("No API key found in INI file (need API_Key_B64 or API_Key_V2_B64)")
 
-    v2_b64_clean = v2_b64.replace(' ', '').replace('\n', '').replace('\r', '')
-    api_key = base64.b64decode(v2_b64_clean).decode('utf-8')
+    api_b64_clean = api_b64.replace(' ', '').replace('\n', '').replace('\r', '')
+    api_key = base64.b64decode(api_b64_clean).decode('utf-8')
 
     return {
         'API_KEY': api_key,

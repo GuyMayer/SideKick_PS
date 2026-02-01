@@ -1,9 +1,20 @@
 {
-  "version": "2.4.46",
+  "version": "2.4.47",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Critical bug fixes for installed version",
+  "release_notes": "Better API connection testing and diagnostics",
   "versions": [
+    {
+      "version": "2.4.47",
+      "build_date": "2026-02-01",
+      "release_notes": "Better API connection testing and diagnostics",
+      "changelog": [
+        "IMPROVED: Test Connection now shows specific error messages",
+        "IMPROVED: 401 Unauthorized shows clear 'API Key Expired' warning",
+        "FIXED: INI file encoding detection (UTF-16/UTF-8)",
+        "FIXED: API key lookup supports both old and new key names"
+      ]
+    },
     {
       "version": "2.4.46",
       "build_date": "2026-02-01",

@@ -5293,7 +5293,7 @@ ShowGHLFolderPicker()
 }
 
 TestGHLConnection:
-; Test API connection
+; Test API connection with detailed status
 if (!GHL_API_Key || GHL_API_Key = "")
 {
 	DarkMsgBox("No API Key", "Please configure your GHL API Key first.", "warning")
@@ -5306,7 +5306,8 @@ if (!GHL_LocationID || GHL_LocationID = "")
 }
 
 ToolTip, Testing GHL connection...
-apiOk := false
+apiStatus := 0
+apiError := ""
 
 try {
 	http := ComObjCreate("WinHttp.WinHttpRequest.5.1")
@@ -5316,18 +5317,43 @@ try {
 	http.SetRequestHeader("Authorization", "Bearer " . GHL_API_Key)
 	http.SetRequestHeader("Version", "2021-07-28")
 	http.send()
-	if (http.status = 200)
-		apiOk := true
+	apiStatus := http.status
+} catch e {
+	apiError := e.Message
 }
 
 ToolTip
-statusText := apiOk ? "✅ Connected" : "❌ Failed"
-GuiControl, Settings:, GHLStatusText, %statusText%
 
-if (apiOk)
-	DarkMsgBox("Connection Test", "GHL API connection successful!", "success")
-else
-	DarkMsgBox("Connection Failed", "Could not connect to GHL API.`nCheck your API key and Location ID.", "error")
+; Handle different status codes
+if (apiStatus = 200) {
+	statusText := "✅ Connected"
+	GuiControl, Settings:, GHLStatusText, %statusText%
+	DarkMsgBox("Connection Test", "GHL API connection successful!`n`nYour API key and Location ID are working correctly.", "success")
+} else if (apiStatus = 401) {
+	statusText := "❌ Unauthorized"
+	GuiControl, Settings:, GHLStatusText, %statusText%
+	msg := "API Key is INVALID or EXPIRED!`n`n"
+	msg .= "Your API key has been revoked or has expired.`n"
+	msg .= "Invoice sync will fail with this key.`n`n"
+	msg .= "To fix:`n"
+	msg .= "1. Go to GHL → Settings → Integrations`n"
+	msg .= "2. Create a new Private Integration`n"
+	msg .= "3. Copy the new API key (starts with 'pit-')`n"
+	msg .= "4. Update your API key here"
+	DarkMsgBox("API Key Expired", msg, "error")
+} else if (apiStatus = 400) {
+	statusText := "⚠️ Bad Request"
+	GuiControl, Settings:, GHLStatusText, %statusText%
+	DarkMsgBox("Invalid Location ID", "The Location ID appears to be invalid.`n`nCheck your Location ID in GHL settings.", "warning")
+} else if (apiError != "") {
+	statusText := "❌ Connection Failed"
+	GuiControl, Settings:, GHLStatusText, %statusText%
+	DarkMsgBox("Connection Failed", "Could not connect to GHL API.`n`nError: " . apiError, "error")
+} else {
+	statusText := "❌ Error " . apiStatus
+	GuiControl, Settings:, GHLStatusText, %statusText%
+	DarkMsgBox("Connection Failed", "GHL API returned error: " . apiStatus . "`n`nCheck your API key and Location ID.", "error")
+}
 Return
 
 ; ============================================================================

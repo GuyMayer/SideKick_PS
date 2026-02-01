@@ -278,16 +278,17 @@ def _decode_api_key(ghl_config: dict) -> str:
         str: Decoded API key.
 
     Raises:
-        ValueError: If no V2 API key found.
+        ValueError: If no API key found.
     """
     import base64
-    v2_b64 = ghl_config.get('API_Key_V2_B64', '')
+    # Try new key name first, then fallback to legacy name
+    api_b64 = ghl_config.get('API_Key_B64', '') or ghl_config.get('API_Key_V2_B64', '')
 
-    if v2_b64:
-        v2_b64_clean = v2_b64.replace(' ', '').replace('\n', '').replace('\r', '')
-        return base64.b64decode(v2_b64_clean).decode('utf-8')
+    if api_b64:
+        api_b64_clean = api_b64.replace(' ', '').replace('\n', '').replace('\r', '')
+        return base64.b64decode(api_b64_clean).decode('utf-8')
     else:
-        raise ValueError("No V2 API key found in INI file (need API_Key_V2_B64)")
+        raise ValueError("No API key found in INI file (need API_Key_B64 or API_Key_V2_B64)")
 
 
 def load_config() -> dict:
