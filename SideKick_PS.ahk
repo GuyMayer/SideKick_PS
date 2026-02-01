@@ -2727,45 +2727,162 @@ UpdateDlgGuiEscape:
 }
 
 DownloadAndInstallUpdate(downloadUrl, newVersion, silent := false) {
-	global
+	global Download_InProgress, Download_Path, Download_Silent
 	
-	; Download installer to temp
-	ToolTip, Downloading update v%newVersion%...
+	Download_Path := A_Temp . "\SideKick_PS_Setup.exe"
+	Download_Silent := silent
+	FileDelete, %Download_Path%
 	
-	downloadPath := A_Temp . "\SideKick_PS_Setup.exe"
-	batchFile := A_Temp . "\download_update.bat"
-	resultFile := A_Temp . "\download_result.txt"
+	; Show progress bar on About panel (if visible)
+	if (!silent) {
+		GuiControl, Settings:Show, AboutDownloadProgress
+		GuiControl, Settings:Show, AboutDownloadStatus
+		GuiControl, Settings:, AboutDownloadStatus, Preparing download v%newVersion%...
+		GuiControl, Settings:, AboutDownloadProgress, 0
+		GuiControl, Settings:Disable, AboutUpdateBtn
+		Gui, Settings:+Disabled  ; Prevent closing during download
+	}
 	
-	; Create batch file to run PowerShell (avoids quote escaping issues)
-	FileDelete, %batchFile%
-	FileAppend, @echo off`n, %batchFile%
-	FileAppend, powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%downloadUrl%' -OutFile '%downloadPath%'; Unblock-File -Path '%downloadPath%'; Write-Output 'OK' } catch { Write-Output 'FAILED' }" > "%resultFile%"`n, %batchFile%
+	; Start BITS transfer in background for real progress tracking
+	Download_InProgress := true
+	progressFile := A_Temp . "\download_progress.txt"
+	completeFile := A_Temp . "\download_complete.txt"
+	FileDelete, %progressFile%
+	FileDelete, %completeFile%
 	
-	RunWait, %batchFile%, , Hide
-	FileDelete, %batchFile%
+	; Create PowerShell script for BITS download with progress
+	psScript := A_Temp . "\download_with_progress.ps1"
+	FileDelete, %psScript%
 	
-	FileRead, downloadResult, %resultFile%
-	FileDelete, %resultFile%
+	scriptContent =
+(
+$progressFile = '%progressFile%'
+$completeFile = '%completeFile%'
+$downloadUrl = '%downloadUrl%'
+$downloadPath = '%Download_Path%'
+
+try {
+    # Remove any stale BITS jobs
+    Get-BitsTransfer -Name "SideKickUpdate" -ErrorAction SilentlyContinue | Remove-BitsTransfer
+
+    # Start BITS transfer
+    $job = Start-BitsTransfer -Source $downloadUrl -Destination $downloadPath -Asynchronous -DisplayName "SideKickUpdate"
+    
+    # Monitor progress
+    while ($job.JobState -eq "Transferring" -or $job.JobState -eq "Connecting") {
+        if ($job.BytesTotal -gt 0) {
+            $percent = [int](($job.BytesTransferred / $job.BytesTotal) * 100)
+            $percent | Out-File -FilePath $progressFile -Force
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    
+    if ($job.JobState -eq "Transferred") {
+        Complete-BitsTransfer -BitsJob $job
+        "100" | Out-File -FilePath $progressFile -Force
+        "OK" | Out-File -FilePath $completeFile -Force
+        Unblock-File -Path $downloadPath -ErrorAction SilentlyContinue
+    } else {
+        "FAILED: $($job.JobState)" | Out-File -FilePath $completeFile -Force
+        $job | Remove-BitsTransfer -ErrorAction SilentlyContinue
+    }
+} catch {
+    "FAILED: $($_.Exception.Message)" | Out-File -FilePath $completeFile -Force
+}
+)
 	
-	ToolTip
+	FileAppend, %scriptContent%, %psScript%
 	
-	if (!FileExist(downloadPath) || InStr(downloadResult, "FAILED")) {
-		DarkMsgBox("Download Failed", "Failed to download the update.`n`nPlease download manually from:`nhttps://github.com/GuyMayer/SideKick_PS/releases/latest", "error")
+	; Run PowerShell in background
+	Run, powershell -NoProfile -ExecutionPolicy Bypass -File "%psScript%", , Hide
+	
+	; Start timer to monitor progress
+	SetTimer, UpdateDownloadProgress, 150
+	
+	; Wait loop with GUI updates
+	while (Download_InProgress) {
+		if (FileExist(completeFile)) {
+			FileRead, result, %completeFile%
+			Download_InProgress := false
+			SetTimer, UpdateDownloadProgress, Off
+			
+			if (InStr(result, "OK")) {
+				; Success - update progress to 100%
+				if (!silent) {
+					GuiControl, Settings:, AboutDownloadProgress, 100
+					GuiControl, Settings:, AboutDownloadStatus, Download complete! Starting installer...
+					Sleep, 500
+				}
+			} else {
+				; Failed
+				FileDelete, %psScript%
+				FileDelete, %progressFile%
+				FileDelete, %completeFile%
+				
+				if (!silent) {
+					GuiControl, Settings:Hide, AboutDownloadProgress
+					GuiControl, Settings:Hide, AboutDownloadStatus
+					GuiControl, Settings:Enable, AboutUpdateBtn
+					Gui, Settings:-Disabled
+				}
+				errorMsg := RegExReplace(result, "^FAILED:\s*", "")
+				DarkMsgBox("Download Failed", "Failed to download the update.`n`nError: " . errorMsg . "`n`nPlease download manually from:`nhttps://github.com/GuyMayer/SideKick_PS/releases/latest", "error")
+				return
+			}
+		}
+		Sleep, 50
+	}
+	
+	; Cleanup temp files
+	FileDelete, %psScript%
+	FileDelete, %progressFile%
+	FileDelete, %completeFile%
+	
+	; Verify file exists
+	if (!FileExist(Download_Path)) {
+		if (!silent) {
+			GuiControl, Settings:Hide, AboutDownloadProgress
+			GuiControl, Settings:Hide, AboutDownloadStatus
+			GuiControl, Settings:Enable, AboutUpdateBtn
+			Gui, Settings:-Disabled
+		}
+		DarkMsgBox("Download Failed", "Download file not found.`n`nPlease download manually from:`nhttps://github.com/GuyMayer/SideKick_PS/releases/latest", "error")
 		return
+	}
+	
+	; Hide progress
+	if (!silent) {
+		GuiControl, Settings:Hide, AboutDownloadProgress
+		GuiControl, Settings:Hide, AboutDownloadStatus
+		Gui, Settings:-Disabled
 	}
 	
 	; Run the installer (silent mode if auto-update enabled)
 	if (silent) {
 		; Very silent install - no UI at all
-		Run, "%downloadPath%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
+		Run, "%Download_Path%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
 	} else {
 		; Normal install with UI
-		Run, "%downloadPath%"
+		Run, "%Download_Path%"
 	}
 	
 	; Exit current instance to allow update
 	ExitApp
 }
+
+; Timer to update download progress bar
+UpdateDownloadProgress:
+	progressFile := A_Temp . "\download_progress.txt"
+	if (FileExist(progressFile)) {
+		FileRead, progress, %progressFile%
+		progress := Trim(progress)
+		if (progress != "" && progress is number) {
+			GuiControl, Settings:, AboutDownloadProgress, %progress%
+			if (progress < 100)
+				GuiControl, Settings:, AboutDownloadStatus, Downloading... %progress%`%
+		}
+	}
+Return
 
 ; Silent update function for auto-updates
 SilentUpdate() {
@@ -2850,6 +2967,10 @@ CreateAboutPanel()
 	Gui, Settings:Add, Text, x350 y210 w200 BackgroundTrans vAboutLatestValue Hidden, Checking...
 	Gui, Settings:Font, s9 Norm cFFFFFF, Segoe UI
 	Gui, Settings:Add, Button, x555 y207 w90 h22 gAboutUpdateNow vAboutUpdateBtn Hidden, 🔄 Update
+	
+	; Download progress bar (hidden by default, shown during update)
+	Gui, Settings:Add, Progress, x200 y235 w345 h20 vAboutDownloadProgress Hidden Range0-100 c4FC3F7, 0
+	Gui, Settings:Add, Text, x200 y258 w345 BackgroundTrans vAboutDownloadStatus Hidden, Downloading...
 	
 	; Auto-update toggle slider (same style as General tab)
 	Gui, Settings:Add, Text, x200 y235 w300 BackgroundTrans vAboutAutoUpdateLabel Hidden, Enable automatic updates

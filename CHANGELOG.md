@@ -15,6 +15,16 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.33 (2026-02-01)
+
+### Enhancement
+- **Download Progress Bar**: Visual feedback when updating or reinstalling SideKick
+  - Progress bar appears on About tab during download
+  - Real-time percentage display (e.g., "Downloading... 45%")
+  - Uses Windows BITS (Background Intelligent Transfer Service) for reliable downloads
+  - Progress bar hidden when download completes
+  - Button disabled during download to prevent multiple clicks
+
 ## v2.4.32 (2026-02-01)
 
 ### Major New Feature
