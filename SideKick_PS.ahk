@@ -57,7 +57,7 @@ global DPI_Scale := A_ScreenDPI / 96
 #Include %A_ScriptDir%\Lib\Notes.ahk
 
 ; Script version info
-global ScriptVersion := "2.4.50"
+global ScriptVersion := "2.4.52"
 global BuildDate := "2026-02-01"
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
 
@@ -124,6 +124,8 @@ global Update_AvailableVersion := ""  ; Latest version found
 global Update_DownloadURL := ""       ; URL to download update
 global Settings_AutoUpdate := true    ; Enable automatic silent updates
 global Settings_AutoSendLogs := true  ; Auto-send debug logs to developer
+global Settings_DebugLogging := false  ; Enable debug logging (defaults OFF, auto-disables after 24hrs)
+global Settings_DebugLoggingTimestamp := ""  ; When debug logging was enabled
 global Update_DownloadReady := false  ; True when installer is downloaded and ready
 global Update_DownloadPath := ""      ; Path to downloaded installer
 global Update_UserDeclined := false   ; User said "Later" - ask again on exit
@@ -754,8 +756,9 @@ CreateFloatingToolbar()
 {
 	global
 	
-	; Toolbar dimensions (0.75x of 1.5x = 1.125x original)
-	toolbarWidth := Settings_SDCardEnabled ? 203 : 152  ; Adjust width based on SD Card feature
+	; Toolbar dimensions - add 51px for each button (44+7 spacing)
+	; Base: Client(44) + Invoice(44) + OpenGHL(44) + Settings(44) = 4 buttons + spacing
+	toolbarWidth := Settings_SDCardEnabled ? 254 : 203  ; +51 for new OpenGHL button
 	toolbarHeight := 43
 	
 	; Transparent background with colored buttons
@@ -766,13 +769,14 @@ CreateFloatingToolbar()
 	; Colored icon buttons (0.75x: 44x38)
 	Gui, Toolbar:Add, Text, x2 y3 w44 h38 Center BackgroundBlue cWhite gToolbar_GetClient vTB_Client, 👤
 	Gui, Toolbar:Add, Text, x53 y3 w44 h38 Center BackgroundGreen cWhite gToolbar_GetInvoice vTB_Invoice, 📋
+	Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundTeal cWhite gToolbar_OpenGHL vTB_OpenGHL, 🌐
 	
 	; SD Card Download button - only if enabled
 	if (Settings_SDCardEnabled) {
-		Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundOrange cWhite gToolbar_DownloadSD vTB_Download, 📥
-		Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+		Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundOrange cWhite gToolbar_DownloadSD vTB_Download, 📥
+		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
 	} else {
-		Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+		Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
 	}
 	
 	; Make background transparent
@@ -829,7 +833,7 @@ if (psW < 800 || psH < 600)
 }
 
 ; Position inline with window close X button - adjust for toolbar width
-tbWidth := Settings_SDCardEnabled ? 203 : 152
+tbWidth := Settings_SDCardEnabled ? 254 : 203
 newX := psX + psW - (tbWidth + 147)
 newY := psY + 6
 
@@ -838,6 +842,10 @@ Return
 
 Toolbar_GetClient:
 Gosub, GHLClientLookup
+Return
+
+Toolbar_OpenGHL:
+Gosub, OpenGHLClientURL
 Return
 
 Toolbar_DownloadSD:
@@ -1132,8 +1140,7 @@ if !ErrorLevel
 		Return
 	}
 	
-	; Run sync_ps_invoice to upload to GHL
-	ToolTip, Syncing invoice to GHL...
+	; Run sync_ps_invoice to upload to GHL (non-blocking with progress GUI)
 	scriptPath := GetScriptPath("sync_ps_invoice")
 	
 	if (!FileExist(scriptPath))
@@ -1150,11 +1157,14 @@ if !ErrorLevel
 	if (!Settings_ContactSheet)
 		syncArgs .= " --no-contact-sheet"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
-	RunWait, %ComSpec% /c "%syncCmd%", , Hide
-	ToolTip  ; Clear the tooltip
 	
-	ExportInProgress := false  ; Re-enable file watcher
-	DarkMsgBox("Invoice Synced", "Invoice synced to GHL:`n" . latestXml, "success")
+	; Show non-blocking progress GUI
+	ShowSyncProgressGUI(latestXml)
+	
+	; Run in background (non-blocking)
+	Run, %ComSpec% /c "%syncCmd%", , Hide, SyncProgress_ProcessId
+	
+	ExportInProgress := false  ; Re-enable file watcher immediately so user can continue
 }
 else
 {
@@ -1424,6 +1434,19 @@ ToggleClick_AutoSendLogs:
 Toggle_AutoSendLogs_State := !Toggle_AutoSendLogs_State
 Settings_AutoSendLogs := Toggle_AutoSendLogs_State
 UpdateToggleSlider("Settings", "AutoSendLogs", Toggle_AutoSendLogs_State, 590)
+SaveSettings()
+Return
+
+ToggleClick_DebugLogging:
+Toggle_DebugLogging_State := !Toggle_DebugLogging_State
+Settings_DebugLogging := Toggle_DebugLogging_State
+; Set timestamp when enabling, clear when disabling
+if (Settings_DebugLogging) {
+	FormatTime, Settings_DebugLoggingTimestamp, , yyyyMMddHHmmss
+} else {
+	Settings_DebugLoggingTimestamp := ""
+}
+UpdateToggleSlider("Settings", "DebugLogging", Toggle_DebugLogging_State, 360)
 SaveSettings()
 Return
 
@@ -1756,6 +1779,140 @@ DarkMsgGuiClose:
 DarkMsgGuiEscape:
 	DarkMsgBox_Result := "Cancel"
 	Gui, DarkMsg:Destroy
+Return
+
+; ============================================================
+; Non-Blocking Invoice Sync Progress GUI
+; ============================================================
+
+; Global variables for sync progress
+global SyncProgress_ProcessId := 0
+global SyncProgress_XmlPath := ""
+
+ShowSyncProgressGUI(xmlPath) {
+	global Settings_DarkMode, DPI_Scale, SyncProgress_ProcessId, SyncProgress_XmlPath
+	
+	SyncProgress_XmlPath := xmlPath
+	
+	; Theme colors
+	if (Settings_DarkMode) {
+		bgColor := "2D2D30"
+		textColor := "E0E0E0"
+		progressBg := "3C3C3C"
+		progressFg := "4FC3F7"
+	} else {
+		bgColor := "F5F5F5"
+		textColor := "333333"
+		progressBg := "E0E0E0"
+		progressFg := "0078D4"
+	}
+	
+	; Calculate sizes
+	dpi := DPI_Scale ? DPI_Scale : 1.0
+	guiW := Round(400 * dpi)
+	guiH := Round(120 * dpi)
+	margin := Round(20 * dpi)
+	progressW := guiW - (margin * 2)
+	progressH := Round(8 * dpi)
+	
+	; Create GUI
+	Gui, SyncProgress:Destroy
+	Gui, SyncProgress:New, +AlwaysOnTop -SysMenu +ToolWindow
+	Gui, SyncProgress:Color, %bgColor%
+	Gui, SyncProgress:Font, s11 c%textColor%, Segoe UI
+	
+	; Title
+	Gui, SyncProgress:Add, Text, x%margin% y%margin% w%progressW% vSyncProgress_Title, 📤 Syncing Invoice to GHL...
+	
+	; Progress bar (custom)
+	yPos := Round(50 * dpi)
+	Gui, SyncProgress:Add, Progress, x%margin% y%yPos% w%progressW% h%progressH% Background%progressBg% c%progressFg% vSyncProgress_Bar Range0-100, 10
+	
+	; Status text
+	yPos := Round(70 * dpi)
+	Gui, SyncProgress:Font, s9 c%textColor%
+	Gui, SyncProgress:Add, Text, x%margin% y%yPos% w%progressW% vSyncProgress_Status, Starting...
+	
+	; Show the GUI
+	Gui, SyncProgress:Show, w%guiW% h%guiH%, Invoice Sync Progress
+	
+	; Start the timer to poll progress file
+	SetTimer, SyncProgress_UpdateTimer, 500
+}
+
+SyncProgress_UpdateTimer:
+	global SyncProgress_ProcessId, SyncProgress_XmlPath
+	
+	; Read progress file
+	progressFile := A_Temp . "\sidekick_sync_progress.txt"
+	if (FileExist(progressFile)) {
+		FileRead, progressContent, %progressFile%
+		if (progressContent != "") {
+			; Parse: step|total|message|status
+			StringSplit, parts, progressContent, |
+			if (parts0 >= 4) {
+				step := parts1
+				total := parts2
+				message := parts3
+				status := parts4
+				
+				; Update progress bar
+				if (total > 0) {
+					percent := Round((step / total) * 100)
+					GuiControl, SyncProgress:, SyncProgress_Bar, %percent%
+				}
+				
+				; Update status text
+				GuiControl, SyncProgress:, SyncProgress_Status, %message%
+				
+				; Check if done
+				if (status = "success" || status = "error") {
+					SetTimer, SyncProgress_UpdateTimer, Off
+					
+					; Show final status briefly then close
+					if (status = "success") {
+						GuiControl, SyncProgress:, SyncProgress_Title, ✓ Sync Complete
+						GuiControl, SyncProgress:, SyncProgress_Bar, 100
+					} else {
+						GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Failed
+					}
+					
+					; Close after 2 seconds
+					SetTimer, SyncProgress_Close, -2000
+				}
+			}
+		}
+	}
+	
+	; Also check if process has exited unexpectedly
+	if (SyncProgress_ProcessId > 0) {
+		Process, Exist, %SyncProgress_ProcessId%
+		if (ErrorLevel = 0) {
+			; Process ended - check if we got a final status
+			Sleep, 500
+			FileRead, progressContent, %progressFile%
+			if (!InStr(progressContent, "success") && !InStr(progressContent, "error")) {
+				; Process crashed without final status
+				SetTimer, SyncProgress_UpdateTimer, Off
+				GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Error
+				GuiControl, SyncProgress:, SyncProgress_Status, Process ended unexpectedly
+				SetTimer, SyncProgress_Close, -3000
+			}
+		}
+	}
+Return
+
+SyncProgress_Close:
+	Gui, SyncProgress:Destroy
+	; Delete progress file
+	progressFile := A_Temp . "\sidekick_sync_progress.txt"
+	FileDelete, %progressFile%
+Return
+
+SyncProgressGuiClose:
+SyncProgressGuiEscape:
+	SetTimer, SyncProgress_UpdateTimer, Off
+	Gui, SyncProgress:Destroy
 Return
 
 ; ============================================================
@@ -3284,9 +3441,16 @@ CreateAboutPanel()
 	
 	; Auto-send toggle (right side)
 	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x480 y448 w100 BackgroundTrans vAboutAutoSendLabel Hidden, Auto-send
+	Gui, Settings:Add, Text, x480 y448 w100 BackgroundTrans vAboutAutoSendLabel hwndAutoSendLabelHwnd Hidden, Auto-send
 	CreateToggleSlider("Settings", "AutoSendLogs", 580, 446, Settings_AutoSendLogs)
 	GuiControl, Settings:Hide, Toggle_AutoSendLogs
+	RegisterSettingsTooltip(AutoSendLabelHwnd, "Automatically upload debug logs to developer when errors occur.`nHelps improve SideKick by reporting issues.")
+	
+	; Debug logging toggle
+	Gui, Settings:Add, Text, x200 y480 w150 BackgroundTrans vAboutDebugLabel hwndDebugLabelHwnd Hidden, Debug Logging
+	CreateToggleSlider("Settings", "DebugLogging", 350, 478, Settings_DebugLogging)
+	GuiControl, Settings:Hide, Toggle_DebugLogging
+	RegisterSettingsTooltip(DebugLabelHwnd, "Enable detailed logging for troubleshooting.`nLogs saved to: %APPDATA%\SideKick_PS\Logs\`n`nNOTE: Auto-disables after 24 hours if left on.")
 }
 
 CreateDeveloperPanel()
@@ -3474,6 +3638,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, AboutAutoSendLabel
 	GuiControl, Settings:Hide, Toggle_AutoSendLogs
 	GuiControl, Settings:Hide, AboutSendLogsBtn
+	GuiControl, Settings:Hide, AboutDebugLabel
+	GuiControl, Settings:Hide, Toggle_DebugLogging
 	
 	; Hide all panels - License
 	GuiControl, Settings:Hide, TabLicenseBg
@@ -3749,6 +3915,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, AboutAutoSendLabel
 		GuiControl, Settings:Show, Toggle_AutoSendLogs
 		GuiControl, Settings:Show, AboutSendLogsBtn
+		GuiControl, Settings:Show, AboutDebugLabel
+		GuiControl, Settings:Show, Toggle_DebugLogging
 		
 		; Refresh latest version info
 		RefreshLatestVersion()
@@ -3812,10 +3980,10 @@ Return
 DevCreateRelease:
 	; Build full release with EXE-only files (compiles AHK and Python)
 	ToolTip, Building release (compiling to EXE)...
-	buildScript := A_ScriptDir . "\SideKick_PS\build_and_archive.ps1"
+	buildScript := A_ScriptDir . "\build_and_archive.ps1"
 	if FileExist(buildScript) {
 		; Open PowerShell to run build interactively
-		Run, powershell.exe -NoExit -ExecutionPolicy Bypass -Command "cd '%A_ScriptDir%\SideKick_PS'; .\build_and_archive.ps1 -Version '%ScriptVersion%'", %A_ScriptDir%\SideKick_PS
+		Run, powershell.exe -NoExit -ExecutionPolicy Bypass -Command "cd '%A_ScriptDir%'; .\build_and_archive.ps1 -Version '%ScriptVersion%'", %A_ScriptDir%
 		ToolTip
 	} else {
 		ToolTip
@@ -3840,7 +4008,7 @@ DevUpdateVersion:
 Return
 
 DevPushGitHub:
-	repoDir := A_ScriptDir . "\SideKick_PS"
+	repoDir := A_ScriptDir
 	Run, powershell.exe -NoExit -Command "cd '%repoDir%'; git status; Write-Host ''; Write-Host 'Ready to commit and push. Use:' -ForegroundColor Yellow; Write-Host 'git add . && git commit -m \"Your message\" && git push' -ForegroundColor Cyan", %repoDir%
 Return
 
@@ -3849,7 +4017,7 @@ DevRefreshGit:
 Return
 
 DevOpenFolder:
-	Run, explorer.exe "%A_ScriptDir%\SideKick_PS"
+	Run, explorer.exe "%A_ScriptDir%"
 Return
 
 DevReloadScript:
@@ -3911,7 +4079,7 @@ DevQuickPush:
 		return  ; User cancelled
 	}
 	
-	repoDir := A_ScriptDir . "\SideKick_PS"
+	repoDir := A_ScriptDir
 	buildScript := repoDir . "\build_and_archive.ps1"
 	
 	if !FileExist(buildScript) {
@@ -4137,7 +4305,7 @@ CleanupOldReleases(repoDir, currentVersion) {
 RefreshDevGitStatus()
 {
 	global
-	repoDir := A_ScriptDir . "\SideKick_PS"
+	repoDir := A_ScriptDir
 	tempFile := A_Temp . "\git_status.txt"
 	
 	if !FileExist(repoDir . "\.git") {
@@ -6292,7 +6460,8 @@ GoSub, ShowSettings
 Return
 
 HK_DevReload:
-Reload
+Run, "%A_ScriptFullPath%"
+ExitApp
 Return
 
 ; Settings persistence functions
@@ -6338,6 +6507,21 @@ LoadSettings()
 	
 	; Debug log settings
 	IniRead, Settings_AutoSendLogs, %IniFilename%, Settings, AutoSendLogs, 1
+	IniRead, Settings_DebugLogging, %IniFilename%, Settings, DebugLogging, 0
+	IniRead, Settings_DebugLoggingTimestamp, %IniFilename%, Settings, DebugLoggingTimestamp, %A_Space%
+	
+	; Auto-disable debug logging after 24 hours
+	if (Settings_DebugLogging && Settings_DebugLoggingTimestamp != "") {
+		FormatTime, nowStamp, , yyyyMMddHHmmss
+		; Calculate hours since enabled
+		EnvSub, nowStamp, %Settings_DebugLoggingTimestamp%, Hours
+		if (nowStamp >= 24) {
+			Settings_DebugLogging := false
+			Settings_DebugLoggingTimestamp := ""
+			IniWrite, 0, %IniFilename%, Settings, DebugLogging
+			IniDelete, %IniFilename%, Settings, DebugLoggingTimestamp
+		}
+	}
 	
 	; File Management settings
 	IniRead, Settings_CardDrive, %IniFilename%, FileManagement, CardDrive, F:\DCIM
@@ -6426,6 +6610,11 @@ SaveSettings()
 	IniWrite, %Update_SkippedVersion%, %IniFilename%, Updates, SkippedVersion
 	IniWrite, %Update_LastCheckDate%, %IniFilename%, Updates, LastCheckDate
 	IniWrite, %Settings_AutoSendLogs%, %IniFilename%, Settings, AutoSendLogs
+	IniWrite, %Settings_DebugLogging%, %IniFilename%, Settings, DebugLogging
+	if (Settings_DebugLoggingTimestamp != "")
+		IniWrite, %Settings_DebugLoggingTimestamp%, %IniFilename%, Settings, DebugLoggingTimestamp
+	else
+		IniDelete, %IniFilename%, Settings, DebugLoggingTimestamp
 	
 	; Save File Management settings
 	IniWrite, %Settings_CardDrive%, %IniFilename%, FileManagement, CardDrive
@@ -7055,6 +7244,86 @@ Return
 
 
 ; ============================================================================
+; GHL Integration Functions - Open Client URL in Browser
+; ============================================================================
+
+OpenGHLClientURL:
+; Check license before allowing GHL features
+if (!CheckLicenseForGHL("Open GHL Client"))
+	Return
+
+; Check if we have a location ID configured
+if (GHL_LocationID = "")
+{
+	DarkMsgBox("GHL Not Configured", "Please configure your GHL Location ID in Settings first.", "warning", {timeout: 5})
+	Return
+}
+
+; First, try to get Client_ID from ProSelect window title (album name may contain it)
+contactId := ""
+if WinExist("ahk_exe ProSelect.exe")
+{
+	WinGetTitle, psTitle, ahk_exe ProSelect.exe
+	; Look for GHL contact ID pattern in title (20+ alphanumeric chars)
+	; Album names with client ID look like: "P26001_Smith_qatlAMlMrQQmZvLb71pj - ProSelect"
+	if (RegExMatch(psTitle, "([A-Za-z0-9]{20,})", titleMatch))
+	{
+		contactId := titleMatch1
+	}
+}
+
+; If not found in title, try the most recent XML export
+if (contactId = "")
+{
+	ExportFolder := Settings_InvoiceWatchFolder
+	if (ExportFolder != "" && FileExist(ExportFolder))
+	{
+		; Find the most recent XML file
+		latestXml := ""
+		latestTime := 0
+		Loop, Files, %ExportFolder%\*.xml
+		{
+			FileGetTime, fileTime, %A_LoopFileFullPath%, M
+			if (fileTime > latestTime)
+			{
+				latestTime := fileTime
+				latestXml := A_LoopFileFullPath
+			}
+		}
+		
+		if (latestXml != "")
+		{
+			; Read the Client_ID from the XML
+			FileRead, xmlContent, %latestXml%
+			if (InStr(xmlContent, "<Client_ID>"))
+			{
+				if (RegExMatch(xmlContent, "<Client_ID>(.+?)</Client_ID>", match))
+				{
+					if (match1 != "")
+						contactId := match1
+				}
+			}
+		}
+	}
+}
+
+if (contactId = "")
+{
+	DarkMsgBox("No Client ID Found", "Could not find a GHL Client ID.`n`nThe Client ID should be in either:`n• The ProSelect album name (after importing a GHL client)`n• The most recent invoice XML export`n`nImport a GHL client or export an order first.", "warning", {timeout: 5})
+	Return
+}
+
+; Build the GHL URL and open it
+ghlURL := "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/contacts/detail/" . contactId
+Run, %ghlURL%
+
+; Show brief confirmation
+ToolTip, Opening GHL client page...
+SetTimer, RemoveToolTip, -2000
+Return
+
+
+; ============================================================================
 ; GHL Integration Functions - Scan Chrome for FBPE URLs
 ; ============================================================================
 
@@ -7062,6 +7331,63 @@ GHLClientLookup:
 ; Check license before allowing GHL features
 if (!CheckLicenseForGHL("GHL Client Lookup"))
 	Return
+
+; Check ProSelect state to determine action
+existingClientId := ""
+albumOpenNoId := false
+
+if WinExist("ProSelect ahk_exe ProSelect.exe")
+{
+	WinGetTitle, psTitle, ahk_exe ProSelect.exe
+	
+	; Check for Client ID pattern in album name (20+ alphanumeric chars)
+	if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch))
+	{
+		; Album has Client ID - offer to use it
+		existingClientId := idMatch1
+		
+		result := DarkMsgBox("Client ID Found in Album", "The current album already has a Client ID:`n`n" . existingClientId . "`n`nUse this ID to fetch client data?", "question", {buttons: ["Yes - Use Album ID", "No - Scan Chrome"]})
+		
+		if (result = "Yes - Use Album ID")
+		{
+			; Fetch client data using existing ID
+			GHL_Data := FetchGHLData(existingClientId)
+			
+			if (GHL_Data.success)
+			{
+				global GHL_CurrentData := GHL_Data
+				
+				if (Settings_GHL_AutoLoad)
+				{
+					UpdateProSelectClient(GHL_Data)
+				}
+				else
+				{
+					ShowGHLClientDialog(GHL_Data, existingClientId, "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/contacts/detail/" . existingClientId)
+				}
+			}
+			else
+			{
+				ErrorMsg := GHL_Data.error ? GHL_Data.error : "Unknown error fetching client data"
+				DarkMsgBox("GHL Lookup Failed", ErrorMsg . "`n`nContact ID: " . existingClientId, "error", {timeout: 10})
+			}
+			Return
+		}
+		; else: User chose to scan Chrome - continue below
+	}
+	else if (!InStr(psTitle, "Untitled"))
+	{
+		; Album is open but has no Client ID - offer to update it from Chrome
+		albumOpenNoId := true
+		result := DarkMsgBox("Update Open Album?", "Album is open without a Client ID:`n`n" . psTitle . "`n`nScan Chrome and link this album to a GHL client?", "question", {buttons: ["Update Album", "Import New"]})
+		
+		if (result = "Import New")
+		{
+			albumOpenNoId := false  ; Treat as new import
+		}
+	}
+	; else: Untitled album - treat as new import
+}
 
 ; Scan all Chrome windows for FBPE URL
 FBPE_URL := ""
@@ -7101,12 +7427,13 @@ if (GHL_Data.success)
 {
 	; Store GHL data globally for use by UpdateProSelect
 	global GHL_CurrentData := GHL_Data
+	global GHL_UpdateExistingAlbum := albumOpenNoId  ; Pass flag for existing album update
 	
 	; Check if Auto-load is enabled
 	if (Settings_GHL_AutoLoad)
 	{
 		; Auto-load: directly update ProSelect without confirmation
-		UpdateProSelectClient(GHL_Data)
+		UpdateProSelectClient(GHL_Data, albumOpenNoId)
 	}
 	else
 	{
@@ -7199,8 +7526,8 @@ ShowGHLClientDialog(GHL_Data, ContactID, URL)
 
 GHLClientUpdatePS:
 Gui, GHLClient:Destroy
-global GHL_CurrentData
-UpdateProSelectClient(GHL_CurrentData)
+global GHL_CurrentData, GHL_UpdateExistingAlbum
+UpdateProSelectClient(GHL_CurrentData, GHL_UpdateExistingAlbum)
 Return
 
 GHLClientClose:
@@ -7212,8 +7539,9 @@ Return
 ; ============================================================================
 ; Update ProSelect Client Information
 ; Populates client fields in ProSelect from GHL data using PSConsole
+; updateExisting: if true, updating an existing album (skip confirmation, use Save As to add ID)
 ; ============================================================================
-UpdateProSelectClient(GHL_Data)
+UpdateProSelectClient(GHL_Data, updateExisting := false)
 {
 	global PsConsolePath, ProSelect2025Path, ProSelect2022Path
 	
@@ -7227,15 +7555,8 @@ UpdateProSelectClient(GHL_Data)
 	; Check if ProSelect is running - if not, start it and wait
 	if WinExist("ProSelect ahk_exe ProSelect.exe")
 	{
-		; ProSelect is already running - check if a file is open
-		WinGetTitle, psTitle, ProSelect ahk_exe ProSelect.exe
-		if !InStr(psTitle, "Untitled")
-		{
-			; A file is already open - confirm before overwriting
-			result := DarkMsgBox("ProSelect Has Open File", "ProSelect already has a file open:`n`n" . psTitle . "`n`nLoading new client data may overwrite existing data.`n`nDo you want to continue?", "question", {buttons: ["Yes", "No"]})
-			if (result = "No")
-				Return
-		}
+		; ProSelect is already running - good to proceed
+		; (User already confirmed via GHLClientLookup prompts)
 	}
 	else
 	{
@@ -7321,6 +7642,133 @@ UpdateProSelectClient(GHL_Data)
 	
 	if (result)
 	{
+		; Now save album with client ID appended to album name
+		; This makes it easy to identify the GHL contact from the window title
+		if (Account != "")
+		{
+			; Get current album path from ProSelect window title
+			WinGetTitle, psTitle, ahk_exe ProSelect.exe
+			
+			; Extract album name - title format is "ProSelect - AlbumName" or "ProSelect - C:\path\AlbumName.psa"
+			albumPath := ""
+			if (RegExMatch(psTitle, "^ProSelect - (.+)$", pathMatch))
+			{
+				albumPath := pathMatch1
+			}
+			
+			; Build new album name with client ID appended
+			newAlbumName := ""
+			
+			if (albumPath = "Untitled" || albumPath = "")
+			{
+				; New album - create name from client info: LastName_ClientID.psa
+				newAlbumName := LastName . "_" . Account . ".psa"
+			}
+			else if (!InStr(albumPath, Account))
+			{
+				; Existing album without client ID - need to append it
+				; Check if it's a full path or just a name
+				SplitPath, albumPath, fileName, dirPath, ext, nameNoExt
+				
+				; Just need the new filename with .psa extension
+				newAlbumName := nameNoExt . "_" . Account . ".psa"
+			}
+			; else: Album already has client ID - skip renaming
+			
+			if (newAlbumName != "")
+			{
+				ToolTip, 💾 Saving album with client ID...
+				Sleep, 300
+				
+				; Activate ProSelect first - must be in focus for menu/keystrokes
+				WinActivate, ahk_exe ProSelect.exe
+				Sleep, 300
+				WinWaitActive, ahk_exe ProSelect.exe, , 2
+				
+				; Try multiple methods to open Save As dialog (following Export Orders pattern)
+				saveAsOpened := false
+				
+				; Method 1: WinMenuSelectItem - most reliable
+				WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Save Album As...
+				Sleep, 800
+				if WinExist("Save Album As")
+				{
+					saveAsOpened := true
+				}
+				
+				; Method 2: Keyboard shortcut (fallback)
+				if (!saveAsOpened)
+				{
+					WinActivate, ahk_exe ProSelect.exe
+					Sleep, 300
+					SendInput, {Alt down}f{Alt up}
+					Sleep, 500
+					SendInput, a
+					Sleep, 800
+					if WinExist("Save Album As")
+					{
+						saveAsOpened := true
+					}
+				}
+				
+				; Method 3: Send with longer delays (last resort)
+				if (!saveAsOpened)
+				{
+					WinActivate, ahk_exe ProSelect.exe
+					Sleep, 500
+					Send, !f
+					Sleep, 800
+					Send, a
+					Sleep, 1000
+				}
+				
+				; Wait for dialog if not already detected
+				if (!saveAsOpened)
+				{
+					WinWait, Save Album As, , 5
+				}
+				
+				if WinExist("Save Album As")
+				{
+					WinActivate, Save Album As
+					Sleep, 300
+					
+					; Get handle for reliable control interaction
+					saveAsWin := WinExist("Save Album As")
+					
+					; Set filename - use ControlSetText for reliability
+					ControlSetText, Edit1, %newAlbumName%, ahk_id %saveAsWin%
+					Sleep, 300
+					
+					; Click Save button - try multiple methods
+					; Method 1: Send Enter key (filename field has focus)
+					ControlSend, Edit1, {Enter}, ahk_id %saveAsWin%
+					Sleep, 500
+					
+					; Method 2: If dialog still exists, try clicking Save button
+					if WinExist("Save Album As")
+					{
+						ControlClick, Button2, ahk_id %saveAsWin%
+						Sleep, 500
+					}
+					
+					; Handle any overwrite confirmation
+					if WinExist("Confirm Save As")
+					{
+						ControlSend, , {Enter}, Confirm Save As
+						Sleep, 300
+					}
+					
+					; Also check for ProSelect's own confirmation dialog
+					if WinExist("ahk_class #32770 ahk_exe ProSelect.exe")
+					{
+						Send, {Enter}
+						Sleep, 300
+					}
+				}
+			}
+		}
+		
 		ToolTip, ✅ Client data loaded to ProSelect!
 		SetTimer, RemoveUpdateTooltip, -2000
 	}

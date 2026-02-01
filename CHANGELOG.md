@@ -15,7 +15,16 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
-## v2.4.51 (2026-02-01)
+## v2.4.53 (2026-02-01)
+
+### New Features
+- **Client ID in Album Name**: When importing a GHL client, the album is now saved with the Client ID appended
+  - Format: `LastName_ClientID` for new albums
+  - Existing albums get `_ClientID` appended if not already present
+- **Open GHL Client Button**: New toolbar button (🌐) opens the client's GHL contact page in browser
+  - Now checks ProSelect window title first for Client ID (from album name)
+  - Falls back to checking most recent XML export if not found in title
+  - Quick access to client details without searching in GHL
 
 ### Bug Fixes
 - **Critical: Payment Recording Wrong Amount**: Fixed GHL invoice payments being recorded at 1/100th of actual value
