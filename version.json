@@ -1,9 +1,20 @@
 {
-  "version": "2.4.47",
+  "version": "2.4.48",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Better API connection testing and diagnostics",
+  "release_notes": "Fixed contact sheet generation for compiled EXE",
   "versions": [
+    {
+      "version": "2.4.48",
+      "build_date": "2026-02-01",
+      "release_notes": "Fixed contact sheet generation for compiled EXE",
+      "changelog": [
+        "FIXED: Contact sheet module now loads correctly in compiled EXE",
+        "FIXED: Lazy config loading prevents import failures",
+        "IMPROVED: Better debug logging for contact sheet creation",
+        "IMPROVED: More detailed error messages in logs"
+      ]
+    },
     {
       "version": "2.4.47",
       "build_date": "2026-02-01",

@@ -1379,38 +1379,55 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str) -> None:
     debug_log("CONTACT SHEET - Starting creation", {"xml_path": xml_path})
 
     try:
+        debug_log("CONTACT SHEET - Importing module")
         from create_ghl_contactsheet import parse_xml as cs_parse_xml, create_contact_sheet_jpg, find_folder_by_name, upload_to_folder
+        debug_log("CONTACT SHEET - Module imported successfully")
 
         cs_data = cs_parse_xml(xml_path)
+        debug_log("CONTACT SHEET - XML parsed", {"shoot_no": cs_data.get('shoot_no', 'unknown')})
+        
         thumb_folder = get_thumbnail_folder(xml_path)
 
         if not thumb_folder:
             print(f"   ℹ No thumbnail folder found")
+            debug_log("CONTACT SHEET - No thumbnail folder", {"xml_path": xml_path})
             return
 
+        debug_log("CONTACT SHEET - Thumbnail folder found", {"thumb_folder": thumb_folder})
+        
         jpg_path = _generate_contact_sheet_path(cs_data)
         title = f"Product Gallery - {cs_data['shoot_no']}"
         subtitle = f"{cs_data['first_name']} {cs_data['last_name']} - {cs_data.get('order_date', '')}"
+        
+        debug_log("CONTACT SHEET - Creating JPG", {"jpg_path": jpg_path, "title": title})
         result_path = create_contact_sheet_jpg(thumb_folder, jpg_path, title, subtitle, cs_data.get('image_labels', {}))
 
         if not result_path:
             print(f"   ⚠ Failed to create JPG")
+            debug_log("CONTACT SHEET - JPG creation failed")
             return
         print(f"   ✓ JPG created: {os.path.basename(jpg_path)}")
+        debug_log("CONTACT SHEET - JPG created", {"result_path": result_path})
 
         folder_id = get_media_folder_id() or find_folder_by_name("Order Sheets")
+        debug_log("CONTACT SHEET - Uploading to folder", {"folder_id": folder_id})
+        
         jpg_url = upload_to_folder(jpg_path, folder_id)
         if not jpg_url:
             print(f"   ⚠ Failed to upload JPG")
+            debug_log("CONTACT SHEET - Upload failed")
             return
         print(f"   ✓ Uploaded to GHL Media")
+        debug_log("CONTACT SHEET - Upload success", {"jpg_url": jpg_url})
 
         _add_contact_sheet_note(contact_id, cs_data, thumb_folder, jpg_url)
 
     except ImportError as e:
         print(f"   ⚠ Contact sheet module not found: {e}")
+        debug_log("CONTACT SHEET - ImportError", str(e))
     except Exception as e:
         print(f"   ⚠ Contact sheet error: {e}")
+        debug_log("CONTACT SHEET - Exception", {"error": str(e), "type": type(e).__name__})
 
 
 def _print_sync_header(xml_path: str, financials_only: bool, create_invoice: bool, create_contact_sheet: bool) -> None:
