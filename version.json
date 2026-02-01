@@ -1,9 +1,19 @@
 {
-  "version": "2.4.48",
+  "version": "2.4.49",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fixed contact sheet generation for compiled EXE",
+  "release_notes": "Fixed invoice totals - amounts now correct in GHL",
   "versions": [
+    {
+      "version": "2.4.49",
+      "build_date": "2026-02-01",
+      "release_notes": "Fixed invoice totals - amounts now correct in GHL",
+      "changelog": [
+        "FIXED: Invoice amounts now sent in pence (was sending pounds as pence)",
+        "FIXED: £950 order now shows as £950 in GHL (was showing £9.50)",
+        "FIXED: Discounts/credits also converted correctly"
+      ]
+    },
     {
       "version": "2.4.48",
       "build_date": "2026-02-01",

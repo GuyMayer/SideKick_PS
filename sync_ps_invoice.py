@@ -927,13 +927,13 @@ def _convert_to_ghl_items(invoice_items: list) -> list:
         invoice_items: Internal invoice items list.
 
     Returns:
-        list: GHL-formatted items.
+        list: GHL-formatted items with amounts in pence.
     """
     return [
         {
             "name": str(item['name']),
             "description": str(item['description']),
-            "amount": int(item['price']),
+            "amount": int(round(item['price'] * 100)),  # Convert pounds to pence
             "qty": int(item['quantity']),
             "currency": "GBP"
         }
@@ -1008,7 +1008,7 @@ def _build_invoice_payload(
     if total_discounts_credits > 0:
         payload["discount"] = {
             "type": "fixed",
-            "value": int(total_discounts_credits)
+            "value": int(round(total_discounts_credits * 100))  # Convert pounds to pence
         }
 
     return payload
@@ -1063,22 +1063,23 @@ def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total:
     """Adjust invoice totals if they don't match order total.
 
     Args:
-        invoice_items: Internal invoice items list.
-        ghl_items: GHL-formatted items list.
-        ps_order_total: ProSelect order total.
+        invoice_items: Internal invoice items list (prices in pounds).
+        ghl_items: GHL-formatted items list (amounts in pence).
+        ps_order_total: ProSelect order total in pounds.
     """
     ghl_invoice_total = sum(i['price'] for i in invoice_items if i['price'] > 0)
     if abs(ghl_invoice_total - ps_order_total) <= 0.01:
         return
 
     adjustment = ps_order_total - ghl_invoice_total
+    adjustment_pence = int(round(adjustment * 100))  # Convert adjustment to pence
     for item in invoice_items:
         if item['price'] > 0:
             item['price'] = round(item['price'] + adjustment, 2)
             break
     for ghl_item in ghl_items:
         if ghl_item['amount'] > 0:
-            ghl_item['amount'] = int(round(ghl_item['amount'] + adjustment))
+            ghl_item['amount'] = ghl_item['amount'] + adjustment_pence
             break
     print(f"  ✓ Totals adjusted (rounding fix: £{adjustment:.2f} on Payment 1)")
 
