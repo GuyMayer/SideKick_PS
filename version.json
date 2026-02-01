@@ -1,15 +1,13 @@
 {
-  "version": "2.4.30",
-  "build_date": "2026-01-31",
+  "version": "2.4.31",
+  "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Remote debug logging with GitHub Gist upload, verbose logging throughout sync process",
+  "release_notes": "Code quality improvements - reduced cyclomatic complexity in all Python modules",
   "changelog": [
-    "NEW: Remote debug logging - logs auto-uploaded to private GitHub Gist",
-    "NEW: Logs organized by GHL Location ID in subfolders",
-    "NEW: Send Logs button and Auto-send toggle on About tab",
-    "NEW: Auto-send ON by default for new installations",
-    "IMPROVED: Verbose logging for XML parsing, contact operations, invoices",
-    "IMPROVED: Media upload logging with file paths, sizes, API responses",
-    "IMPROVED: Contact sheet workflow logging with success/failure details"
+    "IMPROVED: Reduced cyclomatic complexity in all Python modules (all functions now ≤10)",
+    "IMPROVED: sync_ps_invoice.py - added 11 helper functions, create_ghl_invoice 54→10",
+    "IMPROVED: create_ghl_contactsheet.py - added 6 helper functions, _build_image_labels 18→5",
+    "IMPROVED: validate_license.py - added 12 helper functions, activate_license 16→7",
+    "IMPROVED: Better code maintainability and testability across all sync scripts"
   ]
 }
