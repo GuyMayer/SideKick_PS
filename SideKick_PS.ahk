@@ -57,7 +57,7 @@ global DPI_Scale := A_ScreenDPI / 96
 #Include %A_ScriptDir%\Lib\Notes.ahk
 
 ; Script version info
-global ScriptVersion := "2.4.44"
+global ScriptVersion := "2.4.45"
 global BuildDate := "2026-01-26"
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
 
@@ -4014,22 +4014,19 @@ CleanupOldReleases(repoDir, currentVersion) {
 	
 	; Delete old GitHub releases (keep only 2 newest)
 	if (deletedFolders.Length() > 0) {
-		; Create batch to delete old GitHub releases (use full path to gh)
+		; Create batch to delete old GitHub releases silently (only show errors)
 		cleanBatch := repoDir . "\cleanup_releases.bat"
 		FileDelete, %cleanBatch%
 		FileAppend, @echo off`n, %cleanBatch%
 		FileAppend, cd /d "%repoDir%"`n, %cleanBatch%
 		
 		for i, folder in deletedFolders {
-			FileAppend, echo Deleting GitHub release %folder%...`n, %cleanBatch%
-			FileAppend, "C:\Program Files\GitHub CLI\gh.exe" release delete %folder% --yes 2>nul`n, %cleanBatch%
+			; Delete silently - only show output if there's an error
+			FileAppend, "C:\Program Files\GitHub CLI\gh.exe" release delete %folder% --yes >nul 2>&1 || echo Failed to delete release %folder%`n, %cleanBatch%
 		}
 		
-		FileAppend, echo.`n, %cleanBatch%
-		FileAppend, echo Cleanup complete!`n, %cleanBatch%
-		FileAppend, pause`n, %cleanBatch%
-		
-		RunWait, %cleanBatch%, %repoDir%
+		Run, %cleanBatch%, %repoDir%, Hide
+		Sleep, 2000
 		FileDelete, %cleanBatch%
 		
 		; Commit the cleanup
