@@ -1,9 +1,21 @@
 {
-  "version": "2.4.45",
+  "version": "2.4.46",
   "build_date": "2026-02-01",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "More reliable Export Orders automation",
+  "release_notes": "Critical bug fixes for installed version",
   "versions": [
+    {
+      "version": "2.4.46",
+      "build_date": "2026-02-01",
+      "release_notes": "Critical bug fixes for installed version",
+      "changelog": [
+        "FIXED: Invoice sync now finds settings file correctly",
+        "FIXED: Permission error when running from Program Files",
+        "FIXED: Double export click removed",
+        "FIXED: Send Logs button works without configuration",
+        "FIXED: Start on Boot takes effect immediately"
+      ]
+    },
     {
       "version": "2.4.45",
       "build_date": "2026-02-01",
