@@ -15,7 +15,7 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
-## v2.4.54 (2026-02-02)
+## v2.4.55 (2026-02-02)
 
 ### New Features
 - **Non-Blocking Invoice Sync Progress**: New progress GUI shows real-time sync status
