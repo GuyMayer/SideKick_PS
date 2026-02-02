@@ -1409,24 +1409,68 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
         if future_payments:
             # Calculate schedule details
             num_payments = len(future_payments)
-            # Use average amount (they should all be the same usually)
-            avg_amount = sum(p.get('amount', 0) for p in future_payments) / num_payments
+            total_future = sum(p.get('amount', 0) for p in future_payments)
+            
+            # Calculate base amount (rounded down to avoid over-billing)
+            base_amount = round(total_future / num_payments, 2)
+            
+            # Check for rounding difference
+            calculated_total = round(base_amount * num_payments, 2)
+            rounding_diff = round(total_future - calculated_total, 2)
+            
             first_date = future_payments[0].get('date', today)
             
             client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
             email = ps_data.get('email', '')
             
             print(f"\n📅 Creating recurring payment schedule...")
-            schedule = create_recurring_invoice_schedule(
-                contact_id=contact_id,
-                contact_name=client_name,
-                email=email,
-                amount=avg_amount,
-                num_payments=num_payments,
-                start_date=first_date,
-                invoice_name=f"ProSelect Payment Plan - {client_name}"
-            )
-            schedule_created = schedule is not None
+            if rounding_diff != 0:
+                print(f"  ⚠ Rounding adjustment: £{rounding_diff:.2f} applied to first payment")
+            
+            # First payment amount includes rounding adjustment
+            first_payment_amount = round(base_amount + rounding_diff, 2)
+            
+            # If there's a rounding difference, create first invoice separately with adjusted amount
+            if rounding_diff != 0 and num_payments > 1:
+                # Create first invoice with adjusted amount
+                print(f"  Creating first payment: £{first_payment_amount:.2f}")
+                first_schedule = create_recurring_invoice_schedule(
+                    contact_id=contact_id,
+                    contact_name=client_name,
+                    email=email,
+                    amount=first_payment_amount,
+                    num_payments=1,
+                    start_date=first_date,
+                    invoice_name=f"ProSelect Payment 1 - {client_name}"
+                )
+                
+                # Create remaining payments with base amount
+                if num_payments > 1:
+                    # Get second payment date
+                    second_date = future_payments[1].get('date', first_date) if len(future_payments) > 1 else first_date
+                    print(f"  Creating remaining {num_payments - 1} payments: £{base_amount:.2f} each")
+                    schedule = create_recurring_invoice_schedule(
+                        contact_id=contact_id,
+                        contact_name=client_name,
+                        email=email,
+                        amount=base_amount,
+                        num_payments=num_payments - 1,
+                        start_date=second_date,
+                        invoice_name=f"ProSelect Payment Plan - {client_name}"
+                    )
+                schedule_created = first_schedule is not None
+            else:
+                # No rounding difference, create single recurring schedule
+                schedule = create_recurring_invoice_schedule(
+                    contact_id=contact_id,
+                    contact_name=client_name,
+                    email=email,
+                    amount=base_amount,
+                    num_payments=num_payments,
+                    start_date=first_date,
+                    invoice_name=f"ProSelect Payment Plan - {client_name}"
+                )
+                schedule_created = schedule is not None
 
     _open_invoice_in_browser(invoice_id)
 
