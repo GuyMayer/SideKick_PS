@@ -1791,6 +1791,7 @@ global SyncProgress_XmlPath := ""
 
 ShowSyncProgressGUI(xmlPath) {
 	global Settings_DarkMode, DPI_Scale, SyncProgress_ProcessId, SyncProgress_XmlPath
+	global SyncProgress_Title, SyncProgress_Bar, SyncProgress_Status
 	
 	SyncProgress_XmlPath := xmlPath
 	
