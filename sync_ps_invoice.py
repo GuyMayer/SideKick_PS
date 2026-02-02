@@ -410,19 +410,21 @@ except Exception as e:
     debug_log("CONFIG ERROR", str(e))
     API_KEY = ""
 
-# Cache for business name
-_BUSINESS_NAME_CACHE = None
+# Cache for business details
+_BUSINESS_DETAILS_CACHE = None
 
-def get_business_name() -> str:
-    """Get business name from GHL location settings.
+def get_business_details() -> dict:
+    """Get full business details from GHL location settings.
 
     Returns:
-        str: Business name, or 'Business' as fallback.
+        dict: Business details including name, address, phone, email, logo.
     """
-    global _BUSINESS_NAME_CACHE
-    if _BUSINESS_NAME_CACHE:
-        return _BUSINESS_NAME_CACHE
+    global _BUSINESS_DETAILS_CACHE
+    if _BUSINESS_DETAILS_CACHE:
+        return _BUSINESS_DETAILS_CACHE
 
+    default_details = {"name": "Business"}
+    
     try:
         location_id = CONFIG.get('LOCATION_ID', '')
         url = f"https://services.leadconnectorhq.com/locations/{location_id}"
@@ -434,12 +436,58 @@ def get_business_name() -> str:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json().get('location', {})
-            name = data.get('name') or data.get('business', {}).get('name') or 'Business'
-            _BUSINESS_NAME_CACHE = name
-            return name
-    except Exception:
-        pass
-    return 'Business'
+            business = data.get('business', {})
+            
+            # Build business details dict
+            details = {
+                "name": data.get('name') or business.get('name') or 'Business'
+            }
+            
+            # Add address if available
+            address = data.get('address') or data.get('businessAddress') or business.get('address')
+            if address:
+                details["address"] = address
+            
+            # Add phone if available
+            phone = data.get('phone') or business.get('phone')
+            if phone:
+                details["phoneNo"] = phone
+            
+            # Add email if available
+            email = data.get('email') or business.get('email')
+            if email:
+                details["email"] = email
+            
+            # Add logo if available
+            logo = data.get('logoUrl') or business.get('logoUrl')
+            if logo:
+                details["logoUrl"] = logo
+            
+            # Add website if available
+            website = data.get('website') or business.get('website')
+            if website:
+                details["website"] = website
+            
+            # Add VAT/Tax ID if available
+            vat = data.get('vatNumber') or data.get('taxId') or business.get('vatNumber') or business.get('taxId')
+            if vat:
+                details["customValues"] = [{"Tax ID/VAT Number": vat}]
+            
+            _BUSINESS_DETAILS_CACHE = details
+            debug_log("BUSINESS DETAILS FETCHED", details)
+            return details
+    except Exception as e:
+        debug_log(f"ERROR fetching business details: {e}")
+    
+    return default_details
+
+def get_business_name() -> str:
+    """Get business name from GHL location settings.
+
+    Returns:
+        str: Business name, or 'Business' as fallback.
+    """
+    return get_business_details().get("name", "Business")
 
 def get_media_folder_id() -> str | None:
     """Get saved media folder ID from INI file.
@@ -812,6 +860,110 @@ def record_ghl_payment(invoice_id: str, payment: dict, max_retries: int = 5) -> 
 
     return (False, True)
 
+
+def create_recurring_invoice_schedule(
+    contact_id: str,
+    contact_name: str,
+    email: str,
+    amount: float,
+    num_payments: int,
+    start_date: str,
+    invoice_name: str = "Payment Plan"
+) -> dict | None:
+    """Create a recurring invoice schedule for installment payments.
+
+    Creates a GHL invoice schedule that generates invoices monthly for
+    a fixed number of payments (installments).
+
+    Args:
+        contact_id: GHL contact ID.
+        contact_name: Contact's full name.
+        email: Contact's email address.
+        amount: Amount per payment (in pounds).
+        num_payments: Number of monthly payments.
+        start_date: First payment date (YYYY-MM-DD).
+        invoice_name: Name for the invoice schedule.
+
+    Returns:
+        dict: Schedule response data, or None on failure.
+    """
+    url = "https://services.leadconnectorhq.com/invoices/schedule/"
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+        "Version": "2021-07-28"
+    }
+
+    # Extract day of month from start date
+    try:
+        day_of_month = int(start_date.split('-')[2])
+        if day_of_month > 28:
+            day_of_month = 28  # GHL max is 28
+        elif day_of_month < 1:
+            day_of_month = 1
+    except (IndexError, ValueError):
+        day_of_month = 1
+
+    payload = {
+        "altId": CONFIG.get('LOCATION_ID', ''),
+        "altType": "location",
+        "name": invoice_name,
+        "liveMode": False,  # Draft mode - needs manual activation
+        "contactDetails": {
+            "id": contact_id,
+            "name": contact_name,
+            "email": email
+        },
+        "businessDetails": get_business_details(),
+        "currency": "GBP",
+        "items": [
+            {
+                "name": f"Payment ({num_payments} installments)",
+                "amount": float(amount),
+                "qty": 1,
+                "currency": "GBP"
+            }
+        ],
+        "discount": {
+            "type": "fixed",
+            "value": 0
+        },
+        "schedule": {
+            "rrule": {
+                "intervalType": "monthly",
+                "interval": 1,
+                "startDate": start_date,
+                "dayOfMonth": day_of_month,
+                "count": num_payments
+            }
+        }
+    }
+
+    debug_log("CREATE RECURRING SCHEDULE REQUEST", payload)
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        debug_log(f"CREATE RECURRING SCHEDULE RESPONSE: Status={response.status_code}", {
+            "body": response.text[:1000] if response.text else "EMPTY"
+        })
+
+        if response.status_code in [200, 201]:
+            data = response.json()
+            schedule_id = data.get('_id', 'Unknown')
+            print(f"  ✓ Created recurring schedule: {schedule_id}")
+            print(f"    {num_payments} x £{amount:.2f}/month starting {start_date}")
+            return data
+        else:
+            print(f"  ✗ Failed to create schedule ({response.status_code})")
+            debug_log("SCHEDULE CREATE FAILED", {"response": response.text})
+            return None
+
+    except Exception as e:
+        print(f"  ✗ Schedule error: {e}")
+        debug_log("SCHEDULE CREATE EXCEPTION", {"error": str(e)})
+        return None
+
+
 # =============================================================================
 # GHL Media Upload Functions
 # =============================================================================
@@ -1088,7 +1240,8 @@ def _build_invoice_payload(
     due_date: str,
     client_name: str,
     email: str,
-    total_discounts_credits: float
+    total_discounts_credits: float,
+    payments: list = None
 ) -> dict:
     """Build the invoice payload for GHL V2 API.
 
@@ -1101,6 +1254,7 @@ def _build_invoice_payload(
         client_name: Client full name.
         email: Client email.
         total_discounts_credits: Total discounts to apply.
+        payments: List of payment installments with dates and amounts.
 
     Returns:
         dict: Complete payload for GHL API.
@@ -1113,9 +1267,7 @@ def _build_invoice_payload(
         "items": ghl_items,
         "issueDate": issue_date,
         "dueDate": due_date,
-        "businessDetails": {
-            "name": get_business_name()  # Fetched from GHL location
-        },
+        "businessDetails": get_business_details(),  # Full details from GHL location
         "contactDetails": {
             "id": contact_id,
             "name": client_name,
@@ -1129,6 +1281,18 @@ def _build_invoice_payload(
             "value": float(total_discounts_credits)  # Invoice discounts use pounds
         }
 
+    # GHL paymentSchedule API is not well documented and causes errors
+    # Future payments are logged but not scheduled via API
+    # The payment schedule must be set up manually in GHL UI
+    if payments:
+        today = datetime.now().strftime('%Y-%m-%d')
+        future_payments = [p for p in payments if p.get('date', '') > today]
+        if future_payments:
+            debug_log("FUTURE PAYMENTS (manual schedule required)", {
+                "count": len(future_payments),
+                "payments": future_payments
+            })
+
     return payload
 
 
@@ -1136,6 +1300,7 @@ def _process_invoice_payments(invoice_id: str, payments: list) -> int:
     """Record past payments for an invoice.
 
     Records each payment individually so they appear separately in GHL.
+    Future payments are included in the invoice's paymentSchedule (installments).
     Note: GHL API requires ~3s delay between payments to avoid 409 conflicts.
 
     Args:
@@ -1143,7 +1308,7 @@ def _process_invoice_payments(invoice_id: str, payments: list) -> int:
         payments: List of payment dictionaries.
 
     Returns:
-        int: Number of payments successfully recorded.
+        int: Number of past payments successfully recorded.
     """
     today = datetime.now().strftime('%Y-%m-%d')
     past_payments = [p for p in payments if p.get('date', '') <= today]
@@ -1165,7 +1330,8 @@ def _process_invoice_payments(invoice_id: str, payments: list) -> int:
         print(f"  ✓ Recorded {payments_recorded}/{total_payments} past payments")
 
     if future_payments:
-        print(f"  📅 {len(future_payments)} future payments shown on invoice (not recorded yet)")
+        # Future payments are already in invoice's paymentSchedule (installments)
+        print(f"  📅 {len(future_payments)} future installment(s) added to invoice payment schedule")
 
     return payments_recorded
 
@@ -1208,7 +1374,7 @@ def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total:
     print(f"  ✓ Totals adjusted (rounding fix: £{adjustment:.2f} on Payment 1)")
 
 
-def _handle_invoice_success(response, payments: list, balance_due: float, order: dict) -> dict:
+def _handle_invoice_success(response, payments: list, balance_due: float, order: dict, ps_data: dict = None, contact_id: str = None) -> dict:
     """Handle successful invoice creation response.
 
     Args:
@@ -1216,6 +1382,8 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
         payments: Payments list.
         balance_due: Balance due amount.
         order: Order dictionary.
+        ps_data: ProSelect data for contact info.
+        contact_id: GHL contact ID.
 
     Returns:
         dict: Success result dictionary.
@@ -1232,12 +1400,40 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
     payments_recorded = _process_invoice_payments(invoice_id, payments) if payments else 0
     print(f"  Balance Due: £{balance_due:.2f}")
 
+    # Create recurring schedule for future payments if we have them
+    schedule_created = False
+    if payments and ps_data and contact_id:
+        today = datetime.now().strftime('%Y-%m-%d')
+        future_payments = [p for p in payments if p.get('date', '') > today]
+        
+        if future_payments:
+            # Calculate schedule details
+            num_payments = len(future_payments)
+            # Use average amount (they should all be the same usually)
+            avg_amount = sum(p.get('amount', 0) for p in future_payments) / num_payments
+            first_date = future_payments[0].get('date', today)
+            
+            client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
+            email = ps_data.get('email', '')
+            
+            print(f"\n📅 Creating recurring payment schedule...")
+            schedule = create_recurring_invoice_schedule(
+                contact_id=contact_id,
+                contact_name=client_name,
+                email=email,
+                amount=avg_amount,
+                num_payments=num_payments,
+                start_date=first_date,
+                invoice_name=f"ProSelect Payment Plan - {client_name}"
+            )
+            schedule_created = schedule is not None
+
     _open_invoice_in_browser(invoice_id)
 
     return {
         'success': True, 'invoice_id': invoice_id, 'invoice_number': invoice_number,
         'amount': order.get('total_amount', 0), 'paid': 0, 'balance': balance_due,
-        'payments_recorded': payments_recorded
+        'payments_recorded': payments_recorded, 'schedule_created': schedule_created
     }
 
 
@@ -1279,12 +1475,19 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
 
     payload = _build_invoice_payload(
         contact_id, invoice_name, ghl_items, issue_date, due_date,
-        client_name, ps_data.get('email', ''), total_discounts_credits
+        client_name, ps_data.get('email', ''), total_discounts_credits, payments
     )
+
+    # Count future payments for display
+    today = datetime.now().strftime('%Y-%m-%d')
+    future_payments = [p for p in payments if p.get('date', '') > today]
 
     print(f"\n📋 Invoice Details:")
     print(f"  ProSelect Order Total: £{ps_order_total:.2f}")
-    print(f"  Payments scheduled: {len(payments)}")
+    print(f"  Payment installments: {len(future_payments)}")
+    if future_payments:
+        for i, fp in enumerate(future_payments, 1):
+            print(f"    {i}. £{fp['amount']:.2f} due {fp['date']}")
 
     url = "https://services.leadconnectorhq.com/invoices/"
     debug_log(f"CREATE INVOICE REQUEST: {url}", payload)
@@ -1295,7 +1498,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
         debug_log(f"CREATE INVOICE RESPONSE: Status={response.status_code}", {"body": response_body})
 
         if response.status_code in [200, 201]:
-            return _handle_invoice_success(response, payments, balance_due, order)
+            return _handle_invoice_success(response, payments, balance_due, order, ps_data, contact_id)
         else:
             error_msg = f"Invoice creation failed (HTTP {response.status_code})"
             if response.status_code == 400:

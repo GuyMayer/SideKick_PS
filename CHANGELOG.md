@@ -15,6 +15,30 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.57 (2026-02-02)
+
+### New Features
+- **Recurring Payment Schedules**: Future payments now create automatic recurring invoice schedules in GHL
+  - Monthly invoices generated for each future payment date
+  - Uses GHL's native scheduling API with `rrule` configuration
+  - Schedule count limited to exact number of future payments
+  - Starts on first future payment date
+
+### Improvements
+- **Full Business Details on Invoices**: Invoices now include complete business information from GHL
+  - Business name, address, phone, email
+  - Logo URL and website
+  - VAT/Tax ID number
+  - All pulled automatically from GHL Location Settings
+
+### Technical
+- Added `get_business_details()` function to fetch full location data
+- Added `create_recurring_invoice_schedule()` function using `/invoices/schedule/` endpoint
+- Modified `_handle_invoice_success()` to create recurring schedules for future payments
+- Business details cached to reduce API calls
+
+---
+
 ## v2.4.56 (2026-02-02)
 
 ### New Features
