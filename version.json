@@ -13,6 +13,7 @@
         "NEW: Debug Logging toggle in About panel (auto-disables after 24 hours)",
         "IMPROVED: Clearer error messages when GHL sync fails",
         "IMPROVED: No more popup dialogs when new invoice files appear",
+        "IMPROVED: Version numbers now sync automatically (single source of truth)",
         "FIXED: Invoice sync now runs reliably in background"
       ]
     },
