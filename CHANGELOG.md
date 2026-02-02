@@ -15,7 +15,7 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
-## v2.4.57 (2026-02-02)
+## v2.4.59 (2026-02-02)
 
 ### New Features
 - **Recurring Payment Schedules**: Future payments now create automatic recurring invoice schedules in GHL
@@ -36,6 +36,9 @@ AI INSTRUCTIONS - When publishing a new version:
 - Added `create_recurring_invoice_schedule()` function using `/invoices/schedule/` endpoint
 - Modified `_handle_invoice_success()` to create recurring schedules for future payments
 - Business details cached to reduce API calls
+- **Rounding fix**: First payment adjusted to absorb any rounding difference (matches GoCardless/ProSelect)
+  - Creates separate schedule for first payment when rounding applies
+  - Remaining payments use base equal amount
 
 ---
 
