@@ -46,23 +46,63 @@ SendMode Input  ; Recommended for new scripts due to its superior speed and reli
 SetWorkingDir %A_ScriptDir%  ; Ensures a consistent starting directory.
 #SingleInstance Force
 
+; DEBUG: Create startup log file
+global DebugLogFile := A_ScriptDir . "\startup_debug.log"
+FileDelete, %DebugLogFile%
+FileAppend, % "=== SideKick_PS Startup Log ===" . "`n", %DebugLogFile%
+FileAppend, % "Started: " . A_Now . "`n", %DebugLogFile%
+FileAppend, % "Script: " . A_ScriptFullPath . "`n", %DebugLogFile%
+FileAppend, % "A_IsAdmin: " . A_IsAdmin . "`n`n", %DebugLogFile%
+
+; ============================================================================
+; Request Admin Elevation if needed (required when ProSelect runs as admin)
+; ============================================================================
+FileAppend, % A_Now . " - Checking admin elevation...`n", %DebugLogFile%
+if not A_IsAdmin
+{
+	; Check if ProSelect is running elevated
+	psHwnd := WinExist("ahk_exe ProSelect.exe")
+	FileAppend, % A_Now . " - ProSelect HWND: " . psHwnd . "`n", %DebugLogFile%
+	if (psHwnd)
+	{
+		; If ProSelect is running, we need admin to interact with it if it's elevated
+		; Try to run as admin
+		FileAppend, % A_Now . " - Requesting admin elevation...`n", %DebugLogFile%
+		try
+		{
+			Run *RunAs "%A_ScriptFullPath%"
+			ExitApp
+		}
+	}
+}
+FileAppend, % A_Now . " - Admin check complete`n", %DebugLogFile%
+
+FileAppend, % A_Now . " - DPI setup...`n", %DebugLogFile%
+
 ; Enable DPI awareness for proper scaling on high-DPI displays
 DllCall("SetThreadDpiAwarenessContext", "ptr", -2, "ptr")  ; DPI_AWARENESS_CONTEXT_SYSTEM_AWARE
 
 ; Get system DPI scale factor (100 = 100%, 125 = 125%, etc.)
 global DPI_Scale := A_ScreenDPI / 96
+FileAppend, % A_Now . " - DPI Scale: " . DPI_Scale . "`n", %DebugLogFile%
 
+FileAppend, % A_Now . " - Loading Acc.ahk...`n", %DebugLogFile%
 #Include %A_ScriptDir%\Lib\Acc.ahk
+FileAppend, % A_Now . " - Loading Chrome.ahk...`n", %DebugLogFile%
 #Include %A_ScriptDir%\Lib\Chrome.ahk
+FileAppend, % A_Now . " - Loading Notes.ahk...`n", %DebugLogFile%
 #Include %A_ScriptDir%\Lib\Notes.ahk
+FileAppend, % A_Now . " - All includes loaded`n", %DebugLogFile%
 
 ; Script version info - loaded from version.json (single source of truth)
 global ScriptVersion := ""
 global BuildDate := ""
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
 
+FileAppend, % A_Now . " - Loading version from JSON...`n", %DebugLogFile%
 ; Load version from version.json at startup
 LoadVersionFromJson()
+FileAppend, % A_Now . " - Version: " . ScriptVersion . "`n", %DebugLogFile%
 
 ; GHL Integration variables
 global FBPE_URL := ""
@@ -148,6 +188,13 @@ global PsConsolePath := ""
 ; Close any previous instances (no admin required)
 #SingleInstance Force
 
+; Clean up any stale progress files and timers from previous runs
+progressFile := A_Temp . "\sidekick_sync_progress.txt"
+if FileExist(progressFile)
+	FileDelete, %progressFile%
+SetTimer, SyncProgress_UpdateTimer, Off
+Gui, SyncProgress:Destroy
+
 ;#Persistent
 SetTitleMatchMode, 2
 SetTitleMatchMode, Slow
@@ -203,8 +250,10 @@ IniRead, GHL_LocationID, %IniFilename%, GHL, LocationID, %A_Space%
 if (GHL_API_Key_B64 != "")
 	GHL_API_Key := Base64_Decode(GHL_API_Key_B64)
 
+FileAppend, % A_Now . " - Loading settings from INI...`n", %DebugLogFile%
 ; Load settings from INI
 LoadSettings()
+FileAppend, % A_Now . " - Settings loaded`n", %DebugLogFile%
 
 ; Add dev menu items if developer mode
 if (IsDeveloperMode()) {
@@ -212,21 +261,27 @@ if (IsDeveloperMode()) {
 	Menu, Tray, Insert, &Quick Publish  ; Separator before Quick Publish
 }
 
+FileAppend, % A_Now . " - Checking license expiry...`n", %DebugLogFile%
 ; Check license expiry status on startup
 CheckLicenseExpiryOnStartup()
+FileAppend, % A_Now . " - License checked`n", %DebugLogFile%
 
 ; Monthly license validation and update check (delayed to not block startup)
 SetTimer, AsyncMonthlyCheck, -5000  ; Run once after 5 seconds
 
+FileAppend, % A_Now . " - Checking first-run GHL setup...`n", %DebugLogFile%
 ; Check for first-run GHL setup
 CheckFirstRunGHLSetup()
+FileAppend, % A_Now . " - First-run check complete`n", %DebugLogFile%
 
 ; Initialize tooltip data for settings controls (hwnd => tooltip text)
 global SettingsTooltips := {}
 global LastHoveredControl := 0
 
+FileAppend, % A_Now . " - Detecting ProSelect version...`n", %DebugLogFile%
 ; Detect ProSelect version on startup
 DetectProSelectVersion()
+FileAppend, % A_Now . " - ProSelect version: " . ProSelectVersion . "`n", %DebugLogFile%
 
 ; Check for ProSelect Console path - try newer version first, then fall back
 if FileExist("C:\Program Files\Pro Studio Software\ProSelect 2025\ProSelect Helpers\plrp.install\win\psconsole.exe")
@@ -241,16 +296,22 @@ else
 ;#######################################################
 ; Global Hotkeys - These can be customized in Settings
 ; Register hotkeys dynamically so they can be changed
+FileAppend, % A_Now . " - Registering hotkeys...`n", %DebugLogFile%
 RegisterHotkeys()
+FileAppend, % A_Now . " - Hotkeys registered`n", %DebugLogFile%
 
 ; Create floating toolbar
+FileAppend, % A_Now . " - Creating floating toolbar...`n", %DebugLogFile%
 CreateFloatingToolbar()
+FileAppend, % A_Now . " - Toolbar created`n", %DebugLogFile%
 
 ;#######################################################
 ;Payplan Helper
+FileAppend, % A_Now . " - Playing startup sounds...`n", %DebugLogFile%
 SoundPlay %A_ScriptDir%\sidekick\media\KbdSpacebar.wav
 sleep 250
 SoundPlay %A_ScriptDir%\sidekick\media\KbdSpacebar.wav
+FileAppend, % A_Now . " - === STARTUP COMPLETE ===`n", %DebugLogFile%
 
 
 Start:
@@ -886,7 +947,13 @@ Gosub, DownloadSDCard
 Return
 
 Toolbar_GetInvoice:
+; DEBUG: Clear and start invoice log
+FileDelete, %DebugLogFile%
+FileAppend, % "=== Invoice Sync Debug Log ===" . "`n", %DebugLogFile%
+FileAppend, % "Started: " . A_Now . "`n`n", %DebugLogFile%
+
 ; Proceed with ProSelect export flow - exports XML then syncs it
+FileAppend, % A_Now . " - Checking GHL warning setting...`n", %DebugLogFile%
 ; Check if warning should be shown
 if (!Settings_GHLInvoiceWarningShown)
 {
@@ -973,31 +1040,38 @@ GHLWarning_Continue:
 }
 
 Toolbar_GetInvoice_AfterWarning:
+FileAppend, % A_Now . " - Starting invoice export...`n", %DebugLogFile%
 
 ; Suspend file watcher during export to prevent duplicate prompts
 ExportInProgress := true
 
+FileAppend, % A_Now . " - Activating ProSelect...`n", %DebugLogFile%
 ; Open ProSelect Export Orders dialog (Orders menu -> Export Order)
 WinActivate, ahk_exe ProSelect.exe
 Sleep, 300
 
+FileAppend, % A_Now . " - Waiting for ProSelect active...`n", %DebugLogFile%
 ; Wait for ProSelect to be active
 WinWaitActive, ahk_exe ProSelect.exe, , 2
+FileAppend, % A_Now . " - ProSelect active`n", %DebugLogFile%
 
 ; Try multiple methods to open Export Orders dialog
 exportOpened := false
 
+FileAppend, % A_Now . " - Method 1: WinMenuSelectItem...`n", %DebugLogFile%
 ; Method 1: WinMenuSelectItem - most reliable for standard menus
 WinMenuSelectItem, ahk_exe ProSelect.exe, , Orders, Export Orders...
 Sleep, 800
 if WinExist("Export Orders ahk_exe ProSelect.exe")
 {
 	exportOpened := true
+	FileAppend, % A_Now . " - Method 1 SUCCESS`n", %DebugLogFile%
 }
 
 ; Method 2: SendInput with longer delays (fallback)
 if (!exportOpened)
 {
+	FileAppend, % A_Now . " - Method 2: SendInput Alt+O, E...`n", %DebugLogFile%
 	WinActivate, ahk_exe ProSelect.exe
 	Sleep, 300
 	SendInput, {Alt down}o{Alt up}
@@ -1007,12 +1081,14 @@ if (!exportOpened)
 	if WinExist("Export Orders ahk_exe ProSelect.exe")
 	{
 		exportOpened := true
+		FileAppend, % A_Now . " - Method 2 SUCCESS`n", %DebugLogFile%
 	}
 }
 
 ; Method 3: Send with even longer delays (last resort)
 if (!exportOpened)
 {
+	FileAppend, % A_Now . " - Method 3: Send !o, e...`n", %DebugLogFile%
 	WinActivate, ahk_exe ProSelect.exe
 	Sleep, 500
 	Send, !o
@@ -1022,20 +1098,24 @@ if (!exportOpened)
 	if WinExist("Export Orders ahk_exe ProSelect.exe")
 	{
 		exportOpened := true
+		FileAppend, % A_Now . " - Method 3 SUCCESS`n", %DebugLogFile%
 	}
 }
 
 ; Only wait if dialog didn't open yet (skip 5s wait if already open)
 if (!exportOpened)
 {
+	FileAppend, % A_Now . " - Waiting 5s for Export Orders dialog...`n", %DebugLogFile%
 	WinWait, Export Orders ahk_exe ProSelect.exe, , 5
 	if ErrorLevel
 	{
+		FileAppend, % A_Now . " - FAILED: Export Orders dialog did not open`n", %DebugLogFile%
 		ExportInProgress := false  ; Re-enable file watcher
 		DarkMsgBox("SideKick PS", "Export Orders dialog did not open.`n`nTry opening it manually: Orders menu → Export Orders...", "warning")
 		Return
 	}
 }
+FileAppend, % A_Now . " - Export Orders dialog opened`n", %DebugLogFile%
 Sleep, 300
 
 ; Get the window handle for more reliable control interaction
@@ -1169,16 +1249,21 @@ if !ErrorLevel
 	
 	if (!hasClientID)
 	{
+		FileAppend, % A_Now . " - ERROR: Missing Client ID`n", %DebugLogFile%
 		ExportInProgress := false  ; Re-enable file watcher
 		DarkMsgBox("Missing Client ID", "Invoice XML is missing a Client ID.`n`nPlease link this order to a GHL contact before exporting.`n`nFile: " . latestXml, "warning")
 		Return
 	}
+	FileAppend, % A_Now . " - Client ID found in XML`n", %DebugLogFile%
 	
 	; Run sync_ps_invoice to upload to GHL (non-blocking with progress GUI)
 	scriptPath := GetScriptPath("sync_ps_invoice")
+	FileAppend, % A_Now . " - Script path: " . scriptPath . "`n", %DebugLogFile%
+	FileAppend, % A_Now . " - Script exists: " . FileExist(scriptPath) . "`n", %DebugLogFile%
 	
 	if (!FileExist(scriptPath))
 	{
+		FileAppend, % A_Now . " - ERROR: Script not found`n", %DebugLogFile%
 		ExportInProgress := false  ; Re-enable file watcher
 		DarkMsgBox("Script Missing", "Invoice exported but sync_ps_invoice not found.`n`nLooking for: " . scriptPath . "`nScript Dir: " . A_ScriptDir, "warning")
 		Return
@@ -1193,19 +1278,26 @@ if !ErrorLevel
 	if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
 		syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
+	FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
 	
+	FileAppend, % A_Now . " - Showing progress GUI...`n", %DebugLogFile%
 	; Show non-blocking progress GUI
 	ShowSyncProgressGUI(latestXml)
+	FileAppend, % A_Now . " - Progress GUI shown`n", %DebugLogFile%
 	
-	; Run in background (non-blocking) - use script directory as working dir
-	; For .exe files, use start /b for true background execution
-	; For Python scripts, run via cmd /c without start (AHK's Run is already async)
+	; Run in background (non-blocking) - AHK's Run is async by default
 	scriptPath := GetScriptPath("sync_ps_invoice")
-	if (SubStr(scriptPath, -3) = ".exe") {
-		Run, %ComSpec% /c start /b "" %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
-	} else {
-		; Python scripts - run directly (AHK's Run is non-blocking by default)
-		Run, %ComSpec% /c %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	FileAppend, % A_Now . " - Running sync process...`n", %DebugLogFile%
+	FileAppend, % A_Now . " - syncCmd: " . syncCmd . "`n", %DebugLogFile%
+	FileAppend, % A_Now . " - Working dir: " . A_ScriptDir . "`n", %DebugLogFile%
+	
+	; Run directly - AHK Run is already non-blocking
+	; Don't use start /b as it can cause issues with argument parsing
+	try {
+		Run, %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+		FileAppend, % A_Now . " - Run succeeded, PID: " . SyncProgress_ProcessId . "`n", %DebugLogFile%
+	} catch e {
+		FileAppend, % A_Now . " - Run FAILED: " . e.Message . "`n", %DebugLogFile%
 	}
 	
 	; Update folder watcher's file list so it doesn't re-prompt for this file
@@ -1213,10 +1305,12 @@ if !ErrorLevel
 	if (!InStr(LastInvoiceFiles, fileName . "|"))
 		LastInvoiceFiles .= fileName . "|"
 	
+	FileAppend, % A_Now . " - Export completed, file watcher re-enabled`n", %DebugLogFile%
 	ExportInProgress := false  ; Re-enable file watcher immediately so user can continue
 }
 else
 {
+	FileAppend, % A_Now . " - ERROR: Export timeout`n", %DebugLogFile%
 	ExportInProgress := false  ; Re-enable file watcher
 	DarkMsgBox("Export Timeout", "Export timeout - check ProSelect", "warning")
 }
@@ -5532,15 +5626,9 @@ ProcessInvoiceXML(xmlFile)
 	; Show non-blocking progress GUI
 	ShowSyncProgressGUI(xmlFile)
 	
-	; Run in background (non-blocking) - use script directory as working dir
-	; For .exe files, use start /b for true background execution
-	; For Python scripts, run via cmd /c without start (AHK's Run is already async)
-	scriptPath := GetScriptPath("sync_ps_invoice")
-	if (SubStr(scriptPath, -3) = ".exe") {
-		Run, %ComSpec% /c start /b "" %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
-	} else {
-		; Python scripts - run directly (AHK's Run is non-blocking by default)
-		Run, %ComSpec% /c %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	; Run directly - AHK Run is already non-blocking
+	try {
+		Run, %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
 	}
 	
 	; Update folder watcher's file list so it doesn't re-prompt for this file
@@ -7263,6 +7351,28 @@ if (ProSelectVersion = "2025")
 		ControlClick, Button1, Add Payment, Date
 		Sleep, 500
 	}
+	
+	; After last payment: close the small Payline window first (if still open)
+	if WinExist("Add Payment", "Date")
+	{
+		WinActivate, Add Payment, Date
+		Sleep, 200
+		ControlClick, Button2, Add Payment, Date  ; Cancel button on small Payline window
+		Sleep, 300
+	}
+	
+	; Then close the bigger Add Payment window
+	if WinExist("Add Payment", "Payments")
+	{
+		WinActivate, Add Payment, Payments
+		Sleep, 200
+		ControlClick, Button2, Add Payment, Payments  ; Cancel button on bigger window
+		Sleep, 300
+	}
+	
+	; Play ding sound and show confirmation
+	SoundPlay, *48
+	DarkMsgBox("Payments Entered", "✅ " . PayNo . " payment(s) successfully entered!", "info", {timeout: 5})
 }
 else
 {
@@ -7955,6 +8065,9 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 				; Check if it's a full path or just a name
 				SplitPath, albumPath, fileName, dirPath, ext, nameNoExt
 				
+				; Remove " copy" suffix if present (from ProSelect duplicate albums)
+				nameNoExt := RegExReplace(nameNoExt, "\s+copy$", "")
+				
 				; Just need the new filename with .psa extension
 				newAlbumName := nameNoExt . "_" . Account . ".psa"
 			}
@@ -7965,91 +8078,52 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 				ToolTip, 💾 Saving album with client ID...
 				Sleep, 300
 				
-				; Activate ProSelect first - must be in focus for menu/keystrokes
+				; Activate ProSelect and send Ctrl+Shift+S to open Save As
 				WinActivate, ahk_exe ProSelect.exe
-				Sleep, 300
-				WinWaitActive, ahk_exe ProSelect.exe, , 2
+				Sleep, 500
+				WinWaitActive, ahk_exe ProSelect.exe, , 3
 				
-				; Try multiple methods to open Save As dialog (following Export Orders pattern)
-				saveAsOpened := false
+				; Send Ctrl+Shift+S to open Save Album As dialog
+				SendInput, {Ctrl down}{Shift down}s{Shift up}{Ctrl up}
+				Sleep, 1500
 				
-				; Method 1: WinMenuSelectItem - most reliable
-				WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Save Album As...
-				Sleep, 800
-				if WinExist("Save Album As")
+				; Wait for Save As dialog
+				saveAsDialogHwnd := WinExist("Save Album As")
+				if (!saveAsDialogHwnd)
+					saveAsDialogHwnd := WinExist("Save As")
+				
+				if (saveAsDialogHwnd)
 				{
-					saveAsOpened := true
-				}
-				
-				; Method 2: Keyboard shortcut (fallback)
-				if (!saveAsOpened)
-				{
-					WinActivate, ahk_exe ProSelect.exe
-					Sleep, 300
-					SendInput, {Alt down}f{Alt up}
+					WinActivate, ahk_id %saveAsDialogHwnd%
 					Sleep, 500
-					SendInput, a
-					Sleep, 800
-					if WinExist("Save Album As")
-					{
-						saveAsOpened := true
-					}
-				}
-				
-				; Method 3: Send with longer delays (last resort)
-				if (!saveAsOpened)
-				{
-					WinActivate, ahk_exe ProSelect.exe
+					
+					; Focus filename edit, select all, type new name
+					ControlFocus, Edit1, ahk_id %saveAsDialogHwnd%
+					Sleep, 200
+					SendInput, ^a
+					Sleep, 200
+					SendInput, %newAlbumName%
 					Sleep, 500
-					Send, !f
-					Sleep, 800
-					Send, a
+					
+					; Click Save button (Button2)
+					ControlClick, Button2, ahk_id %saveAsDialogHwnd%
 					Sleep, 1000
-				}
-				
-				; Wait for dialog if not already detected
-				if (!saveAsOpened)
-				{
-					WinWait, Save Album As, , 5
-				}
-				
-				if WinExist("Save Album As")
-				{
-					WinActivate, Save Album As
-					Sleep, 300
 					
-					; Get handle for reliable control interaction
-					saveAsWin := WinExist("Save Album As")
-					
-					; Set filename - use ControlSetText for reliability
-					ControlSetText, Edit1, %newAlbumName%, ahk_id %saveAsWin%
-					Sleep, 300
-					
-					; Click Save button - try multiple methods
-					; Method 1: Send Enter key (filename field has focus)
-					ControlSend, Edit1, {Enter}, ahk_id %saveAsWin%
-					Sleep, 500
-					
-					; Method 2: If dialog still exists, try clicking Save button
-					if WinExist("Save Album As")
+					; Handle any confirmation dialogs
+					if WinExist("Confirm Save As")
 					{
-						ControlClick, Button2, ahk_id %saveAsWin%
+						Send, {Enter}
 						Sleep, 500
 					}
 					
-					; Handle any overwrite confirmation
-					if WinExist("Confirm Save As")
-					{
-						ControlSend, , {Enter}, Confirm Save As
-						Sleep, 300
-					}
-					
-					; Also check for ProSelect's own confirmation dialog
-					if WinExist("ahk_class #32770 ahk_exe ProSelect.exe")
-					{
-						Send, {Enter}
-						Sleep, 300
-					}
+					ToolTip, ✅ Album saved with client ID!
+					SetTimer, RemoveUpdateTooltip, -2000
+				}
+				else
+				{
+					; Save As dialog didn't open - show error
+					ToolTip
+					DarkMsgBox("Save As Failed", "Could not open Save As dialog.`n`nPlease save the album manually with the client ID:`n" . newAlbumName, "warning", {timeout: 10})
 				}
 			}
 		}

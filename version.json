@@ -1,9 +1,20 @@
 {
-  "version": "2.4.56",
+  "version": "2.4.57",
   "build_date": "2026-02-02",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Collect Contact Sheets feature + Settings panel redesign with GroupBox styling",
+  "release_notes": "Recurring payment schedules for future payments + full business details on invoices",
   "versions": [
+    {
+      "version": "2.4.57",
+      "build_date": "2026-02-02",
+      "release_notes": "Recurring payment schedules for future payments + full business details on invoices",
+      "changelog": [
+        "NEW: Future payments now create recurring invoice schedules in GHL",
+        "NEW: Invoices now show full business details (address, phone, email, logo, VAT)",
+        "IMPROVED: Business information pulled automatically from GHL settings",
+        "IMPROVED: Payment schedules use GHL's native monthly recurring feature"
+      ]
+    },
     {
       "version": "2.4.56",
       "build_date": "2026-02-02",
