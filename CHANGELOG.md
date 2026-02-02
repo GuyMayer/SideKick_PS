@@ -15,6 +15,39 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.56 (2026-02-02)
+
+### New Features
+- **Collect Contact Sheets**: New feature to gather contact sheets into a single folder
+  - Toggle in GHL Integration settings to enable/disable
+  - Browse button to select destination folder
+  - Automatically copies contact sheets to chosen location during invoice sync
+  - Useful for batch printing or external delivery
+
+### UI Improvements - Settings Panel Redesign
+- **Consistent GroupBox Styling**: All Settings tabs now use professional GroupBox styling
+  - General tab: Behavior, Payment Defaults, ProSelect sections
+  - GHL Integration tab: Connection, API Configuration, Invoice Sync, Contact Sheet Collection
+  - Hotkeys tab: Global Hotkeys, Actions, How to Set Hotkeys
+  - File Management tab: SD Card Download, Archive Settings, File Naming, Photo Editor
+  - License tab: Status, License Key, Activation Details, Actions
+  - About tab: Application, Updates, Support, Diagnostics
+  - Developer tab: Status, Build & Release, Quick Actions
+- **Verbose Tooltips**: Added detailed tooltips to all interactive controls
+  - Explains what each setting does and recommended values
+  - Helpful for new users learning the interface
+- **Font Normalization**: All fonts now use `s10 Norm` for consistent appearance
+  - Removed bold styling that was causing visual inconsistency
+- **Aligned Toggle Sliders**: All toggle sliders moved to x630 for uniform layout
+- **Control Indentation**: Controls inside GroupBoxes indented to x210
+
+### Technical
+- Updated `ShowSettingsTab()` Hide/Show sections for new control names
+- Replaced section headers with GroupBox labels for cleaner look
+- Panel containers expanded to w510 h680 for consistency
+
+---
+
 ## v2.4.55 (2026-02-02)
 
 ### New Features

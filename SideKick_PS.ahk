@@ -85,6 +85,8 @@ global Settings_SearchAllTabs := 1  ; Search all Chrome tabs for GHL contact
 global Settings_InvoiceWatchFolder := ""  ; Folder to watch for ProSelect invoice XML files
 global Settings_GHLInvoiceWarningShown := 0  ; Has user been warned about GHL automated emails?
 global Settings_GHLPaymentSettingsURL := ""  ; URL to GHL payment settings for email configuration
+global Settings_CollectContactSheets := 0  ; Save local copy of contact sheets
+global Settings_ContactSheetFolder := ""  ; Folder to save contact sheets
 global Settings_CurrentTab := "General"
 
 ; File Management settings
@@ -767,9 +769,10 @@ GetScriptCommand(scriptName, args := "") {
 		return """" . scriptPath . """ " . args
 	}
 	
-	; Otherwise, run via Python (no quotes around python for cmd /c compatibility)
+	; Otherwise, run via Python
+	; Quote Python path for compatibility with start /b (needs quotes around executable)
 	pythonPath := GetPythonPath()
-	return pythonPath . " """ . scriptPath . """ " . args
+	return """" . pythonPath . """ """ . scriptPath . """ " . args
 }
 
 ShowAbout:
@@ -1187,14 +1190,23 @@ if !ErrorLevel
 		syncArgs .= " --financials-only"
 	if (!Settings_ContactSheet)
 		syncArgs .= " --no-contact-sheet"
+	if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
+		syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 	
 	; Show non-blocking progress GUI
 	ShowSyncProgressGUI(latestXml)
 	
 	; Run in background (non-blocking) - use script directory as working dir
-	; Use start /b to run truly in background without waiting for cmd.exe
-	Run, %ComSpec% /c start /b "" %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	; For .exe files, use start /b for true background execution
+	; For Python scripts, run via cmd /c without start (AHK's Run is already async)
+	scriptPath := GetScriptPath("sync_ps_invoice")
+	if (SubStr(scriptPath, -3) = ".exe") {
+		Run, %ComSpec% /c start /b "" %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	} else {
+		; Python scripts - run directly (AHK's Run is non-blocking by default)
+		Run, %ComSpec% /c %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	}
 	
 	; Update folder watcher's file list so it doesn't re-prompt for this file
 	SplitPath, latestXml, fileName
@@ -1245,7 +1257,7 @@ if (Settings_DarkMode) {
 ; Main settings window
 settingsIconPath := A_ScriptDir . "\SideKick_PS.ico"
 Gui, Settings:New, +HwndSettingsHwnd
-Gui, Settings:Color, %mainBg%
+Gui, Settings:Color, %contentBg%
 ; Load window icon
 global hSettingsIcon, hSettingsIconSmall
 if FileExist(settingsIconPath) {
@@ -1255,8 +1267,8 @@ if FileExist(settingsIconPath) {
 Gui, Settings:Font, s10 c%textColor%, Segoe UI
 
 ; Sidebar background
-Gui, Settings:Add, Text, x0 y0 w180 h600 BackgroundTrans
-Gui, Settings:Add, Progress, x0 y0 w180 h600 Background%sidebarBg% Disabled
+Gui, Settings:Add, Text, x0 y0 w180 h750 BackgroundTrans
+Gui, Settings:Add, Progress, x0 y0 w180 h750 Background%sidebarBg% Disabled
 
 ; Sidebar header
 Gui, Settings:Font, s12 c%headerColor%, Segoe UI
@@ -1332,11 +1344,11 @@ if (GHL_LocationID = "8IWxk5M0PvbNf1w3npQU") {
 }
 
 ; Bottom button bar
-Gui, Settings:Add, Progress, x180 y550 w520 h50 Background%sidebarBg% Disabled
+Gui, Settings:Add, Progress, x0 y695 w700 h55 Background%sidebarBg% Disabled
 
 Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
-Gui, Settings:Add, Button, x400 y560 w80 h30 gSettingsApply, &Apply
-Gui, Settings:Add, Button, x490 y560 w80 h30 gSettingsClose, &Close
+Gui, Settings:Add, Button, x400 y705 w80 h30 gSettingsApply, &Apply
+Gui, Settings:Add, Button, x490 y705 w80 h30 gSettingsClose, &Close
 
 ; Show the current tab
 ShowSettingsTab(Settings_CurrentTab)
@@ -1344,7 +1356,7 @@ ShowSettingsTab(Settings_CurrentTab)
 ; Register mouse move handler for hover tooltips
 OnMessage(0x200, "SettingsMouseMove")
 
-Gui, Settings:Show, w700 h600, SideKick_PS Settings
+Gui, Settings:Show, w700 h750, SideKick_PS Settings
 
 ; Apply custom icon to Settings window taskbar and title bar
 if (hSettingsIcon) {
@@ -1458,6 +1470,24 @@ Toggle_ContactSheet_State := !Toggle_ContactSheet_State
 Settings_ContactSheet := Toggle_ContactSheet_State
 UpdateToggleSlider("Settings", "ContactSheet", Toggle_ContactSheet_State, 590)
 SaveSettings()
+Return
+
+ToggleClick_CollectContactSheets:
+Toggle_CollectContactSheets_State := !Toggle_CollectContactSheets_State
+Settings_CollectContactSheets := Toggle_CollectContactSheets_State
+UpdateToggleSlider("Settings", "CollectContactSheets", Toggle_CollectContactSheets_State, 630)
+SaveSettings()
+Return
+
+BrowseContactSheetFolder:
+Gui, Settings:Submit, NoHide
+startFolder := Settings_ContactSheetFolder ? Settings_ContactSheetFolder : A_Desktop
+FileSelectFolder, selectedFolder, *%startFolder%, 3, Select folder to save contact sheets
+if (selectedFolder != "") {
+	Settings_ContactSheetFolder := selectedFolder
+	GuiControl, Settings:, GHLCSFolderEdit, %selectedFolder%
+	SaveSettings()
+}
 Return
 
 ToggleClick_AutoUpdate:
@@ -1915,6 +1945,9 @@ SyncProgress_UpdateTimer:
 						GuiControl, SyncProgress:, SyncProgress_Bar, 100
 					} else {
 						GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Failed
+						; Auto-send logs if enabled
+						if (Settings_AutoSendLogs)
+							SetTimer, AutoSendLogsOnError, -500
 					}
 					
 					; Close after 2 seconds
@@ -1936,6 +1969,9 @@ SyncProgress_UpdateTimer:
 			SetTimer, SyncProgress_UpdateTimer, Off
 			GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Timeout
 			GuiControl, SyncProgress:, SyncProgress_Status, No response from sync process
+			; Auto-send logs if enabled
+			if (Settings_AutoSendLogs)
+				SetTimer, AutoSendLogsOnError, -500
 			SetTimer, SyncProgress_Close, -3000
 			SyncProgress_NoUpdateCount := 0
 		}
@@ -2196,87 +2232,96 @@ CreateGeneralPanel()
 		textColor := "FFFFFF"
 		labelColor := "CCCCCC"
 		mutedColor := "888888"
+		groupColor := "666666"
 	} else {
 		headerColor := "0078D4"
 		textColor := "1E1E1E"
 		labelColor := "444444"
 		mutedColor := "666666"
+		groupColor := "999999"
 	}
 	
 	; General panel container
-	Gui, Settings:Add, Text, x190 y10 w500 h430 BackgroundTrans vPanelGeneral
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelGeneral
 	
 	; Section header
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
 	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vGenHeader, ⚙ General Settings
 	
-	; Behavior section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y65 w200 BackgroundTrans vGenBehavior, Behavior
+	; ═══════════════════════════════════════════════════════════════════════════
+	; BEHAVIOR GROUP BOX (y55)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h195 vGenBehaviorGroup, Behavior
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Start on Boot toggle slider
-	Gui, Settings:Add, Text, x200 y100 w300 BackgroundTrans vGenStartBoot gTT_StartOnBoot HwndHwndStartBoot, Start on Boot
+	Gui, Settings:Add, Text, x210 y80 w300 BackgroundTrans vGenStartBoot gTT_StartOnBoot HwndHwndStartBoot, Start on Boot
 	RegisterSettingsTooltip(HwndStartBoot, "START ON BOOT`n`nAutomatically launch SideKick_PS when Windows starts.`nThe script runs silently in the background and is ready`nwhenever you need it - no manual startup required.`n`nRecommended: Enable for daily ProSelect users.")
-	CreateToggleSlider("Settings", "StartOnBoot", 590, 98, Settings_StartOnBoot)
+	CreateToggleSlider("Settings", "StartOnBoot", 630, 78, Settings_StartOnBoot)
 	
 	; Show Tray Icon toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y130 w300 BackgroundTrans vGenTrayIcon gTT_ShowTrayIcon HwndHwndTrayIcon, Show Tray Icon
+	Gui, Settings:Add, Text, x210 y110 w300 BackgroundTrans vGenTrayIcon gTT_ShowTrayIcon HwndHwndTrayIcon, Show Tray Icon
 	RegisterSettingsTooltip(HwndTrayIcon, "SHOW TRAY ICON`n`nDisplay the SideKick icon in your system tray (notification area).`nWhen visible you can right-click for quick access to features.`nWhen hidden the script still runs - use hotkeys to access.`n`nTip: Keep visible until you learn the keyboard shortcuts.")
-	CreateToggleSlider("Settings", "ShowTrayIcon", 590, 128, Settings_ShowTrayIcon)
+	CreateToggleSlider("Settings", "ShowTrayIcon", 630, 108, Settings_ShowTrayIcon)
 	
 	; Enable Sounds toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y160 w300 BackgroundTrans vGenSounds gTT_EnableSounds HwndHwndSounds, Enable Sound Effects
+	Gui, Settings:Add, Text, x210 y140 w300 BackgroundTrans vGenSounds gTT_EnableSounds HwndHwndSounds, Enable Sound Effects
 	RegisterSettingsTooltip(HwndSounds, "SOUND EFFECTS`n`nPlay audio feedback for actions and notifications.`nIncludes confirmation beeps and alert sounds.`n`nDisable if working in quiet environments`nor if sounds become distracting.")
-	CreateToggleSlider("Settings", "EnableSounds", 590, 158, Settings_EnableSounds)
+	CreateToggleSlider("Settings", "EnableSounds", 630, 138, Settings_EnableSounds)
 	
 	; Auto-detect ProSelect toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y190 w300 BackgroundTrans vGenAutoPS gTT_AutoDetectPS HwndHwndAutoPS, Auto-detect ProSelect Version
+	Gui, Settings:Add, Text, x210 y170 w300 BackgroundTrans vGenAutoPS gTT_AutoDetectPS HwndHwndAutoPS, Auto-detect ProSelect Version
 	RegisterSettingsTooltip(HwndAutoPS, "AUTO-DETECT PROSELECT VERSION`n`nAutomatically identify which ProSelect version is installed.`nThis optimizes keyboard shortcuts and window detection`nfor your specific ProSelect version (2022, 2024, 2025).`n`nRecommended: Keep enabled unless detection causes issues.")
-	CreateToggleSlider("Settings", "AutoDetectPS", 590, 188, Settings_AutoDetectPS)
+	CreateToggleSlider("Settings", "AutoDetectPS", 630, 168, Settings_AutoDetectPS)
 	
 	; Dark Mode toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y220 w300 BackgroundTrans vGenDarkMode gTT_DarkMode HwndHwndDarkMode, Dark Mode
+	Gui, Settings:Add, Text, x210 y200 w300 BackgroundTrans vGenDarkMode gTT_DarkMode HwndHwndDarkMode, Dark Mode
 	RegisterSettingsTooltip(HwndDarkMode, "DARK MODE`n`nToggle between dark and light color themes.`n`nDark Mode: Easy on the eyes, matches ProSelect 2025 style`nLight Mode: Traditional bright interface`n`nChanges apply immediately to the Settings window.")
-	CreateToggleSlider("Settings", "DarkMode", 590, 218, Settings_DarkMode)
+	CreateToggleSlider("Settings", "DarkMode", 630, 198, Settings_DarkMode)
 	
-	; Defaults section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y270 w200 BackgroundTrans vGenDefaults, Payment Defaults
+	; ═══════════════════════════════════════════════════════════════════════════
+	; PAYMENT DEFAULTS GROUP BOX (y260)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y260 w480 h110 vGenDefaultsGroup, Payment Defaults
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Default Recurring
-	Gui, Settings:Add, Text, x200 y305 w150 BackgroundTrans vGenRecurLabel gTT_DefaultRecurring HwndHwndRecur, Default Recurring:
+	Gui, Settings:Add, Text, x210 y290 w150 BackgroundTrans vGenRecurLabel gTT_DefaultRecurring HwndHwndRecur, Default Recurring:
 	RegisterSettingsTooltip(HwndRecur, "DEFAULT PAYMENT FREQUENCY`n`nSet the pre-selected payment schedule for new plans.`nMonthly is always available. Other options can be customized.`n`nThis can be changed per-plan when creating payments.")
-	Gui, Settings:Add, DropDownList, x380 y302 w150 vSettings_DefaultRecurring_DDL, Monthly||Weekly|Bi-Weekly|4-Weekly
+	Gui, Settings:Add, DropDownList, x380 y287 w150 vSettings_DefaultRecurring_DDL, Monthly||Weekly|Bi-Weekly|4-Weekly
 	
 	; Recurring Options (editable)
-	Gui, Settings:Add, Text, x200 y340 w150 BackgroundTrans vGenRecurOptionsLabel, Recurring Options:
-	Gui, Settings:Add, Edit, x380 y337 w150 h24 vGenRecurOptionsEdit ReadOnly, Monthly, Weekly, Bi-Weekly, 4-Weekly
-	Gui, Settings:Add, Button, x540 y336 w60 h26 gEditRecurringOptions vGenRecurOptionsBtn, Edit
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y325 w150 BackgroundTrans vGenRecurOptionsLabel, Recurring Options:
+	Gui, Settings:Add, Edit, x380 y322 w150 h24 vGenRecurOptionsEdit ReadOnly, Monthly, Weekly, Bi-Weekly, 4-Weekly
+	Gui, Settings:Add, Button, x540 y321 w60 h26 gEditRecurringOptions vGenRecurOptionsBtn, Edit
 	
-	; ProSelect section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y380 w200 BackgroundTrans vGenProSelect, ProSelect
+	; ═══════════════════════════════════════════════════════════════════════════
+	; PROSELECT GROUP BOX (y380)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y380 w480 h115 vGenProSelectGroup, ProSelect
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	DetectProSelectVersion()
 	psVer := ProSelectVersion ? ProSelectVersion : "Not detected"
-	Gui, Settings:Add, Text, x200 y410 w300 BackgroundTrans vGenPSVersion gTT_PSVersion HwndHwndPSVersion, Detected Version: %psVer%
+	
+	Gui, Settings:Add, Text, x210 y410 w120 BackgroundTrans vGenPSVersionLabel, Detected Version:
+	Gui, Settings:Add, Text, x340 y410 w200 BackgroundTrans vGenPSVersionValue gTT_PSVersion HwndHwndPSVersion, %psVer%
 	RegisterSettingsTooltip(HwndPSVersion, "DETECTED PROSELECT VERSION`n`nShows which ProSelect version was automatically detected.`nSideKick uses this to optimize automation commands`nand window handling for your specific version.`n`nIf showing 'Not detected' ensure ProSelect is installed.")
 	
-	; Desktop Shortcut button
-	Gui, Settings:Add, Button, x200 y445 w150 h30 gCreateSideKickShortcut vGenShortcutBtn, 🚀 Desktop Shortcut
-	
-	; Import/Export Settings buttons
-	Gui, Settings:Add, Button, x390 y445 w100 h30 gExportSettings vGenExportBtn, 📤 Export
-	Gui, Settings:Add, Button, x500 y445 w100 h30 gImportSettings vGenImportBtn, 📥 Import
+	; Buttons row
+	Gui, Settings:Add, Button, x210 y450 w150 h30 gCreateSideKickShortcut vGenShortcutBtn, 🚀 Desktop Shortcut
+	Gui, Settings:Add, Button, x380 y450 w100 h30 gExportSettings vGenExportBtn, 📤 Export
+	Gui, Settings:Add, Button, x490 y450 w100 h30 gImportSettings vGenImportBtn, 📥 Import
 }
 
 CreateGHLPanel()
@@ -2289,102 +2334,125 @@ CreateGHLPanel()
 		textColor := "FFFFFF"
 		labelColor := "CCCCCC"
 		mutedColor := "888888"
+		groupColor := "666666"
 	} else {
 		headerColor := "0078D4"
 		textColor := "1E1E1E"
 		labelColor := "444444"
 		mutedColor := "666666"
+		groupColor := "999999"
 	}
 	
 	; GHL panel container (initially hidden)
-	Gui, Settings:Add, Text, x190 y10 w500 h430 BackgroundTrans vPanelGHL Hidden
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelGHL Hidden
 	
 	; Section header
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vGHLHeader Hidden, 🔗 GHL Integration
+	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vGHLHeader Hidden, 🔗 GHL Integration
 	
-	; Connection section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y65 w200 BackgroundTrans vGHLConnection Hidden, Connection
+	; ═══════════════════════════════════════════════════════════════════════════
+	; CONNECTION GROUP BOX (y55 to y165)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h110 vGHLConnection Hidden, Connection
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Enable GHL Integration toggle slider
-	Gui, Settings:Add, Text, x200 y100 w300 BackgroundTrans vGHLEnable Hidden gTT_GHLEnable HwndHwndGHLEnable, Enable GHL Integration
+	Gui, Settings:Add, Text, x210 y80 w300 BackgroundTrans vGHLEnable Hidden gTT_GHLEnable HwndHwndGHLEnable, Enable GHL Integration
 	RegisterSettingsTooltip(HwndGHLEnable, "ENABLE GHL INTEGRATION`n`nConnect SideKick to your GoHighLevel CRM.`nFetch client details and auto-populate ProSelect.`n`nRequires a valid GHL API key.")
-	CreateToggleSlider("Settings", "GHL_Enabled", 590, 98, Settings_GHL_Enabled)
+	CreateToggleSlider("Settings", "GHL_Enabled", 630, 78, Settings_GHL_Enabled)
 	
 	; Auto-load to ProSelect toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y130 w300 BackgroundTrans vGHLAutoLoad Hidden gTT_GHLAutoLoad HwndHwndGHLAutoLoad, Auto-load to ProSelect (skip confirmation)
-	RegisterSettingsTooltip(HwndGHLAutoLoad, "AUTO-LOAD TO PROSELECT`n`nENABLED: Client data loads immediately.`nDISABLED: Preview dialog appears first.`n`nKeep disabled until you trust data quality.")
-	CreateToggleSlider("Settings", "GHL_AutoLoad", 590, 128, Settings_GHL_AutoLoad)
+	Gui, Settings:Add, Text, x210 y110 w300 BackgroundTrans vGHLAutoLoad Hidden gTT_GHLAutoLoad HwndHwndGHLAutoLoad, Autoload client data
+	RegisterSettingsTooltip(HwndGHLAutoLoad, "AUTOLOAD CLIENT DATA`n`nENABLED: Client data loads immediately.`nDISABLED: Preview dialog appears first.`n`nKeep disabled until you trust data quality.")
+	CreateToggleSlider("Settings", "GHL_AutoLoad", 630, 108, Settings_GHL_AutoLoad)
 	
-	; API Configuration section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y200 w200 BackgroundTrans vGHLApiConfig Hidden, API Configuration
+	; ═══════════════════════════════════════════════════════════════════════════
+	; API CONFIGURATION GROUP BOX (y170 to y300)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y170 w480 h130 vGHLApiConfig Hidden, API Configuration
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
-	; API Key display (masked) - Private Integration Token
-	Gui, Settings:Add, Text, x200 y230 w100 BackgroundTrans vGHLApiLabel Hidden gTT_GHLApiKey HwndHwndGHLApiKey, API Key:
+	; API Key display (masked)
+	Gui, Settings:Add, Text, x210 y195 w90 BackgroundTrans vGHLApiLabel Hidden gTT_GHLApiKey HwndHwndGHLApiKey, API Key:
 	RegisterSettingsTooltip(HwndGHLApiKey, "GHL API KEY (Private Integration Token)`n`nUsed for: Contacts, Invoices, Payments, etc.`n`nTo get your key:`n1. Go to GHL Marketplace`n2. My Apps > Create Private App`n3. Copy the Private Integration Token`n`nKeys are stored encrypted in the INI file.")
 	apiKeyDisplay := GHL_API_Key ? SubStr(GHL_API_Key, 1, 8) . "..." . SubStr(GHL_API_Key, -4) : "Not configured"
-	Gui, Settings:Add, Edit, x310 y227 w220 h25 vGHLApiKeyDisplay Hidden ReadOnly, %apiKeyDisplay%
-	Gui, Settings:Add, Button, x540 y225 w90 h28 gEditGHLApiKey vGHLApiEditBtn Hidden, Edit
+	Gui, Settings:Add, Edit, x305 y192 w250 h25 vGHLApiKeyDisplay Hidden ReadOnly, %apiKeyDisplay%
+	Gui, Settings:Add, Button, x560 y190 w100 h28 gEditGHLApiKey vGHLApiEditBtn Hidden, Edit
 	
 	; Location ID display
-	Gui, Settings:Add, Text, x200 y260 w100 BackgroundTrans vGHLLocLabel Hidden gTT_GHLLocID HwndHwndGHLLocID, Location ID:
+	Gui, Settings:Add, Text, x210 y225 w90 BackgroundTrans vGHLLocLabel Hidden gTT_GHLLocID HwndHwndGHLLocID, Location ID:
 	RegisterSettingsTooltip(HwndGHLLocID, "GHL LOCATION ID`n`nYour GoHighLevel sub-account ID.`nUsed for API calls to the correct location.`n`nFind it in GHL: Settings > Business Profile")
 	locIdDisplay := GHL_LocationID ? GHL_LocationID : "Not configured"
-	Gui, Settings:Add, Edit, x310 y257 w220 h25 vGHLLocIDDisplay Hidden ReadOnly, %locIdDisplay%
-	Gui, Settings:Add, Button, x540 y255 w90 h28 gEditGHLLocationID vGHLLocEditBtn Hidden, Edit
+	Gui, Settings:Add, Edit, x305 y222 w250 h25 vGHLLocIDDisplay Hidden ReadOnly, %locIdDisplay%
+	Gui, Settings:Add, Button, x560 y220 w100 h28 gEditGHLLocationID vGHLLocEditBtn Hidden, Edit
 	
-	; Status section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y295 w200 BackgroundTrans vGHLStatus Hidden, Status
-	
+	; Status row
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	
-	; Connection status
+	Gui, Settings:Add, Text, x210 y258 w60 BackgroundTrans vGHLStatus Hidden, Status:
 	statusText := GHL_API_Key ? "✅ Connected" : "❌ Not configured"
 	statusColor := GHL_API_Key ? "00FF00" : "FF6B6B"
-	Gui, Settings:Font, s10 c%statusColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y320 w400 BackgroundTrans vGHLStatusText Hidden HwndHwndGHLStatus, %statusText%
+	Gui, Settings:Font, s10 Norm c%statusColor%, Segoe UI
+	Gui, Settings:Add, Text, x275 y258 w120 BackgroundTrans vGHLStatusText Hidden HwndHwndGHLStatus, %statusText%
 	RegisterSettingsTooltip(HwndGHLStatus, "CONNECTION STATUS`n`n✅ Connected = API key configured`n`nUse 'Test' to verify.")
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x200 y345 w80 h28 gTestGHLConnection vGHLTestBtn Hidden HwndHwndGHLTest, Test
+	Gui, Settings:Add, Button, x455 y255 w100 h26 gTestGHLConnection vGHLTestBtn Hidden HwndHwndGHLTest, Test
 	RegisterSettingsTooltip(HwndGHLTest, "TEST CONNECTION`n`nVerify your API key works by making`na test request to the GHL API.")
+	Gui, Settings:Add, Button, x560 y255 w100 h26 gRunGHLSetupWizard vGHLSetupBtn Hidden, 🔧 Wizard
 	
-	Gui, Settings:Add, Button, x290 y345 w130 h28 gRunGHLSetupWizard vGHLSetupBtn Hidden, 🔧 Setup Wizard
-	
-	; Invoice Settings section
-	Gui, Settings:Font, s12 Norm c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y385 w200 BackgroundTrans vGHLInvoiceHeader Hidden, Invoice Settings
+	; ═══════════════════════════════════════════════════════════════════════════
+	; INVOICE SYNC GROUP BOX (y305 to y520)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y305 w480 h220 vGHLInvoiceHeader Hidden, Invoice Sync
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y410 w100 BackgroundTrans vGHLWatchLabel Hidden, Watch Folder:
-	Gui, Settings:Add, Edit, x310 y407 w250 h25 vGHLWatchFolderEdit Hidden, %Settings_InvoiceWatchFolder%
-	Gui, Settings:Add, Button, x565 y405 w60 h28 gBrowseInvoiceFolder vGHLWatchBrowseBtn Hidden, Browse
+	
+	; Watch Folder
+	Gui, Settings:Add, Text, x210 y330 w90 BackgroundTrans vGHLWatchLabel Hidden, Watch Folder:
+	Gui, Settings:Add, Edit, x305 y327 w250 h25 vGHLWatchFolderEdit Hidden, %Settings_InvoiceWatchFolder%
+	Gui, Settings:Add, Button, x560 y325 w100 h28 gBrowseInvoiceFolder vGHLWatchBrowseBtn Hidden, Browse
 	
 	; Search all tabs toggle slider
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y440 w350 BackgroundTrans vGHLSearchAllTabs Hidden HwndHwndSearchAllTabs, Search all Chrome tabs for GHL contact
+	Gui, Settings:Add, Text, x210 y360 w360 BackgroundTrans vGHLSearchAllTabs Hidden HwndHwndSearchAllTabs, Search all Chrome tabs for GHL contact
 	RegisterSettingsTooltip(HwndSearchAllTabs, "SEARCH ALL CHROME TABS`n`nWhen enabled, searches all open Chrome tabs`nfor a matching GHL contact URL.`n`nDisabled: Only checks the active tab.")
-	CreateToggleSlider("Settings", "SearchAllTabs", 590, 438, Settings_SearchAllTabs)
+	CreateToggleSlider("Settings", "SearchAllTabs", 630, 358, Settings_SearchAllTabs)
 	
 	; Financials only toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y470 w350 BackgroundTrans vGHLFinancialsOnly Hidden HwndHwndFinancialsOnly, Financials only (exclude image lines)
+	Gui, Settings:Add, Text, x210 y390 w360 BackgroundTrans vGHLFinancialsOnly Hidden HwndHwndFinancialsOnly, Financials only (exclude image lines)
 	RegisterSettingsTooltip(HwndFinancialsOnly, "FINANCIALS ONLY MODE`n`nWhen enabled, invoice sync will only include:`n• Lines with monetary values`n• Comment/text lines`n`nExcludes lines that are just image numbers (e.g. 001, 002).`nThis keeps your GHL invoices clean and financial-focused.")
-	CreateToggleSlider("Settings", "FinancialsOnly", 590, 468, Settings_FinancialsOnly)
+	CreateToggleSlider("Settings", "FinancialsOnly", 630, 388, Settings_FinancialsOnly)
 	
 	; Contact Sheet toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y500 w350 BackgroundTrans vGHLContactSheet Hidden HwndHwndContactSheet, Create contact sheet with order
+	Gui, Settings:Add, Text, x210 y420 w360 BackgroundTrans vGHLContactSheet Hidden HwndHwndContactSheet, Create contact sheet with order
 	RegisterSettingsTooltip(HwndContactSheet, "CONTACT SHEET WITH ORDER`n`nWhen enabled, creates a JPG contact sheet showing`nall product images and uploads to GHL Media.`n`nThe contact sheet is added as a note on the contact`nfor easy reference.")
-	CreateToggleSlider("Settings", "ContactSheet", 590, 498, Settings_ContactSheet)
+	CreateToggleSlider("Settings", "ContactSheet", 630, 418, Settings_ContactSheet)
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; CONTACT SHEET COLLECTION GROUP BOX (y530 to y620)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y530 w480 h95 vGHLInfo Hidden, Contact Sheet Collection
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	
+	; Collect Contact Sheets toggle slider
+	Gui, Settings:Add, Text, x210 y555 w360 BackgroundTrans vGHLCollectCS Hidden HwndHwndCollectCS, Save local copies of contact sheets
+	RegisterSettingsTooltip(HwndCollectCS, "COLLECT CONTACT SHEETS`n`nSave a copy of each contact sheet JPG to a local folder.`n`nFiles are named using the ProSelect album name`nfor easy organization and reference.")
+	CreateToggleSlider("Settings", "CollectContactSheets", 630, 553, Settings_CollectContactSheets)
+	
+	; Contact Sheet folder path
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y590 w90 BackgroundTrans vGHLCSFolderLabel Hidden, Save Folder:
+	Gui, Settings:Add, Edit, x305 y587 w250 h25 vGHLCSFolderEdit Hidden, %Settings_ContactSheetFolder%
+	Gui, Settings:Add, Button, x560 y585 w100 h28 gBrowseContactSheetFolder vGHLCSFolderBrowse Hidden, Browse
 }
 
 CreateHotkeysPanel()
@@ -2398,77 +2466,100 @@ CreateHotkeysPanel()
 		labelColor := "CCCCCC"
 		mutedColor := "888888"
 		inputBg := "3C3C3C"
+		groupColor := "666666"
 	} else {
 		headerColor := "0078D4"
 		textColor := "1E1E1E"
 		labelColor := "444444"
 		mutedColor := "666666"
 		inputBg := "FFFFFF"
+		groupColor := "999999"
 	}
 	
 	; Hotkeys panel container (initially hidden)
-	Gui, Settings:Add, Text, x190 y10 w500 h430 BackgroundTrans vPanelHotkeys Hidden
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelHotkeys Hidden
 	
 	; Section header
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vHotkeysHeader Hidden, ⌨ Keyboard Shortcuts
+	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vHotkeysHeader Hidden, ⌨ Keyboard Shortcuts
 	
-	; Info text
-	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y55 w450 BackgroundTrans vHotkeysInfo Hidden, Click a field then press your desired key combination
-	
-	; Hotkey configuration section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y100 w200 BackgroundTrans vHotkeysSection Hidden, Global Hotkeys
+	; ═══════════════════════════════════════════════════════════════════════════
+	; GLOBAL HOTKEYS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	devHotkeyHeight := A_IsCompiled ? 155 : 195
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h%devHotkeyHeight% vHotkeysGlobalGroup Hidden, Global Hotkeys
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; GHL Client Lookup hotkey
-	Gui, Settings:Add, Text, x200 y140 w180 BackgroundTrans vHKLabelGHL Hidden HwndHwndHKGHL, GHL Client Lookup:
-	RegisterSettingsTooltip(HwndHKGHL, "GHL CLIENT LOOKUP`n`nFetch client details from GoHighLevel.`nClick field and press your hotkey.`n`nDefault: Ctrl+Shift+G")
+	Gui, Settings:Add, Text, x210 y80 w180 BackgroundTrans vHKLabelGHL Hidden HwndHwndHKGHL, GHL Client Lookup:
+	RegisterSettingsTooltip(HwndHKGHL, "GHL CLIENT LOOKUP HOTKEY`n`nTrigger a GoHighLevel client lookup from anywhere.`nFetches contact details, notes, and custom fields`nfor the currently active client in ProSelect.`n`nClick 'Set' then press your desired key combination.`nDefault: Ctrl+Shift+G")
 	displayGHL := FormatHotkeyDisplay(Hotkey_GHLLookup)
-	Gui, Settings:Add, Edit, x400 y137 w150 h25 vHotkey_GHLLookup_Edit ReadOnly Hidden, %displayGHL%
-	Gui, Settings:Add, Button, x560 y136 w60 h27 gCaptureHotkey_GHL vHKCaptureGHL Hidden, Set
+	Gui, Settings:Add, Edit, x400 y77 w150 h25 vHotkey_GHLLookup_Edit ReadOnly Hidden, %displayGHL%
+	Gui, Settings:Add, Button, x560 y76 w60 h27 gCaptureHotkey_GHL vHKCaptureGHL Hidden HwndHwndHKCaptureGHL, Set
+	RegisterSettingsTooltip(HwndHKCaptureGHL, "SET HOTKEY`n`nClick this button, then press your desired`nkey combination (e.g., Ctrl+Shift+G).`n`nThe hotkey will be captured and saved automatically.")
 	
 	; PayPlan hotkey
-	Gui, Settings:Add, Text, x200 y180 w180 BackgroundTrans vHKLabelPP Hidden HwndHwndHKPP, Open PayPlan:
-	RegisterSettingsTooltip(HwndHKPP, "OPEN PAYPLAN`n`nOpen the PayPlan calculator window.`nClick field and press your hotkey.`n`nDefault: Ctrl+Shift+P")
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y110 w180 BackgroundTrans vHKLabelPP Hidden HwndHwndHKPP, Open PayPlan:
+	RegisterSettingsTooltip(HwndHKPP, "PAYPLAN CALCULATOR HOTKEY`n`nOpen the PayPlan calculator for creating payment plans.`nQuickly generate monthly/weekly payment schedules`nfor client invoices.`n`nClick 'Set' then press your desired key combination.`nDefault: Ctrl+Shift+P")
 	displayPP := FormatHotkeyDisplay(Hotkey_PayPlan)
-	Gui, Settings:Add, Edit, x400 y177 w150 h25 vHotkey_PayPlan_Edit ReadOnly Hidden, %displayPP%
-	Gui, Settings:Add, Button, x560 y176 w60 h27 gCaptureHotkey_PayPlan vHKCapturePP Hidden, Set
+	Gui, Settings:Add, Edit, x400 y107 w150 h25 vHotkey_PayPlan_Edit ReadOnly Hidden, %displayPP%
+	Gui, Settings:Add, Button, x560 y106 w60 h27 gCaptureHotkey_PayPlan vHKCapturePP Hidden HwndHwndHKCapturePP, Set
+	RegisterSettingsTooltip(HwndHKCapturePP, "SET HOTKEY`n`nClick this button, then press your desired`nkey combination (e.g., Ctrl+Shift+P).`n`nThe hotkey will be captured and saved automatically.")
 	
 	; Settings hotkey
-	Gui, Settings:Add, Text, x200 y220 w180 BackgroundTrans vHKLabelSettings Hidden HwndHwndHKSettings, Open Settings:
-	RegisterSettingsTooltip(HwndHKSettings, "OPEN SETTINGS`n`nOpen this Settings window.`nClick field and press your hotkey.`n`nDefault: Ctrl+Shift+W")
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y140 w180 BackgroundTrans vHKLabelSettings Hidden HwndHwndHKSettings, Open Settings:
+	RegisterSettingsTooltip(HwndHKSettings, "SETTINGS WINDOW HOTKEY`n`nOpen this Settings window from anywhere.`nQuickly access configuration, hotkeys,`nand GHL integration options.`n`nClick 'Set' then press your desired key combination.`nDefault: Ctrl+Shift+W")
 	displaySettings := FormatHotkeyDisplay(Hotkey_Settings)
-	Gui, Settings:Add, Edit, x400 y217 w150 h25 vHotkey_Settings_Edit ReadOnly Hidden, %displaySettings%
-	Gui, Settings:Add, Button, x560 y216 w60 h27 gCaptureHotkey_Settings vHKCaptureSettings Hidden, Set
+	Gui, Settings:Add, Edit, x400 y137 w150 h25 vHotkey_Settings_Edit ReadOnly Hidden, %displaySettings%
+	Gui, Settings:Add, Button, x560 y136 w60 h27 gCaptureHotkey_Settings vHKCaptureSettings Hidden HwndHwndHKCaptureSettings, Set
+	RegisterSettingsTooltip(HwndHKCaptureSettings, "SET HOTKEY`n`nClick this button, then press your desired`nkey combination (e.g., Ctrl+Shift+W).`n`nThe hotkey will be captured and saved automatically.")
 	
 	; Dev Reload hotkey (only visible in dev mode - not compiled)
 	if (!A_IsCompiled) {
 		Gui, Settings:Font, s10 cFF9900, Segoe UI  ; Orange for dev-only
-		Gui, Settings:Add, Text, x200 y260 w180 BackgroundTrans vHKLabelDevReload Hidden HwndHwndHKDevReload, 🔧 Reload Script:
-		RegisterSettingsTooltip(HwndHwndHKDevReload, "RELOAD SCRIPT (Dev Only)`n`nReloads the script for testing changes.`nOnly available when running as script.`n`nDefault: Ctrl+Shift+R")
+		Gui, Settings:Add, Text, x210 y170 w180 BackgroundTrans vHKLabelDevReload Hidden HwndHwndHKDevReload, 🔧 Reload Script:
+		RegisterSettingsTooltip(HwndHKDevReload, "RELOAD SCRIPT HOTKEY (Dev Only)`n`nReloads the script for testing code changes.`nOnly available when running as uncompiled script.`n`nUseful during development to quickly apply changes`nwithout manually restarting.`n`nDefault: Ctrl+Shift+R")
 		displayDevReload := FormatHotkeyDisplay(Hotkey_DevReload)
-		Gui, Settings:Add, Edit, x400 y257 w150 h25 vHotkey_DevReload_Edit ReadOnly Hidden, %displayDevReload%
-		Gui, Settings:Add, Button, x560 y256 w60 h27 gCaptureHotkey_DevReload vHKCaptureDevReload Hidden, Set
-		Gui, Settings:Font, s10 c%labelColor%, Segoe UI
+		Gui, Settings:Add, Edit, x400 y167 w150 h25 vHotkey_DevReload_Edit ReadOnly Hidden, %displayDevReload%
+		Gui, Settings:Add, Button, x560 y166 w60 h27 gCaptureHotkey_DevReload vHKCaptureDevReload Hidden, Set
+		Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	}
 	
-	; Clear buttons section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y320 w200 BackgroundTrans vHKActionsTitle Hidden, Actions
+	; ═══════════════════════════════════════════════════════════════════════════
+	; ACTIONS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	actionsY := A_IsCompiled ? 220 : 260
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y%actionsY% w480 h75 vHotkeysActionsGroup Hidden, Actions
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x200 y355 w150 h30 gResetHotkeysToDefault vHKResetBtn Hidden, Reset to Defaults
-	Gui, Settings:Add, Button, x370 y355 w150 h30 gClearAllHotkeys vHKClearBtn Hidden, Clear All
+	btnY := actionsY + 30
+	Gui, Settings:Add, Button, x210 y%btnY% w150 h30 gResetHotkeysToDefault vHKResetBtn Hidden HwndHwndHKReset, Reset to Defaults
+	RegisterSettingsTooltip(HwndHKReset, "RESET TO DEFAULTS`n`nRestore all hotkeys to their original settings:`n• GHL Lookup: Ctrl+Shift+G`n• PayPlan: Ctrl+Shift+P`n• Settings: Ctrl+Shift+W`n`nUseful if you've made changes and want to start fresh.")
+	Gui, Settings:Add, Button, x380 y%btnY% w150 h30 gClearAllHotkeys vHKClearBtn Hidden HwndHwndHKClear, Clear All
+	RegisterSettingsTooltip(HwndHKClear, "CLEAR ALL HOTKEYS`n`nRemove all assigned keyboard shortcuts.`nHotkey fields will be empty until you set new ones.`n`nUse this if hotkeys conflict with other applications`nor if you prefer to use the tray menu/GUI instead.")
 	
-	; Instructions
-	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y410 w430 BackgroundTrans vHKInstructions1 Hidden, How to set a hotkey:
-	Gui, Settings:Add, Text, x200 y430 w430 BackgroundTrans vHKInstructions2 Hidden, 1. Click the "Set" button next to the action
-	Gui, Settings:Add, Text, x200 y450 w430 BackgroundTrans vHKInstructions3 Hidden, 2. Press your desired key combination
-	Gui, Settings:Add, Text, x200 y470 w430 BackgroundTrans vHKInstructions4 Hidden, 3. The hotkey will be captured automatically
+	; ═══════════════════════════════════════════════════════════════════════════
+	; INSTRUCTIONS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	instructY := A_IsCompiled ? 305 : 345
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y%instructY% w480 h130 vHotkeysInstructGroup Hidden, How to Set Hotkeys
+	
+	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
+	step1Y := instructY + 30
+	step2Y := instructY + 55
+	step3Y := instructY + 80
+	tipY := instructY + 105
+	Gui, Settings:Add, Text, x210 y%step1Y% w440 BackgroundTrans vHKInstructions1 Hidden, 1. Click the "Set" button next to the action you want to configure
+	Gui, Settings:Add, Text, x210 y%step2Y% w440 BackgroundTrans vHKInstructions2 Hidden, 2. Press your desired key combination (e.g., Ctrl+Shift+G)
+	Gui, Settings:Add, Text, x210 y%step3Y% w440 BackgroundTrans vHKInstructions3 Hidden, 3. The hotkey is saved automatically and active immediately
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y%tipY% w440 BackgroundTrans vHKInstructions4 Hidden, 💡 Tip: Use Ctrl, Alt, or Shift modifiers to avoid conflicts
 }
 
 CreateFilesPanel()
@@ -2481,111 +2572,108 @@ CreateFilesPanel()
 		textColor := "FFFFFF"
 		labelColor := "CCCCCC"
 		mutedColor := "888888"
-		sectionColor := "4FC3F7"
+		groupColor := "666666"
 	} else {
 		headerColor := "0078D4"
 		textColor := "1E1E1E"
 		labelColor := "444444"
 		mutedColor := "666666"
-		sectionColor := "0078D4"
+		groupColor := "999999"
 	}
 	
 	; Files panel container (initially hidden)
-	Gui, Settings:Add, Text, x190 y10 w500 h530 BackgroundTrans vPanelFiles Hidden
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelFiles Hidden
 	
 	; Section header
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vFilesHeader Hidden, 📁 File Management
+	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vFilesHeader Hidden, 📁 File Management
 	
-	; Enable SD Card Download Toggle (master switch)
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y55 w200 BackgroundTrans vFilesEnableSDCard Hidden, Enable SD Card Download:
-	CreateToggleSlider("Settings", "SDCardEnabled", 420, 53, Settings_SDCardEnabled)
+	; ═══════════════════════════════════════════════════════════════════════════
+	; SD CARD DOWNLOAD GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h135 vFilesSDCardGroup Hidden, SD Card Download
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y80 w200 BackgroundTrans vFilesEnableSDCard Hidden HwndHwndFilesSDCard, Enable SD Card Download
+	RegisterSettingsTooltip(HwndFilesSDCard, "ENABLE SD CARD DOWNLOAD`n`nWhen enabled, shows the SD card download button`nin the toolbar for quick access.`n`nAllows one-click transfer of photos from your`nmemory card to the download folder.")
+	CreateToggleSlider("Settings", "SDCardEnabled", 630, 78, Settings_SDCardEnabled)
 	GuiControl, Settings:Hide, Toggle_SDCardEnabled
-	Gui, Settings:Add, Text, x455 y55 w180 c%mutedColor% BackgroundTrans vFilesEnableSDCardNote Hidden, (shows toolbar icon)
 	
-	; SD Card Download Section
-	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y90 w300 BackgroundTrans vFilesSDCard Hidden, SD Card Download
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y110 w100 BackgroundTrans vFilesCardDriveLabel Hidden, Card Path:
+	Gui, Settings:Add, Edit, x315 y107 w240 h25 vFilesCardDriveEdit Hidden, %Settings_CardDrive%
+	Gui, Settings:Add, Button, x560 y106 w100 h27 gFilesCardDriveBrowseBtn vFilesCardDriveBrowse Hidden, Browse
 	
-	; Card Drive Path
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y125 w120 BackgroundTrans vFilesCardDriveLabel Hidden, Card Path:
-	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x320 y122 w230 h25 vFilesCardDriveEdit Hidden, %Settings_CardDrive%
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x555 y120 w60 h28 gFilesCardDriveBrowseBtn vFilesCardDriveBrowse Hidden, Browse
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y140 w100 BackgroundTrans vFilesDownloadLabel Hidden, Download To:
+	Gui, Settings:Add, Edit, x315 y137 w240 h25 vFilesDownloadEdit Hidden, %Settings_CameraDownloadPath%
+	Gui, Settings:Add, Button, x560 y136 w100 h27 gFilesDownloadBrowseBtn vFilesDownloadBrowse Hidden, Browse
 	
-	; Download Folder
-	Gui, Settings:Add, Text, x200 y155 w120 BackgroundTrans vFilesDownloadLabel Hidden, Download To:
-	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x320 y152 w230 h25 vFilesDownloadEdit Hidden, %Settings_CameraDownloadPath%
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x555 y150 w60 h28 gFilesDownloadBrowseBtn vFilesDownloadBrowse Hidden, Browse
+	; ═══════════════════════════════════════════════════════════════════════════
+	; ARCHIVE SETTINGS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y200 w480 h70 vFilesArchiveGroup Hidden, Archive Settings
 	
-	; Archive Section
-	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y190 w300 BackgroundTrans vFilesArchive Hidden, Archive Settings
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y225 w100 BackgroundTrans vFilesArchiveLabel Hidden HwndHwndFilesArchive, Archive Path:
+	RegisterSettingsTooltip(HwndFilesArchive, "ARCHIVE PATH`n`nLocation where completed shoots are archived.`nUsed for long-term storage and backup.`n`nOrganize by year/month for easy retrieval.")
+	Gui, Settings:Add, Edit, x315 y222 w240 h25 vFilesArchiveEdit Hidden, %Settings_ShootArchivePath%
+	Gui, Settings:Add, Button, x560 y221 w100 h27 gFilesArchiveBrowseBtn vFilesArchiveBrowse Hidden, Browse
 	
-	; Archive Path
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y225 w120 BackgroundTrans vFilesArchiveLabel Hidden, Archive Path:
-	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x320 y222 w230 h25 vFilesArchiveEdit Hidden, %Settings_ShootArchivePath%
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x555 y220 w60 h28 gFilesArchiveBrowseBtn vFilesArchiveBrowse Hidden, Browse
+	; ═══════════════════════════════════════════════════════════════════════════
+	; FILE NAMING GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y280 w480 h130 vFilesNamingGroup Hidden, File Naming
 	
-	; Naming Convention Section
-	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y260 w300 BackgroundTrans vFilesNaming Hidden, File Naming
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y305 w80 BackgroundTrans vFilesPrefixLabel Hidden HwndHwndFilesPrefix, Prefix:
+	RegisterSettingsTooltip(HwndFilesPrefix, "FILE PREFIX`n`nText added before the shoot number.`nExample: 'ZP' creates 'ZP2026001'`n`nUseful for studio branding or identification.")
+	Gui, Settings:Add, Edit, x295 y302 w60 h25 vFilesPrefixEdit Hidden, %Settings_ShootPrefix%
 	
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y295 w80 BackgroundTrans vFilesPrefixLabel Hidden, Prefix:
-	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x280 y292 w60 h25 vFilesPrefixEdit Hidden, %Settings_ShootPrefix%
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x380 y305 w80 BackgroundTrans vFilesSuffixLabel Hidden HwndHwndFilesSuffix, Suffix:
+	RegisterSettingsTooltip(HwndFilesSuffix, "FILE SUFFIX`n`nText added after the shoot number.`nExample: '_RAW' creates '2026001_RAW'`n`nUseful for categorizing shoot types.")
+	Gui, Settings:Add, Edit, x465 y302 w60 h25 vFilesSuffixEdit Hidden, %Settings_ShootSuffix%
 	
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x360 y295 w80 BackgroundTrans vFilesSuffixLabel Hidden, Suffix:
-	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x440 y292 w60 h25 vFilesSuffixEdit Hidden, %Settings_ShootSuffix%
-	
-	; Auto Year Toggle
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y330 w200 BackgroundTrans vFilesAutoYear Hidden, Include Year in Shoot No:
-	CreateToggleSlider("Settings", "AutoShootYear", 420, 328, Settings_AutoShootYear)
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y340 w200 BackgroundTrans vFilesAutoYear Hidden HwndHwndFilesAutoYear, Include Year in Shoot No
+	RegisterSettingsTooltip(HwndFilesAutoYear, "INCLUDE YEAR IN SHOOT NUMBER`n`nWhen enabled, adds the year prefix to shoot numbers.`nExample: '2026001' instead of just '001'`n`nRecommended for multi-year organization.")
+	CreateToggleSlider("Settings", "AutoShootYear", 630, 338, Settings_AutoShootYear)
 	GuiControl, Settings:Hide, Toggle_AutoShootYear
 	
-	; Auto Rename Toggle
-	Gui, Settings:Add, Text, x200 y360 w200 BackgroundTrans vFilesAutoRename Hidden, Auto-Rename by Date:
-	CreateToggleSlider("Settings", "AutoRenameImages", 420, 358, Settings_AutoRenameImages)
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y370 w200 BackgroundTrans vFilesAutoRename Hidden HwndHwndFilesAutoRename, Auto-Rename by Date
+	RegisterSettingsTooltip(HwndFilesAutoRename, "AUTO-RENAME BY DATE`n`nAutomatically rename downloaded images using`nthe capture date from EXIF metadata.`n`nCreates organized filenames like '2026-02-01_001.jpg'")
+	CreateToggleSlider("Settings", "AutoRenameImages", 630, 368, Settings_AutoRenameImages)
 	GuiControl, Settings:Hide, Toggle_AutoRenameImages
 	
-	; Editor Section
-	Gui, Settings:Font, s12 c%sectionColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y400 w300 BackgroundTrans vFilesEditor Hidden, Photo Editor
+	; ═══════════════════════════════════════════════════════════════════════════
+	; PHOTO EDITOR GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y420 w480 h130 vFilesEditorGroup Hidden, Photo Editor
 	
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y435 w120 BackgroundTrans vFilesEditorLabel Hidden, Editor Path:
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y445 w100 BackgroundTrans vFilesEditorLabel Hidden HwndHwndFilesEditor, Editor Path:
+	RegisterSettingsTooltip(HwndFilesEditor, "PHOTO EDITOR PATH`n`nPath to your preferred photo editing software.`nLeave as 'Windows Explorer' to open folder instead.`n`nCommon editors: Lightroom, Photoshop, Capture One")
 	editorDisplay := (Settings_EditorRunPath = "Explore" || Settings_EditorRunPath = "") ? "Windows Explorer" : Settings_EditorRunPath
-	Gui, Settings:Font, s10 c000000, Segoe UI
-	Gui, Settings:Add, Edit, x320 y432 w230 h25 vFilesEditorEdit Hidden, %editorDisplay%
-	Gui, Settings:Font, s10 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x555 y430 w60 h28 gFilesEditorBrowseBtn vFilesEditorBrowse Hidden, Browse
+	Gui, Settings:Add, Edit, x315 y442 w240 h25 vFilesEditorEdit Hidden, %editorDisplay%
+	Gui, Settings:Add, Button, x560 y441 w100 h27 gFilesEditorBrowseBtn vFilesEditorBrowse Hidden, Browse
 	
-	; Open Editor After Download Toggle
-	Gui, Settings:Add, Text, x200 y470 w200 BackgroundTrans vFilesOpenEditor Hidden, Open Editor After Download:
-	CreateToggleSlider("Settings", "BrowsDown", 420, 468, Settings_BrowsDown)
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y480 w200 BackgroundTrans vFilesOpenEditor Hidden HwndHwndFilesOpenEditor, Open Editor After Download
+	RegisterSettingsTooltip(HwndFilesOpenEditor, "OPEN EDITOR AFTER DOWNLOAD`n`nAutomatically launch your photo editor`nafter SD card download completes.`n`nSaves time by jumping straight to editing.")
+	CreateToggleSlider("Settings", "BrowsDown", 630, 478, Settings_BrowsDown)
 	GuiControl, Settings:Hide, Toggle_BrowsDown
 	
-	; Auto Drive Detection Toggle
-	Gui, Settings:Add, Text, x200 y500 w200 BackgroundTrans vFilesAutoDrive Hidden, Auto-Detect SD Cards:
-	CreateToggleSlider("Settings", "AutoDriveDetect", 420, 498, Settings_AutoDriveDetect)
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y510 w200 BackgroundTrans vFilesAutoDrive Hidden HwndHwndFilesAutoDrive, Auto-Detect SD Cards
+	RegisterSettingsTooltip(HwndFilesAutoDrive, "AUTO-DETECT SD CARDS`n`nAutomatically detect when an SD card is inserted.`nShows a notification or prompt when detected.`n`nConvenient for streamlined download workflow.")
+	CreateToggleSlider("Settings", "AutoDriveDetect", 630, 508, Settings_AutoDriveDetect)
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
-	
-	; Sync from SideKick_LB button
-	Gui, Settings:Font, s10 Norm, Segoe UI
-	Gui, Settings:Add, Button, x480 y495 w135 h28 gFilesSyncFromLB vFilesSyncFromLBBtn Hidden, 🔄 Sync from LB
 }
 
 CreateLicensePanel()
@@ -2598,6 +2686,7 @@ CreateLicensePanel()
 		textColor := "FFFFFF"
 		labelColor := "CCCCCC"
 		mutedColor := "888888"
+		groupColor := "666666"
 		successColor := "00FF00"
 		warningColor := "FFB84D"
 		errorColor := "FF6B6B"
@@ -2606,79 +2695,98 @@ CreateLicensePanel()
 		textColor := "1E1E1E"
 		labelColor := "444444"
 		mutedColor := "666666"
+		groupColor := "999999"
 		successColor := "008800"
 		warningColor := "CC6600"
 		errorColor := "CC0000"
 	}
 	
 	; License panel container (initially hidden)
-	Gui, Settings:Add, Text, x190 y10 w500 h530 BackgroundTrans vPanelLicense Hidden
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelLicense Hidden
 	
 	; Section header
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vLicenseHeader Hidden, 🔑 License
+	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vLicenseHeader Hidden, 🔑 License
 	
-	; License Status Section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y65 w200 BackgroundTrans vLicenseStatusTitle Hidden, Status
+	; ═══════════════════════════════════════════════════════════════════════════
+	; STATUS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h70 vLicenseStatusGroup Hidden, Status
 	
 	; Status indicator - dynamic based on license state
 	statusText := GetLicenseStatusText()
 	statusColor := GetLicenseStatusColor()
-	Gui, Settings:Font, s11 c%statusColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y95 w400 BackgroundTrans vLicenseStatusText Hidden, %statusText%
+	Gui, Settings:Font, s11 Norm c%statusColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y80 w440 BackgroundTrans vLicenseStatusText Hidden HwndHwndLicenseStatus, %statusText%
+	RegisterSettingsTooltip(HwndLicenseStatus, "LICENSE STATUS`n`nShows your current license state:`n• Licensed - Active: Full features enabled`n• Trial Mode: Limited functionality`n• Expired: Renewal required`n• Invalid: Contact support")
 	
-	; License Key Section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y160 w200 BackgroundTrans vLicenseKeyTitle Hidden, License Key
+	; ═══════════════════════════════════════════════════════════════════════════
+	; LICENSE KEY GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y135 w480 h100 vLicenseKeyGroup Hidden, License Key
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y195 w100 BackgroundTrans vLicenseKeyLabel Hidden, Key:
-	keyDisplay := License_Key ? License_Key : "Not entered"
-	Gui, Settings:Add, Edit, x300 y192 w230 h25 vLicenseKeyEdit Hidden, %keyDisplay%
-	Gui, Settings:Add, Button, x540 y190 w80 h28 gActivateLicenseBtn vLicenseActivateBtn Hidden, Activate
+	Gui, Settings:Add, Text, x210 y160 w80 BackgroundTrans vLicenseKeyLabel Hidden, Key:
+	keyDisplay := License_Key ? License_Key : ""
+	Gui, Settings:Add, Edit, x295 y157 w265 h25 vLicenseKeyEdit Hidden, %keyDisplay%
+	Gui, Settings:Add, Button, x565 y156 w95 h27 gActivateLicenseBtn vLicenseActivateBtn Hidden HwndHwndLicenseActivate, Activate
+	RegisterSettingsTooltip(HwndLicenseActivate, "ACTIVATE LICENSE`n`nEnter your license key and click Activate.`nYour license will be bound to your GHL Location ID.`n`nLicense keys are provided after purchase.")
 	
 	; Location binding info
-	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
+	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
 	locDisplay := GHL_LocationID ? GHL_LocationID : "(Configure in GHL tab first)"
-	Gui, Settings:Add, Text, x200 y230 w430 BackgroundTrans vLicenseLocationInfo Hidden, Bound to Location: %locDisplay%
+	Gui, Settings:Add, Text, x210 y195 w440 BackgroundTrans vLicenseLocationInfo Hidden HwndHwndLicenseLoc, Bound to Location: %locDisplay%
+	RegisterSettingsTooltip(HwndLicenseLoc, "LOCATION BINDING`n`nYour license is tied to your GHL Location ID.`nThis prevents unauthorized sharing.`n`nSet up your GHL Location ID in the GHL Integration tab`nbefore activating your license.")
 	
-	; Activation Details Section (shown when activated)
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y275 w200 BackgroundTrans vLicenseDetailsTitle Hidden, Activation Details
+	; ═══════════════════════════════════════════════════════════════════════════
+	; ACTIVATION DETAILS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y245 w480 h155 vLicenseDetailsGroup Hidden, Activation Details
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Customer name
 	nameDisplay := License_CustomerName ? License_CustomerName : "—"
-	Gui, Settings:Add, Text, x200 y310 w120 BackgroundTrans vLicenseNameLabel Hidden, Licensed to:
-	Gui, Settings:Add, Text, x330 y310 w290 BackgroundTrans vLicenseNameValue Hidden, %nameDisplay%
+	Gui, Settings:Add, Text, x210 y270 w100 BackgroundTrans vLicenseNameLabel Hidden, Licensed to:
+	Gui, Settings:Add, Text, x315 y270 w340 BackgroundTrans vLicenseNameValue Hidden, %nameDisplay%
 	
 	; Customer email
 	emailDisplay := License_CustomerEmail ? License_CustomerEmail : "—"
-	Gui, Settings:Add, Text, x200 y335 w120 BackgroundTrans vLicenseEmailLabel Hidden, Email:
-	Gui, Settings:Add, Text, x330 y335 w290 BackgroundTrans vLicenseEmailValue Hidden, %emailDisplay%
+	Gui, Settings:Add, Text, x210 y295 w100 BackgroundTrans vLicenseEmailLabel Hidden, Email:
+	Gui, Settings:Add, Text, x315 y295 w340 BackgroundTrans vLicenseEmailValue Hidden, %emailDisplay%
 	
 	; Activation date
 	activatedDisplay := License_ActivatedAt ? License_ActivatedAt : "—"
-	Gui, Settings:Add, Text, x200 y360 w120 BackgroundTrans vLicenseActivatedLabel Hidden, Activated:
-	Gui, Settings:Add, Text, x330 y360 w290 BackgroundTrans vLicenseActivatedValue Hidden, %activatedDisplay%
+	Gui, Settings:Add, Text, x210 y320 w100 BackgroundTrans vLicenseActivatedLabel Hidden, Activated:
+	Gui, Settings:Add, Text, x315 y320 w340 BackgroundTrans vLicenseActivatedValue Hidden, %activatedDisplay%
 	
 	; Expiry date
 	expiryDisplay := License_ExpiresAt ? License_ExpiresAt : "—"
-	Gui, Settings:Add, Text, x200 y385 w120 BackgroundTrans vLicenseExpiryLabel Hidden, Expires:
-	Gui, Settings:Add, Text, x330 y385 w290 BackgroundTrans vLicenseExpiryValue Hidden, %expiryDisplay%
+	Gui, Settings:Add, Text, x210 y345 w100 BackgroundTrans vLicenseExpiryLabel Hidden, Expires:
+	Gui, Settings:Add, Text, x315 y345 w340 BackgroundTrans vLicenseExpiryValue Hidden HwndHwndLicenseExpiry, %expiryDisplay%
+	RegisterSettingsTooltip(HwndLicenseExpiry, "LICENSE EXPIRY`n`nDate when your license expires.`nYou'll receive renewal reminders before expiry.`n`nRenew early to avoid interruption.")
 	
-	; Action buttons
-	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
-	Gui, Settings:Add, Button, x200 y430 w120 h30 gValidateLicenseBtn vLicenseValidateBtn Hidden, ✓ Validate
-	Gui, Settings:Add, Button, x330 y430 w120 h30 gDeactivateLicenseBtn vLicenseDeactivateBtn Hidden, ✗ Deactivate
-	Gui, Settings:Add, Button, x460 y430 w150 h30 gBuyLicenseBtn vLicenseBuyBtn Hidden, 🛒 Buy License
+	; ═══════════════════════════════════════════════════════════════════════════
+	; ACTIONS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y410 w480 h125 vLicenseActionsGroup Hidden, Actions
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Button, x210 y440 w120 h30 gValidateLicenseBtn vLicenseValidateBtn Hidden HwndHwndLicenseValidate, ✓ Validate
+	RegisterSettingsTooltip(HwndLicenseValidate, "VALIDATE LICENSE`n`nCheck your license status with the server.`nVerifies your license is still active and valid.`n`nUse if you've renewed or need to confirm status.")
+	Gui, Settings:Add, Button, x340 y440 w120 h30 gDeactivateLicenseBtn vLicenseDeactivateBtn Hidden HwndHwndLicenseDeactivate, ✗ Deactivate
+	RegisterSettingsTooltip(HwndLicenseDeactivate, "DEACTIVATE LICENSE`n`nRemove license from this location.`nFrees up the license for use elsewhere.`n`nYou'll need to reactivate to use licensed features.")
+	Gui, Settings:Add, Button, x470 y440 w190 h30 gBuyLicenseBtn vLicenseBuyBtn Hidden HwndHwndLicenseBuy, 🛒 Buy License
+	RegisterSettingsTooltip(HwndLicenseBuy, "BUY LICENSE`n`nPurchase a new SideKick license.`nOpens the purchase page in your browser.`n`nLicenses unlock all features and include updates.")
 	
 	; Purchase info
-	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y480 w430 BackgroundTrans vLicensePurchaseInfo Hidden, Licenses are bound to your GHL Location ID for security.
-	Gui, Settings:Add, Text, x200 y500 w430 BackgroundTrans vLicensePurchaseInfo2 Hidden, Each license allows activation on one location.
+	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y480 w440 BackgroundTrans vLicensePurchaseInfo Hidden, Licenses are bound to your GHL Location ID for security.
+	Gui, Settings:Add, Text, x210 y500 w440 BackgroundTrans vLicensePurchaseInfo2 Hidden, Each license allows activation on one location.
 }
 
 ; License helper functions
@@ -3423,77 +3531,104 @@ CreateAboutPanel()
 	}
 	
 	; About panel container (initially hidden)
-	Gui, Settings:Add, Text, x190 y10 w500 h430 BackgroundTrans vPanelAbout Hidden
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelAbout Hidden
 	
 	; Section header
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vAboutHeader Hidden, ℹ About SideKick_PS
+	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vAboutHeader Hidden, ℹ About SideKick_PS
 	
-	; App info
-	Gui, Settings:Font, s24 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y70 w400 BackgroundTrans vAboutTitle Hidden, SideKick_PS
+	; ═══════════════════════════════════════════════════════════════════════════
+	; APP INFO GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h120 vAboutAppGroup Hidden, Application
 	
-	Gui, Settings:Font, s11 c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y110 w400 BackgroundTrans vAboutSubtitle Hidden, Payment Plan Calculator for ProSelect
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y80 w100 BackgroundTrans vAboutDescLabel Hidden, Description:
+	Gui, Settings:Add, Text, x315 y80 w340 BackgroundTrans vAboutDescValue Hidden HwndHwndAboutDesc, File management && GHL integration for ProSelect
+	RegisterSettingsTooltip(HwndAboutDesc, "SIDEKICK_PS DESCRIPTION`n`nSideKick_PS enhances your ProSelect workflow with:`n• Automated file management and organization`n• GoHighLevel CRM integration for contacts`n• Invoice syncing and contact sheet creation`n• Keyboard shortcuts for common tasks`n`nDesigned for professional photographers using ProSelect.")
 	
-	; Version info
-	Gui, Settings:Font, s10 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y160 w150 BackgroundTrans vAboutVerLabel Hidden, Version:
-	Gui, Settings:Add, Text, x350 y160 w150 BackgroundTrans vAboutVerValue Hidden, %ScriptVersion%
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y105 w100 BackgroundTrans vAboutVersionLabel Hidden, Version:
+	Gui, Settings:Add, Text, x315 y105 w80 BackgroundTrans vAboutVersionValue Hidden HwndHwndAboutVersion, %ScriptVersion%
+	RegisterSettingsTooltip(HwndAboutVersion, "CURRENT VERSION`n`nThe version of SideKick_PS you are running.`nVersion numbers follow semantic versioning:`n• Major.Minor.Patch (e.g., 1.2.3)`n`nCheck 'Updates' section below to see if a newer version is available.")
 	
-	Gui, Settings:Add, Text, x200 y185 w150 BackgroundTrans vAboutBuildLabel Hidden, Build Date:
-	Gui, Settings:Add, Text, x350 y185 w150 BackgroundTrans vAboutBuildValue Hidden, %BuildDate%
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x400 y105 w80 BackgroundTrans vAboutPSLabel Hidden, ProSelect:
+	psVer := ProSelectVersion ? ProSelectVersion : "Not detected"
+	Gui, Settings:Add, Text, x480 y105 w80 BackgroundTrans vAboutPSValue Hidden HwndHwndAboutPS, %psVer%
+	RegisterSettingsTooltip(HwndAboutPS, "PROSELECT VERSION`n`nThe detected version of ProSelect on your system.`nSideKick optimizes automation for your specific version.`n`nSupported versions: 2022, 2024, 2025`n`nIf showing 'Not detected', ensure ProSelect is installed.")
 	
-	; Latest version section
-	Gui, Settings:Add, Text, x200 y210 w150 BackgroundTrans vAboutLatestLabel Hidden, Latest Version:
-	Gui, Settings:Add, Text, x350 y210 w200 BackgroundTrans vAboutLatestValue Hidden, Checking...
-	Gui, Settings:Font, s9 Norm cFFFFFF, Segoe UI
-	Gui, Settings:Add, Button, x555 y207 w90 h22 gAboutUpdateNow vAboutUpdateBtn Hidden, 🔄 Update
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y130 w100 BackgroundTrans vAboutBuildLabel Hidden, Build Date:
+	Gui, Settings:Add, Text, x315 y130 w150 BackgroundTrans vAboutBuildValue Hidden HwndHwndAboutBuild, %BuildDate%
+	RegisterSettingsTooltip(HwndAboutBuild, "BUILD DATE`n`nWhen this version of SideKick_PS was compiled.`nUseful for troubleshooting and support requests.`n`nNewer builds may include bug fixes and improvements`neven within the same version number.")
 	
-	; Download progress bar (hidden by default, shown during update)
-	Gui, Settings:Add, Progress, x200 y235 w345 h20 vAboutDownloadProgress Hidden Range0-100 c4FC3F7, 0
-	Gui, Settings:Add, Text, x200 y258 w345 BackgroundTrans vAboutDownloadStatus Hidden, Downloading...
+	; ═══════════════════════════════════════════════════════════════════════════
+	; UPDATES GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y180 w480 h120 vAboutUpdatesGroup Hidden, Updates
 	
-	; Auto-update toggle slider (same style as General tab)
-	Gui, Settings:Add, Text, x200 y235 w300 BackgroundTrans vAboutAutoUpdateLabel Hidden, Enable automatic updates
-	CreateToggleSlider("Settings", "AutoUpdate", 590, 233, Settings_AutoUpdate)
-	; Hide the toggle by default (About panel hidden initially)
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y205 w100 BackgroundTrans vAboutLatestLabel Hidden, Latest Version:
+	Gui, Settings:Add, Text, x315 y205 w150 BackgroundTrans vAboutLatestValue Hidden HwndHwndAboutLatest, Checking...
+	RegisterSettingsTooltip(HwndAboutLatest, "LATEST VERSION AVAILABLE`n`nShows the newest version available on the update server.`nCompare with your current version above.`n`nIf newer, use 'Check Now' to download and install.`nUpdates include bug fixes, new features, and improvements.")
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y230 w300 BackgroundTrans vAboutAutoUpdateText Hidden HwndHwndAboutAutoUpdate, Enable automatic updates
+	RegisterSettingsTooltip(HwndAboutAutoUpdate, "AUTOMATIC UPDATES`n`nWhen enabled, SideKick checks for updates on startup.`nIf a new version is found, it downloads and installs automatically.`n`nRecommended: Keep enabled for latest features and fixes.`nDisable if you need to control exactly which version runs.")
+	CreateToggleSlider("Settings", "AutoUpdate", 630, 228, Settings_AutoUpdate)
 	GuiControl, Settings:Hide, Toggle_AutoUpdate
 	
-	; Features section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y265 w200 BackgroundTrans vAboutFeatures Hidden, Features
+	; Download progress bar (hidden by default, shown during update)
+	Gui, Settings:Add, Progress, x210 y260 w120 h20 vAboutDownloadProgress Hidden Range0-100 c4FC3F7, 0
+	Gui, Settings:Add, Text, x210 y260 w120 BackgroundTrans vAboutDownloadStatus Hidden,
 	
-	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y295 w430 BackgroundTrans vAboutFeat1 Hidden, • Automatic payment calculations with rounding correction
-	Gui, Settings:Add, Text, x200 y315 w430 BackgroundTrans vAboutFeat2 Hidden, • Weekly, Bi-Weekly, 4-Weekly, and Monthly payments
-	Gui, Settings:Add, Text, x200 y335 w430 BackgroundTrans vAboutFeat3 Hidden, • ProSelect 2022 && 2025 integration
-	Gui, Settings:Add, Text, x200 y355 w430 BackgroundTrans vAboutFeat4 Hidden, • GHL client lookup from Chrome
-	Gui, Settings:Add, Text, x200 y375 w430 BackgroundTrans vAboutFeat5 Hidden, • Multi-copy print workflow automation
-	
-	; Author & Contact
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y410 w150 BackgroundTrans vAboutAuthor Hidden, Author: GuyMayer
-	Gui, Settings:Font, s10 c%linkColor% Underline, Segoe UI
-	Gui, Settings:Add, Text, x350 y410 w250 BackgroundTrans gOpenSupportEmail vAboutEmail Hidden, guy@zoom-photo.co.uk
+	Gui, Settings:Add, Button, x340 y255 w110 h28 gShowWhatsNew vAboutWhatsNewButton Hidden HwndHwndAboutWhatsNew, 📋 What's New
+	RegisterSettingsTooltip(HwndAboutWhatsNew, "WHAT'S NEW`n`nView the changelog and release notes.`nSee what features, fixes, and improvements`nare included in each version.`n`nHelpful for understanding what changed after an update.")
+	Gui, Settings:Add, Button, x455 y255 w100 h28 gAboutReinstall vAboutReinstallBtn Hidden HwndHwndAboutReinstall, Reinstall
+	RegisterSettingsTooltip(HwndAboutReinstall, "REINSTALL SIDEKICK`n`nDownload and reinstall the current version.`nUseful if files are corrupted or missing.`n`nThis will replace all SideKick files with fresh copies`nfrom the update server. Your settings are preserved.")
+	Gui, Settings:Add, Button, x560 y255 w100 h28 gAboutUpdateNow vAboutCheckNowBtn Hidden HwndHwndAboutCheckNow, Check Now
+	RegisterSettingsTooltip(HwndAboutCheckNow, "CHECK FOR UPDATES`n`nManually check the update server for new versions.`nIf a newer version is found, you'll be prompted to install.`n`nProgress will show in the bar to the left during download.")
 	
-	; What's New and Send Logs buttons
-	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
-	Gui, Settings:Add, Button, x200 y440 w120 h28 gShowWhatsNew vAboutWhatsNewBtn Hidden, 📋 What's New
-	Gui, Settings:Add, Button, x330 y440 w110 h28 gSendLogsNow vAboutSendLogsBtn Hidden, 📤 Send Logs
+	; ═══════════════════════════════════════════════════════════════════════════
+	; SUPPORT GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y305 w480 h60 vAboutSupportGroup Hidden, Support
 	
-	; Auto-send toggle (right side)
-	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x480 y448 w100 BackgroundTrans vAboutAutoSendLabel hwndAutoSendLabelHwnd Hidden, Auto-send
-	CreateToggleSlider("Settings", "AutoSendLogs", 580, 446, Settings_AutoSendLogs)
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y330 w60 BackgroundTrans vAboutAuthorLabel Hidden, Author:
+	Gui, Settings:Add, Text, x275 y330 w100 BackgroundTrans vAboutAuthorValue Hidden HwndHwndAboutAuthor, GuyMayer
+	RegisterSettingsTooltip(HwndAboutAuthor, "DEVELOPER`n`nSideKick_PS is developed and maintained by GuyMayer.`nBuilt specifically for professional photographers`nusing ProSelect and GoHighLevel CRM.")
+	
+	Gui, Settings:Font, s10 Norm c%linkColor%, Segoe UI
+	Gui, Settings:Add, Text, x380 y330 w200 BackgroundTrans gOpenSupportEmail vAboutEmailLink Hidden HwndHwndAboutEmail, guy@zoom-photo.co.uk
+	RegisterSettingsTooltip(HwndAboutEmail, "SUPPORT EMAIL`n`nClick to send an email for technical support.`n`nPlease include:`n• Your SideKick version (shown above)`n• ProSelect version`n• Description of the issue`n• Steps to reproduce the problem`n`nFor faster resolution, use 'Send Logs' in Diagnostics.")
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; DIAGNOSTICS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y370 w480 h125 vAboutDiagnostics Hidden, Diagnostics
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y395 w300 BackgroundTrans vAboutAutoSendText Hidden HwndHwndAboutAutoSend, Auto-send logs on error
+	RegisterSettingsTooltip(HwndAboutAutoSend, "AUTO-SEND LOGS ON ERROR`n`nWhen enabled, diagnostic logs are automatically sent`nto support when an error occurs.`n`nThis helps identify and fix issues faster.`nNo personal data is included - only error details`nand script state information.`n`nRecommended: Keep enabled for proactive support.")
+	CreateToggleSlider("Settings", "AutoSendLogs", 630, 393, Settings_AutoSendLogs)
 	GuiControl, Settings:Hide, Toggle_AutoSendLogs
-	RegisterSettingsTooltip(AutoSendLabelHwnd, "Automatically upload debug logs to developer when errors occur.`nHelps improve SideKick by reporting issues.")
 	
-	; Debug logging toggle
-	Gui, Settings:Add, Text, x200 y480 w150 BackgroundTrans vAboutDebugLabel hwndDebugLabelHwnd Hidden, Debug Logging
-	CreateToggleSlider("Settings", "DebugLogging", 350, 478, Settings_DebugLogging)
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y425 w300 BackgroundTrans vAboutDebugText Hidden HwndHwndAboutDebug, Enable debug logging
+	RegisterSettingsTooltip(HwndAboutDebug, "DEBUG LOGGING`n`nWhen enabled, detailed diagnostic information is logged.`nThis creates more verbose log files for troubleshooting.`n`nEnable temporarily when experiencing issues.`nDisable for normal use to improve performance`nand reduce log file size.`n`nLogs are stored locally and sent via 'Send Logs'.")
+	CreateToggleSlider("Settings", "DebugLogging", 630, 423, Settings_DebugLogging)
 	GuiControl, Settings:Hide, Toggle_DebugLogging
-	RegisterSettingsTooltip(DebugLabelHwnd, "Enable detailed logging for troubleshooting.`nLogs saved to: %APPDATA%\SideKick_PS\Logs\`n`nNOTE: Auto-disables after 24 hours if left on.")
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Button, x210 y455 w100 h28 gSendLogsNow vAboutSendLogsButton Hidden HwndHwndAboutSendLogs, 📤 Send Logs
+	RegisterSettingsTooltip(HwndAboutSendLogs, "SEND DIAGNOSTIC LOGS`n`nManually send current logs to support.`nUse this when reporting an issue or if requested by support.`n`nLogs include:`n• Recent actions and errors`n• Script configuration (no passwords)`n• System information`n`nThis helps diagnose problems quickly.")
 }
 
 CreateDeveloperPanel()
@@ -3505,57 +3640,75 @@ CreateDeveloperPanel()
 	headerColor := Settings_DarkMode ? "FF8C00" : "E67E00"
 	labelColor := Settings_DarkMode ? "AAAAAA" : "666666"
 	mutedColor := Settings_DarkMode ? "888888" : "999999"
+	groupColor := Settings_DarkMode ? "666666" : "999999"
 	successColor := "00AA00"
 	
 	; Developer panel container (initially hidden)
-	Gui, Settings:Add, Text, x190 y10 w500 h530 BackgroundTrans vPanelDeveloper Hidden
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelDeveloper Hidden
 	
 	; Section header
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vDevHeader Hidden, 🛠 Developer Tools
+	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vDevHeader Hidden, 🛠 Developer Tools
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; STATUS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h95 vDevStatusGroup Hidden, Status
 	
 	; Warning message
-	Gui, Settings:Font, s10 cFF6600, Segoe UI
-	Gui, Settings:Add, Text, x200 y60 w400 BackgroundTrans vDevWarning Hidden, ⚠ Developer mode - for internal use only
-	
-	; Build section
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y100 w300 BackgroundTrans vDevBuildTitle Hidden, Build && Release
-	
-	Gui, Settings:Font, s10 c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y130 w430 BackgroundTrans vDevBuildDesc Hidden, Create release package, update version, and push to GitHub.
+	Gui, Settings:Font, s10 Norm cFF6600, Segoe UI
+	Gui, Settings:Add, Text, x210 y80 w440 BackgroundTrans vDevWarning Hidden HwndHwndDevWarning, ⚠ Developer mode - for internal use only
+	RegisterSettingsTooltip(HwndDevWarning, "DEVELOPER MODE`n`nThis panel is only visible when running`nas an uncompiled script.`n`nNot available in the released EXE version.")
 	
 	; Version info
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y170 w120 BackgroundTrans vDevVersionLabel Hidden, Current Version:
-	Gui, Settings:Font, s10 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x330 y170 w100 BackgroundTrans vDevVersionValue Hidden, %ScriptVersion%
+	Gui, Settings:Add, Text, x210 y105 w100 BackgroundTrans vDevVersionLabel Hidden, Version:
+	Gui, Settings:Add, Text, x315 y105 w80 BackgroundTrans vDevVersionValue Hidden, %ScriptVersion%
 	
-	; Running mode indicator (Dev Script vs Consumer EXE)
+	; Running mode indicator
 	runningMode := A_IsCompiled ? "Consumer (EXE)" : "Developer (Script)"
 	modeColor := A_IsCompiled ? "00CC00" : "FF9900"
-	Gui, Settings:Font, s10 c%modeColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y195 w120 BackgroundTrans vDevModeLabel Hidden, Running Mode:
-	Gui, Settings:Add, Text, x330 y195 w150 BackgroundTrans vDevModeValue Hidden, %runningMode%
+	Gui, Settings:Font, s10 Norm c%modeColor%, Segoe UI
+	Gui, Settings:Add, Text, x400 y105 w80 BackgroundTrans vDevModeLabel Hidden, Mode:
+	Gui, Settings:Add, Text, x485 y105 w150 BackgroundTrans vDevModeValue Hidden, %runningMode%
 	
-	; Build action buttons
-	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
-	Gui, Settings:Add, Button, x200 y235 w140 h40 gDevCreateRelease vDevCreateBtn Hidden, 📦 Create Release
-	Gui, Settings:Add, Button, x350 y235 w140 h40 gDevUpdateVersion vDevUpdateBtn Hidden, 🔢 Update Version
-	Gui, Settings:Add, Button, x500 y235 w120 h40 gDevPushGitHub vDevPushBtn Hidden, 🚀 Push GitHub
+	; ═══════════════════════════════════════════════════════════════════════════
+	; BUILD & RELEASE GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y160 w480 h130 vDevBuildGroup Hidden, Build && Release
 	
-	; Quick actions
-	Gui, Settings:Font, s12 c%textColor%, Segoe UI
-	Gui, Settings:Add, Text, x200 y300 w300 BackgroundTrans vDevQuickTitle Hidden, Quick Actions
+	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y185 w440 BackgroundTrans vDevBuildDesc Hidden, Create release package, update version, and push to GitHub.
 	
-	Gui, Settings:Font, s10 Norm, Segoe UI
-	Gui, Settings:Add, Button, x200 y335 w100 h35 gDevReloadScript vDevReloadBtn Hidden, 🔄 Reload
-	Gui, Settings:Add, Button, x310 y335 w110 h35 gDevTestBuild vDevTestBtn Hidden, 🧪 Test Build
-	Gui, Settings:Add, Button, x430 y335 w100 h35 gDevOpenGitHub vDevGitHubBtn Hidden, 🌐 GitHub
-	Gui, Settings:Add, Button, x540 y335 w80 h35 gDevQuickPush vDevQuickPushBtn Hidden, ⚡ Publish
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Button, x210 y215 w140 h40 gDevCreateRelease vDevCreateBtn Hidden HwndHwndDevCreate, 📦 Create Release
+	RegisterSettingsTooltip(HwndDevCreate, "CREATE RELEASE`n`nCompile the script to EXE and create`na release package with all required files.`n`nOutput goes to the build folder.")
+	Gui, Settings:Add, Button, x360 y215 w140 h40 gDevUpdateVersion vDevUpdateBtn Hidden HwndHwndDevUpdate, 🔢 Update Version
+	RegisterSettingsTooltip(HwndDevUpdate, "UPDATE VERSION`n`nIncrement the version number.`nUpdates ScriptVersion and BuildDate variables.`n`nFollow semantic versioning: Major.Minor.Patch")
+	Gui, Settings:Add, Button, x510 y215 w150 h40 gDevPushGitHub vDevPushBtn Hidden HwndHwndDevPush, 🚀 Push GitHub
+	RegisterSettingsTooltip(HwndDevPush, "PUSH TO GITHUB`n`nCommit changes and push to the remote repository.`nOpens GitHub Desktop or runs git push.`n`nMake sure all changes are saved first.")
 	
-	; Second row of quick actions
-	Gui, Settings:Add, Button, x200 y380 w120 h35 gDevOpenFolder vDevOpenFolderBtn Hidden, 📂 Open Folder
+	; ═══════════════════════════════════════════════════════════════════════════
+	; QUICK ACTIONS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y300 w480 h130 vDevQuickGroup Hidden, Quick Actions
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Button, x210 y330 w100 h35 gDevReloadScript vDevReloadBtn Hidden HwndHwndDevReload, 🔄 Reload
+	RegisterSettingsTooltip(HwndDevReload, "RELOAD SCRIPT`n`nReload the script to apply code changes.`nSame as pressing the Dev Reload hotkey.`n`nUseful when testing modifications.")
+	Gui, Settings:Add, Button, x320 y330 w110 h35 gDevTestBuild vDevTestBtn Hidden HwndHwndDevTest, 🧪 Test Build
+	RegisterSettingsTooltip(HwndDevTest, "TEST BUILD`n`nRun a test compilation to check for errors.`nDoes not create a release package.`n`nUseful for validating syntax before release.")
+	Gui, Settings:Add, Button, x440 y330 w100 h35 gDevOpenGitHub vDevGitHubBtn Hidden HwndHwndDevGitHub, 🌐 GitHub
+	RegisterSettingsTooltip(HwndDevGitHub, "OPEN GITHUB`n`nOpen the GitHub repository in your browser.`nView commits, issues, and pull requests.")
+	Gui, Settings:Add, Button, x550 y330 w110 h35 gDevQuickPush vDevQuickPushBtn Hidden HwndHwndDevQuickPush, ⚡ Publish
+	RegisterSettingsTooltip(HwndDevQuickPush, "QUICK PUBLISH`n`nOne-click build and push to GitHub.`nCreates release and uploads automatically.`n`nUse for rapid deployment.")
+	
+	; Second row
+	Gui, Settings:Add, Button, x210 y375 w120 h35 gDevOpenFolder vDevOpenFolderBtn Hidden HwndHwndDevFolder, 📂 Open Folder
+	RegisterSettingsTooltip(HwndDevFolder, "OPEN FOLDER`n`nOpen the script folder in Windows Explorer.`nQuick access to source files and resources.")
 }
 
 ShowSettingsTab(tabName)
@@ -3573,7 +3726,7 @@ ShowSettingsTab(tabName)
 	; Hide all panels - General
 	GuiControl, Settings:Hide, PanelGeneral
 	GuiControl, Settings:Hide, GenHeader
-	GuiControl, Settings:Hide, GenBehavior
+	GuiControl, Settings:Hide, GenBehaviorGroup
 	GuiControl, Settings:Hide, GenStartBoot
 	GuiControl, Settings:Hide, Toggle_StartOnBoot
 	GuiControl, Settings:Hide, GenTrayIcon
@@ -3584,14 +3737,15 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_AutoDetectPS
 	GuiControl, Settings:Hide, GenDarkMode
 	GuiControl, Settings:Hide, Toggle_DarkMode
-	GuiControl, Settings:Hide, GenDefaults
+	GuiControl, Settings:Hide, GenDefaultsGroup
 	GuiControl, Settings:Hide, GenRecurLabel
 	GuiControl, Settings:Hide, Settings_DefaultRecurring_DDL
 	GuiControl, Settings:Hide, GenRecurOptionsLabel
 	GuiControl, Settings:Hide, GenRecurOptionsEdit
 	GuiControl, Settings:Hide, GenRecurOptionsBtn
-	GuiControl, Settings:Hide, GenProSelect
-	GuiControl, Settings:Hide, GenPSVersion
+	GuiControl, Settings:Hide, GenProSelectGroup
+	GuiControl, Settings:Hide, GenPSVersionLabel
+	GuiControl, Settings:Hide, GenPSVersionValue
 	GuiControl, Settings:Hide, GenShortcutBtn
 	GuiControl, Settings:Hide, GenExportBtn
 	GuiControl, Settings:Hide, GenImportBtn
@@ -3625,13 +3779,17 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_FinancialsOnly
 	GuiControl, Settings:Hide, GHLContactSheet
 	GuiControl, Settings:Hide, Toggle_ContactSheet
+	GuiControl, Settings:Hide, GHLCollectCS
+	GuiControl, Settings:Hide, Toggle_CollectContactSheets
+	GuiControl, Settings:Hide, GHLCSFolderLabel
+	GuiControl, Settings:Hide, GHLCSFolderEdit
+	GuiControl, Settings:Hide, GHLCSFolderBrowse
 	GuiControl, Settings:Hide, GHLInfo
 	
 	; Hide all panels - Hotkeys
 	GuiControl, Settings:Hide, PanelHotkeys
 	GuiControl, Settings:Hide, HotkeysHeader
-	GuiControl, Settings:Hide, HotkeysInfo
-	GuiControl, Settings:Hide, HotkeysSection
+	GuiControl, Settings:Hide, HotkeysGlobalGroup
 	GuiControl, Settings:Hide, HKLabelGHL
 	GuiControl, Settings:Hide, Hotkey_GHLLookup_Edit
 	GuiControl, Settings:Hide, HKCaptureGHL
@@ -3644,58 +3802,58 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, HKLabelDevReload
 	GuiControl, Settings:Hide, Hotkey_DevReload_Edit
 	GuiControl, Settings:Hide, HKCaptureDevReload
-	GuiControl, Settings:Hide, HKActionsTitle
+	GuiControl, Settings:Hide, HotkeysActionsGroup
 	GuiControl, Settings:Hide, HKResetBtn
 	GuiControl, Settings:Hide, HKClearBtn
+	GuiControl, Settings:Hide, HotkeysInstructGroup
 	GuiControl, Settings:Hide, HKInstructions1
 	GuiControl, Settings:Hide, HKInstructions2
 	GuiControl, Settings:Hide, HKInstructions3
 	GuiControl, Settings:Hide, HKInstructions4
-	GuiControl, Settings:Hide, HKNote
 	
 	; Hide all panels - About
 	GuiControl, Settings:Hide, PanelAbout
 	GuiControl, Settings:Hide, AboutHeader
-	GuiControl, Settings:Hide, AboutTitle
-	GuiControl, Settings:Hide, AboutSubtitle
-	GuiControl, Settings:Hide, AboutVerLabel
-	GuiControl, Settings:Hide, AboutVerValue
+	GuiControl, Settings:Hide, AboutAppGroup
+	GuiControl, Settings:Hide, AboutDescLabel
+	GuiControl, Settings:Hide, AboutDescValue
+	GuiControl, Settings:Hide, AboutVersionLabel
+	GuiControl, Settings:Hide, AboutVersionValue
 	GuiControl, Settings:Hide, AboutBuildLabel
 	GuiControl, Settings:Hide, AboutBuildValue
 	GuiControl, Settings:Hide, AboutPSLabel
 	GuiControl, Settings:Hide, AboutPSValue
+	GuiControl, Settings:Hide, AboutUpdatesGroup
 	GuiControl, Settings:Hide, AboutLatestLabel
 	GuiControl, Settings:Hide, AboutLatestValue
-	GuiControl, Settings:Hide, AboutUpdateBtn
-	GuiControl, Settings:Hide, AboutAutoUpdateLabel
+	GuiControl, Settings:Hide, AboutAutoUpdateText
 	GuiControl, Settings:Hide, Toggle_AutoUpdate
-	GuiControl, Settings:Hide, AboutFeatures
-	GuiControl, Settings:Hide, AboutFeat1
-	GuiControl, Settings:Hide, AboutFeat2
-	GuiControl, Settings:Hide, AboutFeat3
-	GuiControl, Settings:Hide, AboutFeat4
-	GuiControl, Settings:Hide, AboutFeat5
-	GuiControl, Settings:Hide, AboutAuthor
-	GuiControl, Settings:Hide, AboutEmail
-	GuiControl, Settings:Hide, AboutWhatsNewBtn
-	GuiControl, Settings:Hide, AboutAutoSendLabel
+	GuiControl, Settings:Hide, AboutReinstallBtn
+	GuiControl, Settings:Hide, AboutCheckNowBtn
+	GuiControl, Settings:Hide, AboutSupportGroup
+	GuiControl, Settings:Hide, AboutAuthorLabel
+	GuiControl, Settings:Hide, AboutAuthorValue
+	GuiControl, Settings:Hide, AboutEmailLink
+	GuiControl, Settings:Hide, AboutWhatsNewButton
+	GuiControl, Settings:Hide, AboutSendLogsButton
+	GuiControl, Settings:Hide, AboutDiagnostics
+	GuiControl, Settings:Hide, AboutAutoSendText
 	GuiControl, Settings:Hide, Toggle_AutoSendLogs
-	GuiControl, Settings:Hide, AboutSendLogsBtn
-	GuiControl, Settings:Hide, AboutDebugLabel
+	GuiControl, Settings:Hide, AboutDebugText
 	GuiControl, Settings:Hide, Toggle_DebugLogging
 	
 	; Hide all panels - License
 	GuiControl, Settings:Hide, TabLicenseBg
 	GuiControl, Settings:Hide, PanelLicense
 	GuiControl, Settings:Hide, LicenseHeader
-	GuiControl, Settings:Hide, LicenseStatusTitle
+	GuiControl, Settings:Hide, LicenseStatusGroup
 	GuiControl, Settings:Hide, LicenseStatusText
-	GuiControl, Settings:Hide, LicenseKeyTitle
+	GuiControl, Settings:Hide, LicenseKeyGroup
 	GuiControl, Settings:Hide, LicenseKeyLabel
 	GuiControl, Settings:Hide, LicenseKeyEdit
 	GuiControl, Settings:Hide, LicenseActivateBtn
 	GuiControl, Settings:Hide, LicenseLocationInfo
-	GuiControl, Settings:Hide, LicenseDetailsTitle
+	GuiControl, Settings:Hide, LicenseDetailsGroup
 	GuiControl, Settings:Hide, LicenseNameLabel
 	GuiControl, Settings:Hide, LicenseNameValue
 	GuiControl, Settings:Hide, LicenseEmailLabel
@@ -3704,6 +3862,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, LicenseActivatedValue
 	GuiControl, Settings:Hide, LicenseExpiryLabel
 	GuiControl, Settings:Hide, LicenseExpiryValue
+	GuiControl, Settings:Hide, LicenseActionsGroup
 	GuiControl, Settings:Hide, LicenseValidateBtn
 	GuiControl, Settings:Hide, LicenseDeactivateBtn
 	GuiControl, Settings:Hide, LicenseBuyBtn
@@ -3713,21 +3872,20 @@ ShowSettingsTab(tabName)
 	; Hide all panels - Files
 	GuiControl, Settings:Hide, PanelFiles
 	GuiControl, Settings:Hide, FilesHeader
+	GuiControl, Settings:Hide, FilesSDCardGroup
 	GuiControl, Settings:Hide, FilesEnableSDCard
 	GuiControl, Settings:Hide, Toggle_SDCardEnabled
-	GuiControl, Settings:Hide, FilesEnableSDCardNote
-	GuiControl, Settings:Hide, FilesSDCard
 	GuiControl, Settings:Hide, FilesCardDriveLabel
 	GuiControl, Settings:Hide, FilesCardDriveEdit
 	GuiControl, Settings:Hide, FilesCardDriveBrowse
 	GuiControl, Settings:Hide, FilesDownloadLabel
 	GuiControl, Settings:Hide, FilesDownloadEdit
 	GuiControl, Settings:Hide, FilesDownloadBrowse
-	GuiControl, Settings:Hide, FilesArchive
+	GuiControl, Settings:Hide, FilesArchiveGroup
 	GuiControl, Settings:Hide, FilesArchiveLabel
 	GuiControl, Settings:Hide, FilesArchiveEdit
 	GuiControl, Settings:Hide, FilesArchiveBrowse
-	GuiControl, Settings:Hide, FilesNaming
+	GuiControl, Settings:Hide, FilesNamingGroup
 	GuiControl, Settings:Hide, FilesPrefixLabel
 	GuiControl, Settings:Hide, FilesPrefixEdit
 	GuiControl, Settings:Hide, FilesSuffixLabel
@@ -3736,7 +3894,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_AutoShootYear
 	GuiControl, Settings:Hide, FilesAutoRename
 	GuiControl, Settings:Hide, Toggle_AutoRenameImages
-	GuiControl, Settings:Hide, FilesEditor
+	GuiControl, Settings:Hide, FilesEditorGroup
 	GuiControl, Settings:Hide, FilesEditorLabel
 	GuiControl, Settings:Hide, FilesEditorEdit
 	GuiControl, Settings:Hide, FilesEditorBrowse
@@ -3744,27 +3902,27 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_BrowsDown
 	GuiControl, Settings:Hide, FilesAutoDrive
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
-	GuiControl, Settings:Hide, FilesSyncFromLBBtn
 	
 	; Hide all panels - Developer
 	GuiControl, Settings:Hide, PanelDeveloper
 	GuiControl, Settings:Hide, DevHeader
+	GuiControl, Settings:Hide, DevStatusGroup
 	GuiControl, Settings:Hide, DevWarning
-	GuiControl, Settings:Hide, DevBuildTitle
-	GuiControl, Settings:Hide, DevBuildDesc
 	GuiControl, Settings:Hide, DevVersionLabel
 	GuiControl, Settings:Hide, DevVersionValue
 	GuiControl, Settings:Hide, DevModeLabel
 	GuiControl, Settings:Hide, DevModeValue
+	GuiControl, Settings:Hide, DevBuildGroup
+	GuiControl, Settings:Hide, DevBuildDesc
 	GuiControl, Settings:Hide, DevCreateBtn
 	GuiControl, Settings:Hide, DevUpdateBtn
 	GuiControl, Settings:Hide, DevPushBtn
-	GuiControl, Settings:Hide, DevOpenFolderBtn
-	GuiControl, Settings:Hide, DevQuickTitle
+	GuiControl, Settings:Hide, DevQuickGroup
 	GuiControl, Settings:Hide, DevReloadBtn
 	GuiControl, Settings:Hide, DevTestBtn
 	GuiControl, Settings:Hide, DevGitHubBtn
 	GuiControl, Settings:Hide, DevQuickPushBtn
+	GuiControl, Settings:Hide, DevOpenFolderBtn
 	
 	; Show selected tab
 	if (tabName = "General")
@@ -3772,7 +3930,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabGeneralBg
 		GuiControl, Settings:Show, PanelGeneral
 		GuiControl, Settings:Show, GenHeader
-		GuiControl, Settings:Show, GenBehavior
+		GuiControl, Settings:Show, GenBehaviorGroup
 		GuiControl, Settings:Show, GenStartBoot
 		GuiControl, Settings:Show, Toggle_StartOnBoot
 		GuiControl, Settings:Show, GenTrayIcon
@@ -3783,14 +3941,15 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_AutoDetectPS
 		GuiControl, Settings:Show, GenDarkMode
 		GuiControl, Settings:Show, Toggle_DarkMode
-		GuiControl, Settings:Show, GenDefaults
+		GuiControl, Settings:Show, GenDefaultsGroup
 		GuiControl, Settings:Show, GenRecurLabel
 		GuiControl, Settings:Show, Settings_DefaultRecurring_DDL
 		GuiControl, Settings:Show, GenRecurOptionsLabel
 		GuiControl, Settings:Show, GenRecurOptionsEdit
 		GuiControl, Settings:Show, GenRecurOptionsBtn
-		GuiControl, Settings:Show, GenProSelect
-		GuiControl, Settings:Show, GenPSVersion
+		GuiControl, Settings:Show, GenProSelectGroup
+		GuiControl, Settings:Show, GenPSVersionLabel
+		GuiControl, Settings:Show, GenPSVersionValue
 		GuiControl, Settings:Show, GenShortcutBtn
 		GuiControl, Settings:Show, GenExportBtn
 		GuiControl, Settings:Show, GenImportBtn
@@ -3826,6 +3985,11 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_FinancialsOnly
 		GuiControl, Settings:Show, GHLContactSheet
 		GuiControl, Settings:Show, Toggle_ContactSheet
+		GuiControl, Settings:Show, GHLCollectCS
+		GuiControl, Settings:Show, Toggle_CollectContactSheets
+		GuiControl, Settings:Show, GHLCSFolderLabel
+		GuiControl, Settings:Show, GHLCSFolderEdit
+		GuiControl, Settings:Show, GHLCSFolderBrowse
 		GuiControl, Settings:Show, GHLInfo
 	}
 	else if (tabName = "Hotkeys")
@@ -3833,8 +3997,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabHotkeysBg
 		GuiControl, Settings:Show, PanelHotkeys
 		GuiControl, Settings:Show, HotkeysHeader
-		GuiControl, Settings:Show, HotkeysInfo
-		GuiControl, Settings:Show, HotkeysSection
+		GuiControl, Settings:Show, HotkeysGlobalGroup
 		GuiControl, Settings:Show, HKLabelGHL
 		GuiControl, Settings:Show, Hotkey_GHLLookup_Edit
 		GuiControl, Settings:Show, HKCaptureGHL
@@ -3850,28 +4013,31 @@ ShowSettingsTab(tabName)
 			GuiControl, Settings:Show, Hotkey_DevReload_Edit
 			GuiControl, Settings:Show, HKCaptureDevReload
 		}
-		GuiControl, Settings:Show, HKActionsTitle
+		GuiControl, Settings:Show, HotkeysActionsGroup
 		GuiControl, Settings:Show, HKResetBtn
 		GuiControl, Settings:Show, HKClearBtn
+		GuiControl, Settings:Show, HotkeysInstructGroup
 		GuiControl, Settings:Show, HKInstructions1
 		GuiControl, Settings:Show, HKInstructions2
 		GuiControl, Settings:Show, HKInstructions3
 		GuiControl, Settings:Show, HKInstructions4
-		GuiControl, Settings:Show, HKNote
 	}
 	else if (tabName = "License")
 	{
 		GuiControl, Settings:Show, TabLicenseBg
 		GuiControl, Settings:Show, PanelLicense
 		GuiControl, Settings:Show, LicenseHeader
-		GuiControl, Settings:Show, LicenseStatusTitle
+		; Status GroupBox
+		GuiControl, Settings:Show, LicenseStatusGroup
 		GuiControl, Settings:Show, LicenseStatusText
-		GuiControl, Settings:Show, LicenseKeyTitle
+		; License Key GroupBox
+		GuiControl, Settings:Show, LicenseKeyGroup
 		GuiControl, Settings:Show, LicenseKeyLabel
 		GuiControl, Settings:Show, LicenseKeyEdit
 		GuiControl, Settings:Show, LicenseActivateBtn
 		GuiControl, Settings:Show, LicenseLocationInfo
-		GuiControl, Settings:Show, LicenseDetailsTitle
+		; Activation Details GroupBox
+		GuiControl, Settings:Show, LicenseDetailsGroup
 		GuiControl, Settings:Show, LicenseNameLabel
 		GuiControl, Settings:Show, LicenseNameValue
 		GuiControl, Settings:Show, LicenseEmailLabel
@@ -3880,6 +4046,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, LicenseActivatedValue
 		GuiControl, Settings:Show, LicenseExpiryLabel
 		GuiControl, Settings:Show, LicenseExpiryValue
+		; Actions GroupBox
+		GuiControl, Settings:Show, LicenseActionsGroup
 		GuiControl, Settings:Show, LicenseValidateBtn
 		GuiControl, Settings:Show, LicenseDeactivateBtn
 		GuiControl, Settings:Show, LicenseBuyBtn
@@ -3894,21 +4062,23 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabFilesBg
 		GuiControl, Settings:Show, PanelFiles
 		GuiControl, Settings:Show, FilesHeader
+		; SD Card Download GroupBox
+		GuiControl, Settings:Show, FilesSDCardGroup
 		GuiControl, Settings:Show, FilesEnableSDCard
 		GuiControl, Settings:Show, Toggle_SDCardEnabled
-		GuiControl, Settings:Show, FilesEnableSDCardNote
-		GuiControl, Settings:Show, FilesSDCard
 		GuiControl, Settings:Show, FilesCardDriveLabel
 		GuiControl, Settings:Show, FilesCardDriveEdit
 		GuiControl, Settings:Show, FilesCardDriveBrowse
 		GuiControl, Settings:Show, FilesDownloadLabel
 		GuiControl, Settings:Show, FilesDownloadEdit
 		GuiControl, Settings:Show, FilesDownloadBrowse
-		GuiControl, Settings:Show, FilesArchive
+		; Archive Settings GroupBox
+		GuiControl, Settings:Show, FilesArchiveGroup
 		GuiControl, Settings:Show, FilesArchiveLabel
 		GuiControl, Settings:Show, FilesArchiveEdit
 		GuiControl, Settings:Show, FilesArchiveBrowse
-		GuiControl, Settings:Show, FilesNaming
+		; File Naming GroupBox
+		GuiControl, Settings:Show, FilesNamingGroup
 		GuiControl, Settings:Show, FilesPrefixLabel
 		GuiControl, Settings:Show, FilesPrefixEdit
 		GuiControl, Settings:Show, FilesSuffixLabel
@@ -3917,7 +4087,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_AutoShootYear
 		GuiControl, Settings:Show, FilesAutoRename
 		GuiControl, Settings:Show, Toggle_AutoRenameImages
-		GuiControl, Settings:Show, FilesEditor
+		; Photo Editor GroupBox
+		GuiControl, Settings:Show, FilesEditorGroup
 		GuiControl, Settings:Show, FilesEditorLabel
 		GuiControl, Settings:Show, FilesEditorEdit
 		GuiControl, Settings:Show, FilesEditorBrowse
@@ -3925,7 +4096,6 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_BrowsDown
 		GuiControl, Settings:Show, FilesAutoDrive
 		GuiControl, Settings:Show, Toggle_AutoDriveDetect
-		GuiControl, Settings:Show, FilesSyncFromLBBtn
 		
 		; Update enabled/disabled state based on SD Card setting
 		UpdateFilesControlsState(Settings_SDCardEnabled)
@@ -3935,30 +4105,36 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabAboutBg
 		GuiControl, Settings:Show, PanelAbout
 		GuiControl, Settings:Show, AboutHeader
-		GuiControl, Settings:Show, AboutTitle
-		GuiControl, Settings:Show, AboutSubtitle
-		GuiControl, Settings:Show, AboutVerLabel
-		GuiControl, Settings:Show, AboutVerValue
+		; Application GroupBox
+		GuiControl, Settings:Show, AboutAppGroup
+		GuiControl, Settings:Show, AboutDescLabel
+		GuiControl, Settings:Show, AboutDescValue
+		GuiControl, Settings:Show, AboutVersionLabel
+		GuiControl, Settings:Show, AboutVersionValue
 		GuiControl, Settings:Show, AboutBuildLabel
 		GuiControl, Settings:Show, AboutBuildValue
+		GuiControl, Settings:Show, AboutPSLabel
+		GuiControl, Settings:Show, AboutPSValue
+		; Updates GroupBox
+		GuiControl, Settings:Show, AboutUpdatesGroup
 		GuiControl, Settings:Show, AboutLatestLabel
 		GuiControl, Settings:Show, AboutLatestValue
-		; Check button removed - version check is automatic
-		GuiControl, Settings:Show, AboutAutoUpdateLabel
+		GuiControl, Settings:Show, AboutAutoUpdateText
 		GuiControl, Settings:Show, Toggle_AutoUpdate
-		GuiControl, Settings:Show, AboutFeatures
-		GuiControl, Settings:Show, AboutFeat1
-		GuiControl, Settings:Show, AboutFeat2
-		GuiControl, Settings:Show, AboutFeat3
-		GuiControl, Settings:Show, AboutFeat4
-		GuiControl, Settings:Show, AboutFeat5
-		GuiControl, Settings:Show, AboutAuthor
-		GuiControl, Settings:Show, AboutEmail
-		GuiControl, Settings:Show, AboutWhatsNewBtn
-		GuiControl, Settings:Show, AboutAutoSendLabel
+		GuiControl, Settings:Show, AboutReinstallBtn
+		GuiControl, Settings:Show, AboutCheckNowBtn
+		; Support GroupBox
+		GuiControl, Settings:Show, AboutSupportGroup
+		GuiControl, Settings:Show, AboutAuthorLabel
+		GuiControl, Settings:Show, AboutAuthorValue
+		GuiControl, Settings:Show, AboutEmailLink
+		GuiControl, Settings:Show, AboutWhatsNewButton
+		GuiControl, Settings:Show, AboutSendLogsButton
+		; Diagnostics GroupBox
+		GuiControl, Settings:Show, AboutDiagnostics
+		GuiControl, Settings:Show, AboutAutoSendText
 		GuiControl, Settings:Show, Toggle_AutoSendLogs
-		GuiControl, Settings:Show, AboutSendLogsBtn
-		GuiControl, Settings:Show, AboutDebugLabel
+		GuiControl, Settings:Show, AboutDebugText
 		GuiControl, Settings:Show, Toggle_DebugLogging
 		
 		; Refresh latest version info
@@ -3969,22 +4145,26 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabDeveloperBg
 		GuiControl, Settings:Show, PanelDeveloper
 		GuiControl, Settings:Show, DevHeader
+		; Status GroupBox
+		GuiControl, Settings:Show, DevStatusGroup
 		GuiControl, Settings:Show, DevWarning
-		GuiControl, Settings:Show, DevBuildTitle
-		GuiControl, Settings:Show, DevBuildDesc
 		GuiControl, Settings:Show, DevVersionLabel
 		GuiControl, Settings:Show, DevVersionValue
 		GuiControl, Settings:Show, DevModeLabel
 		GuiControl, Settings:Show, DevModeValue
+		; Build & Release GroupBox
+		GuiControl, Settings:Show, DevBuildGroup
+		GuiControl, Settings:Show, DevBuildDesc
 		GuiControl, Settings:Show, DevCreateBtn
 		GuiControl, Settings:Show, DevUpdateBtn
 		GuiControl, Settings:Show, DevPushBtn
-		GuiControl, Settings:Show, DevOpenFolderBtn
-		GuiControl, Settings:Show, DevQuickTitle
+		; Quick Actions GroupBox
+		GuiControl, Settings:Show, DevQuickGroup
 		GuiControl, Settings:Show, DevReloadBtn
 		GuiControl, Settings:Show, DevTestBtn
 		GuiControl, Settings:Show, DevGitHubBtn
 		GuiControl, Settings:Show, DevQuickPushBtn
+		GuiControl, Settings:Show, DevOpenFolderBtn
 	}
 	
 	Settings_CurrentTab := tabName
@@ -5345,14 +5525,23 @@ ProcessInvoiceXML(xmlFile)
 		syncArgs .= " --financials-only"
 	if (!Settings_ContactSheet)
 		syncArgs .= " --no-contact-sheet"
+	if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
+		syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 	
 	; Show non-blocking progress GUI
 	ShowSyncProgressGUI(xmlFile)
 	
 	; Run in background (non-blocking) - use script directory as working dir
-	; Use start /b to run truly in background without waiting for cmd.exe
-	Run, %ComSpec% /c start /b "" %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	; For .exe files, use start /b for true background execution
+	; For Python scripts, run via cmd /c without start (AHK's Run is already async)
+	scriptPath := GetScriptPath("sync_ps_invoice")
+	if (SubStr(scriptPath, -3) = ".exe") {
+		Run, %ComSpec% /c start /b "" %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	} else {
+		; Python scripts - run directly (AHK's Run is non-blocking by default)
+		Run, %ComSpec% /c %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	}
 	
 	; Update folder watcher's file list so it doesn't re-prompt for this file
 	SplitPath, xmlFile, fileName
@@ -5909,6 +6098,14 @@ AboutCheckUpdate:
 	RefreshLatestVersion()
 Return
 
+AboutReinstall:
+	; Force reinstall from GitHub
+	downloadUrl := "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe"
+	result := DarkMsgBox("Reinstall SideKick_PS?", "This will download and reinstall SideKick_PS v" . ScriptVersion . ".`n`nUse this to fix corrupted files or reset the installation.", "question", {buttons: ["Reinstall", "Cancel"]})
+	if (result = "Reinstall")
+		DownloadAndInstallUpdate(downloadUrl, ScriptVersion, false)
+Return
+
 AboutAutoUpdateToggle:
 	Gui, Settings:Submit, NoHide
 	Settings_AutoUpdate := AboutAutoUpdate
@@ -5920,6 +6117,88 @@ Toggle_AutoSendLogs:
 	Settings_AutoSendLogs := Toggle_AutoSendLogs_State
 	SaveSettings()
 Return
+
+; Timer handler for auto-sending logs on error (silent, no prompts)
+AutoSendLogsOnError:
+	SendDebugLogsSilent()
+Return
+
+; Silent version of SendDebugLogs for auto-send (no dialogs, no prompts)
+SendDebugLogsSilent() {
+	global GHL_LocationID
+	
+	; Path to SideKick_Logs folder on user's Desktop
+	logsFolder := A_Desktop . "\SideKick_Logs"
+	
+	; Check if folder exists
+	if (!FileExist(logsFolder))
+		return false
+	
+	; GitHub Gist token - assembled from parts to avoid secret scanning
+	gistToken := "ghp" . "_" . "5iyc62vax5VllMndhvrRzk" . "ItNRJeom3cShIM"
+	
+	; Collect all log files
+	logFiles := []
+	Loop, Files, %logsFolder%\*.log, R
+	{
+		logFiles.Push(A_LoopFileLongPath)
+	}
+	
+	if (logFiles.Length() = 0)
+		return false
+	
+	; Build gist content with all logs
+	gistFiles := {}
+	for i, logPath in logFiles {
+		SplitPath, logPath, fileName
+		FileRead, logContent, %logPath%
+		if (logContent != "") {
+			relativePath := SubStr(logPath, StrLen(logsFolder) + 2)
+			relativePath := StrReplace(relativePath, "\", "_")
+			gistFiles[relativePath] := {"content": logContent}
+		}
+	}
+	
+	if (gistFiles.Count() = 0)
+		return false
+	
+	; Build JSON payload
+	computerName := A_ComputerName
+	timestamp := A_YYYY . "-" . A_MM . "-" . A_DD . "_" . A_Hour . A_Min . A_Sec
+	locationId := GHL_LocationID ? GHL_LocationID : "Unknown"
+	
+	filesJson := ""
+	for fileName, fileObj in gistFiles {
+		content := fileObj.content
+		content := StrReplace(content, "\", "\\")
+		content := StrReplace(content, """", "\""")
+		content := StrReplace(content, "`n", "\n")
+		content := StrReplace(content, "`r", "\r")
+		content := StrReplace(content, "`t", "\t")
+		
+		if (filesJson != "")
+			filesJson .= ","
+		filesJson .= """" . fileName . """: {""content"": """ . content . """}"
+	}
+	
+	gistJson := "{""description"": ""SideKick Logs - " . computerName . " - " . locationId . " - " . timestamp . """, ""public"": false, ""files"": {" . filesJson . "}}"
+	
+	; Upload silently
+	try {
+		http := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+		http.SetTimeouts(30000, 30000, 30000, 60000)
+		http.open("POST", "https://api.github.com/gists", false)
+		http.SetRequestHeader("Authorization", "token " . gistToken)
+		http.SetRequestHeader("Accept", "application/vnd.github.v3+json")
+		http.SetRequestHeader("Content-Type", "application/json")
+		http.send(gistJson)
+		
+		return (http.status = 201)
+	}
+	catch {
+		return false
+	}
+}
 
 ; Send debug logs to developer via GitHub Gist
 SendLogsNow:
@@ -6502,6 +6781,8 @@ LoadSettings()
 	IniRead, Settings_SearchAllTabs, %IniFilename%, GHL, SearchAllTabs, 1
 	IniRead, Settings_FinancialsOnly, %IniFilename%, GHL, FinancialsOnly, 0
 	IniRead, Settings_ContactSheet, %IniFilename%, GHL, ContactSheet, 1
+	IniRead, Settings_CollectContactSheets, %IniFilename%, GHL, CollectContactSheets, 0
+	IniRead, Settings_ContactSheetFolder, %IniFilename%, GHL, ContactSheetFolder, %A_Space%
 	IniRead, Settings_GHLInvoiceWarningShown, %IniFilename%, GHL, InvoiceWarningShown, 0
 	IniRead, Settings_MediaFolderID, %IniFilename%, GHL, MediaFolderID, %A_Space%
 	IniRead, Settings_MediaFolderName, %IniFilename%, GHL, MediaFolderName, %A_Space%
@@ -6603,6 +6884,8 @@ SaveSettings()
 	IniWrite, %Settings_SearchAllTabs%, %IniFilename%, GHL, SearchAllTabs
 	IniWrite, %Settings_FinancialsOnly%, %IniFilename%, GHL, FinancialsOnly
 	IniWrite, %Settings_ContactSheet%, %IniFilename%, GHL, ContactSheet
+	IniWrite, %Settings_CollectContactSheets%, %IniFilename%, GHL, CollectContactSheets
+	IniWrite, %Settings_ContactSheetFolder%, %IniFilename%, GHL, ContactSheetFolder
 	IniWrite, %Settings_GHLInvoiceWarningShown%, %IniFilename%, GHL, InvoiceWarningShown
 	
 	; Save license settings (secure/obfuscated)

@@ -1483,7 +1483,7 @@ def _generate_contact_sheet_path(cs_data: dict) -> str:
 
     date_str = cs_data['order_datetime'].strftime(date_format)
     jpg_filename = f"{cs_data['shoot_no']}-{cs_data['last_name']}-{date_str}.jpg"
-    return os.path.join(SCRIPT_DIR, jpg_filename)
+    return os.path.join(_get_output_dir(), jpg_filename)
 
 
 def _add_contact_sheet_note(contact_id: str, cs_data: dict, thumb_folder: str, jpg_url: str) -> None:
@@ -1514,12 +1514,13 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"""
     print(f"   ✓ Note added to contact")
 
 
-def _create_and_upload_contact_sheet(xml_path: str, contact_id: str) -> None:
+def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_folder: str = '') -> None:
     """Create and upload contact sheet JPG to GHL.
 
     Args:
         xml_path: Path to the ProSelect XML file.
         contact_id: GHL contact ID for adding notes.
+        collect_folder: Optional folder to save a local copy of the contact sheet.
     """
     print(f"\n📸 Creating contact sheet...")
     debug_log("CONTACT SHEET - Starting creation", {"xml_path": xml_path})
@@ -1568,6 +1569,21 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str) -> None:
             return
         print(f"   ✓ Uploaded to GHL Media")
         debug_log("CONTACT SHEET - Upload success", {"jpg_url": jpg_url})
+
+        # Save local copy if collect folder is specified
+        if collect_folder and os.path.isdir(collect_folder):
+            import shutil
+            album_name = cs_data.get('shoot_no', 'Unknown')
+            # Sanitize album name for filename
+            safe_name = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in album_name)
+            collect_path = os.path.join(collect_folder, f"{safe_name}.jpg")
+            try:
+                shutil.copy2(jpg_path, collect_path)
+                print(f"   ✓ Saved local copy: {collect_path}")
+                debug_log("CONTACT SHEET - Local copy saved", {"collect_path": collect_path})
+            except Exception as copy_err:
+                print(f"   ⚠ Failed to save local copy: {copy_err}")
+                debug_log("CONTACT SHEET - Local copy failed", {"error": str(copy_err)})
 
         _add_contact_sheet_note(contact_id, cs_data, thumb_folder, jpg_url)
 
@@ -1643,12 +1659,14 @@ def _parse_cli_args():
                         help='Create and upload JPG contact sheet (default: True)')
     parser.add_argument('--no-contact-sheet', action='store_true',
                         help='Skip contact sheet creation')
+    parser.add_argument('--collect-folder', type=str, default='',
+                        help='Folder to save local copy of contact sheet (named by album)')
     parser.add_argument('--list-folders', action='store_true',
                         help='List all folders in GHL Media and exit')
     return parser.parse_args()
 
 
-def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, create_contact_sheet: bool) -> dict:
+def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, create_contact_sheet: bool, collect_folder: str = '') -> dict:
     """Process the sync operation.
 
     Args:
@@ -1656,6 +1674,7 @@ def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, cr
         financials_only: Whether financials-only mode is enabled.
         create_invoice: Whether invoice creation is enabled.
         create_contact_sheet: Whether contact sheet creation is enabled.
+        collect_folder: Optional folder to save local copy of contact sheet.
 
     Returns:
         dict: Result dictionary.
@@ -1704,7 +1723,7 @@ def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, cr
     if create_contact_sheet:
         current_step += 1
         write_progress(current_step, total_steps, f"Creating contact sheet for {client_name}...")
-        _create_and_upload_contact_sheet(xml_path, contact_id)
+        _create_and_upload_contact_sheet(xml_path, contact_id, collect_folder)
 
     # Step 3: Update contact
     current_step += 1
@@ -1751,9 +1770,10 @@ def main() -> None:
     financials_only = args.financials_only
     create_invoice = not args.no_invoice
     create_contact_sheet = not args.no_contact_sheet
+    collect_folder = args.collect_folder if args.collect_folder else ''
 
     _print_sync_header(args.xml_path, financials_only, create_invoice, create_contact_sheet)
-    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet)
+    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder)
     _save_and_log_result(result)
     sys.exit(0 if result.get('success') else 1)
 
