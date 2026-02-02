@@ -4471,7 +4471,9 @@ DevQuickPush:
 	FileAppend, cd /d "%repoDir%"`n, %gitBatch%
 	FileAppend, echo Waiting for installer to be released...`n, %gitBatch%
 	FileAppend, timeout /t 5 /nobreak >nul`n, %gitBatch%
-	FileAppend, echo Adding files...`n, %gitBatch%
+	FileAppend, echo Adding changelog and version files...`n, %gitBatch%
+	FileAppend, git add version.json CHANGELOG.md 2>nul`n, %gitBatch%
+	FileAppend, echo Adding all other files...`n, %gitBatch%
 	FileAppend, :retry_add`n, %gitBatch%
 	FileAppend, git add -A 2>nul`n, %gitBatch%
 	FileAppend, if errorlevel 1 (`n, %gitBatch%
@@ -6010,13 +6012,224 @@ ShowWhatsNew:
 Return
 
 ; ============================================================================
-; What's New Dialog - Shows changelog since last user version
+; What's New Dialog - Scrollable list of all version history from version.json
 ; ============================================================================
 ShowWhatsNewDialog()
 {
-	global ScriptVersion
-	ShowWhatsNewSinceVersion("")  ; Show current version only
+	global ScriptVersion, WhatsNewVersions, WhatsNewCurrentIndex
+	WhatsNewVersions := []
+	WhatsNewCurrentIndex := 1
+	
+	jsonText := ""
+	
+	; Try local file first (more reliable during development)
+	; Use the script's actual directory, not working directory
+	SplitPath, A_ScriptFullPath,, scriptFolder
+	localPath := scriptFolder . "\version.json"
+	
+	if (FileExist(localPath)) {
+		FileRead, jsonText, %localPath%
+	}
+	
+	; Fallback to GitHub if local not found or empty
+	if (jsonText = "") {
+		versionUrl := "https://raw.githubusercontent.com/GuyMayer/SideKick_PS/main/version.json"
+		try {
+			whr := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+			whr.Open("GET", versionUrl, false)
+			whr.SetTimeouts(5000, 5000, 5000, 5000)
+			whr.Send()
+			if (whr.Status = 200)
+				jsonText := whr.ResponseText
+		}
+	}
+	
+	if (jsonText = "") {
+		DarkMsgBox("What's New", "Could not load version history.", "info", {buttons: ["OK"], width: 400})
+		return
+	}
+	
+	; Parse versions array - find each version block
+	; Look for pattern: { "version": "X.X.X", "build_date": "...", "release_notes": "...", "changelog": [...] }
+	searchPos := 1
+	
+	; Find the "versions" array
+	if (!InStr(jsonText, """versions"""))
+		return
+	
+	searchPos := 1
+	
+	; Parse each version object - AHK v1 style regex
+	Loop {
+		foundPos := RegExMatch(jsonText, """version""\s*:\s*""(\d+\.\d+\.\d+)""", verMatch, searchPos)
+		if (!foundPos)
+			break
+		
+		version := verMatch1
+		blockStart := foundPos
+		
+		; Find the end of this version object (count braces)
+		depth := 0
+		blockEnd := blockStart
+		inBlock := false
+		Loop {
+			blockEnd++
+			if (blockEnd > StrLen(jsonText))
+				break
+			char := SubStr(jsonText, blockEnd, 1)
+			if (char = "{") {
+				depth++
+				inBlock := true
+			} else if (char = "}") {
+				depth--
+				if (inBlock && depth = 0)
+					break
+			}
+		}
+		
+		block := SubStr(jsonText, blockStart, blockEnd - blockStart + 1)
+		
+		; Extract build_date
+		buildDate := ""
+		if (RegExMatch(block, """build_date""\s*:\s*""([^""]+)""", dateMatch))
+			buildDate := dateMatch1
+		
+		; Extract release_notes
+		releaseNotes := ""
+		if (RegExMatch(block, """release_notes""\s*:\s*""([^""]+)""", notesMatch))
+			releaseNotes := notesMatch1
+		
+		; Extract changelog array items
+		changelog := []
+		if (RegExMatch(block, """changelog""\s*:\s*\[([^\]]+)\]", clArrayMatch)) {
+			clContent := clArrayMatch1
+			clPos := 1
+			Loop {
+				clFoundPos := RegExMatch(clContent, """([^""]+)""", clItem, clPos)
+				if (!clFoundPos)
+					break
+				changelog.Push(clItem1)
+				clPos := clFoundPos + StrLen(clItem)
+			}
+		}
+		
+		WhatsNewVersions.Push({version: version, date: buildDate, notes: releaseNotes, changelog: changelog})
+		searchPos := blockEnd + 1
+	}
+	
+	if (WhatsNewVersions.Length() = 0) {
+		DarkMsgBox("What's New", "No version history found.", "info", {buttons: ["OK"], width: 400})
+		return
+	}
+	
+	; Create scrollable dialog
+	ShowWhatsNewGUI()
 }
+
+ShowWhatsNewGUI()
+{
+	global WhatsNewVersions, WhatsNewCurrentIndex, ScriptVersion
+	global WhatsNewTitle, WhatsNewPrevBtn, WhatsNewVersionLabel, WhatsNewNextBtn
+	global WhatsNewCounter, WhatsNewChangelog
+	
+	Gui, WhatsNew:Destroy
+	Gui, WhatsNew:New, +AlwaysOnTop +ToolWindow
+	Gui, WhatsNew:Color, 1e1e1e
+	Gui, WhatsNew:Font, s10 cWhite, Segoe UI
+	
+	; Title
+	Gui, WhatsNew:Add, Text, x20 y15 w360 h25 +Center vWhatsNewTitle, What's New
+	
+	; Version selector row
+	Gui, WhatsNew:Add, Button, x20 y45 w40 h28 gWhatsNewPrev vWhatsNewPrevBtn, ◀
+	Gui, WhatsNew:Add, Text, x70 y50 w260 h25 +Center vWhatsNewVersionLabel, v%ScriptVersion%
+	Gui, WhatsNew:Add, Button, x340 y45 w40 h28 gWhatsNewNext vWhatsNewNextBtn, ▶
+	
+	; Version counter
+	totalVersions := WhatsNewVersions.Length()
+	Gui, WhatsNew:Add, Text, x20 y78 w360 h20 +Center cGray vWhatsNewCounter, 1 of %totalVersions%
+	
+	; Changelog area (scrollable edit control, read-only)
+	Gui, WhatsNew:Add, Edit, x20 y105 w360 h280 +ReadOnly +Multi +VScroll vWhatsNewChangelog -E0x200 Background2d2d2d cWhite,
+	
+	; OK button
+	Gui, WhatsNew:Add, Button, x150 y400 w100 h30 gWhatsNewClose Default, OK
+	
+	; Apply dark styling
+	Gui, WhatsNew:Font, s11 Bold cWhite, Segoe UI
+	GuiControl, WhatsNew:Font, WhatsNewTitle
+	Gui, WhatsNew:Font, s10 Norm cWhite, Segoe UI
+	
+	; Load first version
+	UpdateWhatsNewContent()
+	
+	Gui, WhatsNew:Show, w400 h450, What's New
+}
+
+UpdateWhatsNewContent()
+{
+	global WhatsNewVersions, WhatsNewCurrentIndex
+	
+	if (WhatsNewVersions.Length() = 0)
+		return
+		
+	ver := WhatsNewVersions[WhatsNewCurrentIndex]
+	totalVersions := WhatsNewVersions.Length()
+	
+	; Update version label
+	versionText := "v" . ver.version
+	if (ver.date != "")
+		versionText .= " (" . ver.date . ")"
+	GuiControl, WhatsNew:, WhatsNewVersionLabel, %versionText%
+	
+	; Update counter
+	counterText := WhatsNewCurrentIndex . " of " . totalVersions
+	GuiControl, WhatsNew:, WhatsNewCounter, %counterText%
+	
+	; Build changelog text
+	content := ""
+	if (ver.notes != "")
+		content .= ver.notes . "`n`n"
+	
+	for i, item in ver.changelog {
+		content .= "• " . item . "`n"
+	}
+	
+	GuiControl, WhatsNew:, WhatsNewChangelog, %content%
+	
+	; Enable/disable nav buttons
+	if (WhatsNewCurrentIndex <= 1)
+		GuiControl, WhatsNew:Disable, WhatsNewPrevBtn
+	else
+		GuiControl, WhatsNew:Enable, WhatsNewPrevBtn
+		
+	if (WhatsNewCurrentIndex >= totalVersions)
+		GuiControl, WhatsNew:Disable, WhatsNewNextBtn
+	else
+		GuiControl, WhatsNew:Enable, WhatsNewNextBtn
+}
+
+WhatsNewPrev:
+	global WhatsNewCurrentIndex
+	if (WhatsNewCurrentIndex > 1) {
+		WhatsNewCurrentIndex--
+		UpdateWhatsNewContent()
+	}
+	return
+
+WhatsNewNext:
+	global WhatsNewCurrentIndex, WhatsNewVersions
+	if (WhatsNewCurrentIndex < WhatsNewVersions.Length()) {
+		WhatsNewCurrentIndex++
+		UpdateWhatsNewContent()
+	}
+	return
+
+WhatsNewClose:
+WhatsNewGuiClose:
+WhatsNewGuiEscape:
+	Gui, WhatsNew:Destroy
+	return
 
 ShowWhatsNewOnUpdate:
 	ShowWhatsNewSinceVersion(LastSeenVersion)

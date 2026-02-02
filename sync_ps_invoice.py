@@ -21,7 +21,7 @@ from datetime import datetime
 # =============================================================================
 def get_debug_mode_setting() -> bool:
     """Read DebugLogging setting from INI file.
-    
+
     Defaults to OFF. Auto-disables after 24 hours.
 
     Returns:
@@ -424,7 +424,7 @@ def get_business_details() -> dict:
         return _BUSINESS_DETAILS_CACHE
 
     default_details = {"name": "Business"}
-    
+
     try:
         location_id = CONFIG.get('LOCATION_ID', '')
         url = f"https://services.leadconnectorhq.com/locations/{location_id}"
@@ -437,48 +437,48 @@ def get_business_details() -> dict:
         if response.status_code == 200:
             data = response.json().get('location', {})
             business = data.get('business', {})
-            
+
             # Build business details dict
             details = {
                 "name": data.get('name') or business.get('name') or 'Business'
             }
-            
+
             # Add address if available
             address = data.get('address') or data.get('businessAddress') or business.get('address')
             if address:
                 details["address"] = address
-            
+
             # Add phone if available
             phone = data.get('phone') or business.get('phone')
             if phone:
                 details["phoneNo"] = phone
-            
+
             # Add email if available
             email = data.get('email') or business.get('email')
             if email:
                 details["email"] = email
-            
+
             # Add logo if available
             logo = data.get('logoUrl') or business.get('logoUrl')
             if logo:
                 details["logoUrl"] = logo
-            
+
             # Add website if available
             website = data.get('website') or business.get('website')
             if website:
                 details["website"] = website
-            
+
             # Add VAT/Tax ID if available
             vat = data.get('vatNumber') or data.get('taxId') or business.get('vatNumber') or business.get('taxId')
             if vat:
                 details["customValues"] = [{"Tax ID/VAT Number": vat}]
-            
+
             _BUSINESS_DETAILS_CACHE = details
             debug_log("BUSINESS DETAILS FETCHED", details)
             return details
     except Exception as e:
         debug_log(f"ERROR fetching business details: {e}")
-    
+
     return default_details
 
 def get_business_name() -> str:
@@ -1374,7 +1374,14 @@ def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total:
     print(f"  ✓ Totals adjusted (rounding fix: £{adjustment:.2f} on Payment 1)")
 
 
-def _handle_invoice_success(response, payments: list, balance_due: float, order: dict, ps_data: dict = None, contact_id: str = None) -> dict:
+def _handle_invoice_success(
+    response,
+    payments: list,
+    balance_due: float,
+    order: dict,
+    ps_data: dict = None,
+    contact_id: str = None
+) -> dict:
     """Handle successful invoice creation response.
 
     Args:
@@ -1405,31 +1412,31 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
     if payments and ps_data and contact_id:
         today = datetime.now().strftime('%Y-%m-%d')
         future_payments = [p for p in payments if p.get('date', '') > today]
-        
+
         if future_payments:
             # Calculate schedule details
             num_payments = len(future_payments)
             total_future = sum(p.get('amount', 0) for p in future_payments)
-            
+
             # Calculate base amount (rounded down to avoid over-billing)
             base_amount = round(total_future / num_payments, 2)
-            
+
             # Check for rounding difference
             calculated_total = round(base_amount * num_payments, 2)
             rounding_diff = round(total_future - calculated_total, 2)
-            
+
             first_date = future_payments[0].get('date', today)
-            
+
             client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
             email = ps_data.get('email', '')
-            
+
             print(f"\n📅 Creating recurring payment schedule...")
             if rounding_diff != 0:
                 print(f"  ⚠ Rounding adjustment: £{rounding_diff:.2f} applied to first payment")
-            
+
             # First payment amount includes rounding adjustment
             first_payment_amount = round(base_amount + rounding_diff, 2)
-            
+
             # If there's a rounding difference, create first invoice separately with adjusted amount
             if rounding_diff != 0 and num_payments > 1:
                 # Create first invoice with adjusted amount
@@ -1443,7 +1450,7 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
                     start_date=first_date,
                     invoice_name=f"ProSelect Payment 1 - {client_name}"
                 )
-                
+
                 # Create remaining payments with base amount
                 if num_payments > 1:
                     # Get second payment date
@@ -1913,7 +1920,13 @@ def _parse_cli_args():
     return parser.parse_args()
 
 
-def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, create_contact_sheet: bool, collect_folder: str = '') -> dict:
+def _process_sync(
+    xml_path: str,
+    financials_only: bool,
+    create_invoice: bool,
+    create_contact_sheet: bool,
+    collect_folder: str = ''
+) -> dict:
     """Process the sync operation.
 
     Args:
@@ -1928,10 +1941,10 @@ def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, cr
     """
     # Clear any old progress file first
     clear_progress_file()
-    
+
     # Write initial progress immediately so GUI knows we started
     write_progress(0, 5, "Starting sync process...")
-    
+
     # Calculate total steps for progress
     total_steps = 3  # Parse, Update Contact, Done
     if create_contact_sheet:
