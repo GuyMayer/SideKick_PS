@@ -29,6 +29,10 @@ AI INSTRUCTIONS - When publishing a new version:
   - Tooltip explains the feature
 
 ### Improvements
+- **Single Source of Truth Versioning**: Version now loaded from `version.json` at startup
+  - No more manual editing of script version numbers
+  - "Update Version" in Developer panel auto-updates both version and build date
+  - Prompts to reload script after version change
 - **User-Friendly Error Messages**: GHL API errors now show helpful messages instead of raw HTTP errors
   - "Invalid contact ID - client may not be linked to GHL"
   - "Contact not found in GHL - link client first"

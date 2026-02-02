@@ -56,10 +56,13 @@ global DPI_Scale := A_ScreenDPI / 96
 #Include %A_ScriptDir%\Lib\Chrome.ahk
 #Include %A_ScriptDir%\Lib\Notes.ahk
 
-; Script version info
-global ScriptVersion := "2.4.53"
-global BuildDate := "2026-02-01"
+; Script version info - loaded from version.json (single source of truth)
+global ScriptVersion := ""
+global BuildDate := ""
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
+
+; Load version from version.json at startup
+LoadVersionFromJson()
 
 ; GHL Integration variables
 global FBPE_URL := ""
@@ -683,6 +686,39 @@ RemoveToolTip:
 SetTimer, RemoveToolTip, Off
 ToolTip
 Return
+
+; Load version info from version.json (single source of truth)
+; Called at script startup - no hardcoded versions in the script!
+LoadVersionFromJson() {
+	global ScriptVersion, BuildDate
+	
+	versionFile := A_ScriptDir . "\version.json"
+	if (!FileExist(versionFile)) {
+		; Fallback defaults if version.json missing
+		ScriptVersion := "0.0.0"
+		BuildDate := "Unknown"
+		return
+	}
+	
+	FileRead, jsonText, %versionFile%
+	if (ErrorLevel) {
+		ScriptVersion := "0.0.0"
+		BuildDate := "Unknown"
+		return
+	}
+	
+	; Parse version field: "version": "2.4.54"
+	if (RegExMatch(jsonText, """version"":\s*""([^""]+)""", match))
+		ScriptVersion := match1
+	else
+		ScriptVersion := "0.0.0"
+	
+	; Parse build_date field: "build_date": "2026-02-02"
+	if (RegExMatch(jsonText, """build_date"":\s*""([^""]+)""", match))
+		BuildDate := match1
+	else
+		BuildDate := "Unknown"
+}
 
 ; Function to get the correct Python executable path
 ; Checks for bundled Python first, then system Python
@@ -4001,15 +4037,24 @@ Return
 DevUpdateVersion:
 	InputBox, newVer, Update Version, Enter new version number (e.g., 2.5.0):,, 300, 130,,,,, %ScriptVersion%
 	if (!ErrorLevel && newVer != "") {
-		; Update version.json
-		versionFile := A_ScriptDir . "\SideKick_PS\version.json"
+		; Update version.json (single source of truth)
+		versionFile := A_ScriptDir . "\version.json"
 		if FileExist(versionFile) {
 			; Read and update version.json
 			FileRead, versionJson, %versionFile%
-			versionJson := RegExReplace(versionJson, """version"":\s*""[^""]+""", """version"": """ . newVer . """")
+			; Update version field
+			versionJson := RegExReplace(versionJson, """version"":\s*""[^""]+""", """version"": """ . newVer . """", , 1)
+			; Update build_date field
+			FormatTime, todayDate,, yyyy-MM-dd
+			versionJson := RegExReplace(versionJson, """build_date"":\s*""[^""]+""", """build_date"": """ . todayDate . """", , 1)
 			FileDelete, %versionFile%
 			FileAppend, %versionJson%, %versionFile%
-			DarkMsgBox("Version Updated", "Updated version.json to v" . newVer . "`n`nRemember to update ScriptVersion in the main script too.", "success")
+			; Reload to pick up new version (version.json is single source of truth)
+			MsgBox, 4, Version Updated, Updated version.json to v%newVer%`n`nReload script to apply new version?
+			IfMsgBox, Yes
+				Reload
+		} else {
+			DarkMsgBox("Error", "version.json not found at:`n" . versionFile, "error")
 		}
 	}
 Return
