@@ -1,9 +1,22 @@
 {
-  "version": "2.4.55",
+  "version": "2.4.56",
   "build_date": "2026-02-02",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Single source of truth versioning - no more version mismatches",
+  "release_notes": "Collect Contact Sheets feature + Settings panel redesign with GroupBox styling",
   "versions": [
+    {
+      "version": "2.4.56",
+      "build_date": "2026-02-02",
+      "release_notes": "Collect Contact Sheets feature + Settings panel redesign with GroupBox styling",
+      "changelog": [
+        "NEW: Collect Contact Sheets - gather all contact sheets into one folder",
+        "NEW: Professional GroupBox styling across all Settings tabs",
+        "NEW: Detailed tooltips explaining every setting",
+        "IMPROVED: Cleaner, more organized Settings interface",
+        "IMPROVED: Consistent fonts and toggle slider alignment",
+        "IMPROVED: All panels now follow the same visual design"
+      ]
+    },
     {
       "version": "2.4.55",
       "build_date": "2026-02-02",

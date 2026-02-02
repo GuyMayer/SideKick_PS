@@ -717,7 +717,7 @@ def main() -> None:
 
     # Generate filename: ShootNo-Surname-ShootDate.jpg
     jpg_filename = f"{data['shoot_no']}-{data['last_name']}-{date_str}.jpg"
-    jpg_path = os.path.join(SCRIPT_DIR, jpg_filename)
+    jpg_path = os.path.join(_get_output_dir(), jpg_filename)
 
     print(f"\n2. Creating JPG: {jpg_filename}")
 
