@@ -57,7 +57,7 @@ global DPI_Scale := A_ScreenDPI / 96
 #Include %A_ScriptDir%\Lib\Notes.ahk
 
 ; Script version info
-global ScriptVersion := "2.4.52"
+global ScriptVersion := "2.4.53"
 global BuildDate := "2026-02-01"
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
 
@@ -685,7 +685,7 @@ ToolTip
 Return
 
 ; Function to get the correct Python executable path
-; Checks for bundled Python first, then venv, then system Python
+; Checks for bundled Python first, then system Python
 GetPythonPath() {
 	; First check for bundled Python (installed via installer)
 	bundledPython := A_ScriptDir . "\python\python.exe"
@@ -699,13 +699,7 @@ GetPythonPath() {
 		return runPythonBat
 	}
 	
-	; Check for virtual environment Python
-	venvPython := A_ScriptDir . "\.venv\Scripts\python.exe"
-	if (FileExist(venvPython)) {
-		return venvPython
-	}
-	
-	; Fall back to system Python
+	; Use system Python
 	return "python"
 }
 
@@ -737,9 +731,9 @@ GetScriptCommand(scriptName, args := "") {
 		return """" . scriptPath . """ " . args
 	}
 	
-	; Otherwise, run via Python
+	; Otherwise, run via Python (no quotes around python for cmd /c compatibility)
 	pythonPath := GetPythonPath()
-	return """" . pythonPath . """ """ . scriptPath . """ " . args
+	return pythonPath . " """ . scriptPath . """ " . args
 }
 
 ShowAbout:
@@ -853,6 +847,7 @@ Gosub, DownloadSDCard
 Return
 
 Toolbar_GetInvoice:
+; Proceed with ProSelect export flow - exports XML then syncs it
 ; Check if warning should be shown
 if (!Settings_GHLInvoiceWarningShown)
 {
@@ -1161,8 +1156,14 @@ if !ErrorLevel
 	; Show non-blocking progress GUI
 	ShowSyncProgressGUI(latestXml)
 	
-	; Run in background (non-blocking)
-	Run, %ComSpec% /c "%syncCmd%", , Hide, SyncProgress_ProcessId
+	; Run in background (non-blocking) - use script directory as working dir
+	; Use start /b to run truly in background without waiting for cmd.exe
+	Run, %ComSpec% /c start /b "" %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	
+	; Update folder watcher's file list so it doesn't re-prompt for this file
+	SplitPath, latestXml, fileName
+	if (!InStr(LastInvoiceFiles, fileName . "|"))
+		LastInvoiceFiles .= fileName . "|"
 	
 	ExportInProgress := false  ; Re-enable file watcher immediately so user can continue
 }
@@ -1788,6 +1789,8 @@ Return
 ; Global variables for sync progress
 global SyncProgress_ProcessId := 0
 global SyncProgress_XmlPath := ""
+global SyncProgress_LastContent := ""
+global SyncProgress_NoUpdateCount := 0
 
 ShowSyncProgressGUI(xmlPath) {
 	global Settings_DarkMode, DPI_Scale, SyncProgress_ProcessId, SyncProgress_XmlPath
@@ -1885,21 +1888,24 @@ SyncProgress_UpdateTimer:
 		}
 	}
 	
-	; Also check if process has exited unexpectedly
-	if (SyncProgress_ProcessId > 0) {
-		Process, Exist, %SyncProgress_ProcessId%
-		if (ErrorLevel = 0) {
-			; Process ended - check if we got a final status
-			Sleep, 500
-			FileRead, progressContent, %progressFile%
-			if (!InStr(progressContent, "success") && !InStr(progressContent, "error")) {
-				; Process crashed without final status
-				SetTimer, SyncProgress_UpdateTimer, Off
-				GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Error
-				GuiControl, SyncProgress:, SyncProgress_Status, Process ended unexpectedly
-				SetTimer, SyncProgress_Close, -3000
-			}
+	; Note: We don't check process exit because cmd /c exits immediately
+	; and the Python process runs independently. We rely on the progress file
+	; and a timeout to detect issues.
+	
+	; Track how long we've been waiting without progress updates
+	if (progressContent = SyncProgress_LastContent) {
+		SyncProgress_NoUpdateCount++
+		; If no progress for 60 seconds (120 x 500ms), assume something went wrong
+		if (SyncProgress_NoUpdateCount > 120) {
+			SetTimer, SyncProgress_UpdateTimer, Off
+			GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Timeout
+			GuiControl, SyncProgress:, SyncProgress_Status, No response from sync process
+			SetTimer, SyncProgress_Close, -3000
+			SyncProgress_NoUpdateCount := 0
 		}
+	} else {
+		SyncProgress_LastContent := progressContent
+		SyncProgress_NoUpdateCount := 0
 	}
 Return
 
@@ -5250,50 +5256,7 @@ Loop, Files, %Settings_InvoiceWatchFolder%\*.xml
 	fileCount++
 }
 
-; First run: if exactly 1 XML file exists, offer to process it
-if (LastInvoiceFiles = "" && fileCount = 1)
-{
-	; Extract the single filename (remove trailing |)
-	singleFile := SubStr(currentFiles, 1, StrLen(currentFiles) - 1)
-	fullPath := Settings_InvoiceWatchFolder . "\" . singleFile
-	result := DarkMsgBox("📋 Invoice XML Found", "Found invoice file:`n`n" . singleFile . "`n`nLoad this invoice to GHL?", "question", {buttons: ["Yes", "No"]})
-	if (result = "Yes")
-	{
-		ProcessInvoiceXML(fullPath)
-	}
-	LastInvoiceFiles := currentFiles
-	return
-}
-
-; Check for new files
-if (LastInvoiceFiles != "" && currentFiles != LastInvoiceFiles)
-{
-	Loop, Parse, currentFiles, |
-	{
-		if (A_LoopField = "")
-			continue
-		if (!InStr(LastInvoiceFiles, A_LoopField . "|"))
-		{
-			; New XML file found!
-			newFile := Settings_InvoiceWatchFolder . "\" . A_LoopField
-			
-			; Wait for ProSelect Export Orders dialog to close before prompting
-			; (In case this was triggered by our own export action)
-			Loop, 10
-			{
-				if !WinExist("Export Orders ahk_exe ProSelect.exe")
-					break
-				Sleep, 500
-			}
-			
-			result := DarkMsgBox("📋 New Invoice XML", "New invoice file detected:`n`n" . A_LoopField . "`n`nLoad this invoice to GHL?", "question", {buttons: ["Yes", "No"]})
-			if (result = "Yes")
-			{
-				ProcessInvoiceXML(newFile)
-			}
-		}
-	}
-}
+; Just track the files - no prompts. User syncs by clicking toolbar icon.
 LastInvoiceFiles := currentFiles
 Return
 
@@ -5331,7 +5294,6 @@ ProcessInvoiceXML(xmlFile)
 		return
 	}
 	
-	ToolTip, Processing invoice...
 	; Build arguments - contact ID is read from XML by Python script
 	syncArgs := """" . xmlFile . """"
 	if (Settings_FinancialsOnly)
@@ -5340,24 +5302,17 @@ ProcessInvoiceXML(xmlFile)
 		syncArgs .= " --no-contact-sheet"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 	
-	; Run and capture output to check for folder not found
-	tempOutput := A_Temp . "\sync_output_" . A_TickCount . ".txt"
-	RunWait, %ComSpec% /c "%syncCmd%" > "%tempOutput%" 2>&1, , Hide
+	; Show non-blocking progress GUI
+	ShowSyncProgressGUI(xmlFile)
 	
-	; Check output for folder not found marker
-	FileRead, syncOutput, %tempOutput%
-	FileDelete, %tempOutput%
+	; Run in background (non-blocking) - use script directory as working dir
+	; Use start /b to run truly in background without waiting for cmd.exe
+	Run, %ComSpec% /c start /b "" %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
 	
-	if (InStr(syncOutput, "FOLDER_NOT_FOUND:Order Sheets") && Settings_MediaFolderID = "")
-	{
-		; No folder configured - show folder picker
-		ToolTip
-		ShowGHLFolderPicker()
-	}
-	
-	ToolTip
-	
-	DarkMsgBox("Invoice Processed", "Invoice has been synced to GHL contact.", "success")
+	; Update folder watcher's file list so it doesn't re-prompt for this file
+	SplitPath, xmlFile, fileName
+	if (!InStr(LastInvoiceFiles, fileName . "|"))
+		LastInvoiceFiles .= fileName . "|"
 }
 
 ; Show folder picker GUI for GHL Media folders
@@ -6563,10 +6518,11 @@ LoadSettings()
 	; Check if monthly license validation is needed (only if licensed)
 	if (License_Status = "active" && License_Key != "") {
 		CheckMonthlyLicenseValidation()
-	} else {
-		; Check trial status (tied to Location ID)
-		CheckTrialStatus()
 	}
+	; Trial check disabled - LemonSqueezy handles licensing
+	; else {
+	; 	CheckTrialStatus()
+	; }
 	
 	; Start invoice folder monitor if configured
 	if (Settings_InvoiceWatchFolder != "" && FileExist(Settings_InvoiceWatchFolder))

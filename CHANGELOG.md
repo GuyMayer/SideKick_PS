@@ -15,6 +15,43 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.54 (2026-02-02)
+
+### New Features
+- **Non-Blocking Invoice Sync Progress**: New progress GUI shows real-time sync status
+  - Displays current step (Parsing, Creating Contact Sheet, Updating Contact, Creating Invoice)
+  - Progress bar with percentage completion
+  - Auto-closes after success or shows error message
+  - User can continue working while sync runs in background
+- **Debug Logging Toggle**: Added user setting in About panel to enable/disable debug logging
+  - Logs saved to hidden folder (`%APPDATA%\SideKick_PS\Logs\`)
+  - Auto-disables after 24 hours if left on
+  - Tooltip explains the feature
+
+### Improvements
+- **User-Friendly Error Messages**: GHL API errors now show helpful messages instead of raw HTTP errors
+  - "Invalid contact ID - client may not be linked to GHL"
+  - "Contact not found in GHL - link client first"
+  - "API authentication failed - check GHL API key"
+  - "Rate limit exceeded - try again in a moment"
+- **Progress File Cleanup**: Clears old progress data at start of each sync
+- **Removed Folder Watcher Popups**: No more "New Invoice XML" confirmation dialogs
+  - Users sync by clicking the toolbar icon when ready
+  - Cleaner, less intrusive workflow
+
+### Bug Fixes
+- **Build Script Paths**: Fixed doubled folder paths in Developer tools
+- **Python Execution**: Fixed background Python process not running via AHK
+  - Now uses `start /b` for proper background execution
+- **Trial Popup Removed**: Disabled internal trial check (LemonSqueezy handles licensing)
+
+### Technical
+- Workspace reorganized: SideKick_PS is now the main working folder
+- Moved legacy files to `Legacy/`, `SideKick_LB/`, and `Utils/` folders
+- Removed venv dependency for development
+
+---
+
 ## v2.4.53 (2026-02-01)
 
 ### New Features

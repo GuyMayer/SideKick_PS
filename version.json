@@ -1,9 +1,21 @@
 {
-  "version": "2.4.53",
-  "build_date": "2026-02-01",
+  "version": "2.4.54",
+  "build_date": "2026-02-02",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Client ID now saved in album name for easy GHL lookup",
+  "release_notes": "Non-blocking sync progress bar with real-time status updates",
   "versions": [
+    {
+      "version": "2.4.54",
+      "build_date": "2026-02-02",
+      "release_notes": "Non-blocking sync progress bar with real-time status updates",
+      "changelog": [
+        "NEW: Live progress bar shows sync status while you continue working",
+        "NEW: Debug Logging toggle in About panel (auto-disables after 24 hours)",
+        "IMPROVED: Clearer error messages when GHL sync fails",
+        "IMPROVED: No more popup dialogs when new invoice files appear",
+        "FIXED: Invoice sync now runs reliably in background"
+      ]
+    },
     {
       "version": "2.4.53",
       "build_date": "2026-02-01",
