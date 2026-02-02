@@ -69,6 +69,14 @@ DEBUG_LOG_FILE = os.path.join(DEBUG_LOG_FOLDER, f"sync_debug_{datetime.now().str
 # Progress file for non-blocking GUI updates (AHK reads this)
 PROGRESS_FILE = os.path.join(os.environ.get('TEMP', '.'), 'sidekick_sync_progress.txt')
 
+def clear_progress_file() -> None:
+    """Clear/delete the progress file to start fresh."""
+    try:
+        if os.path.exists(PROGRESS_FILE):
+            os.remove(PROGRESS_FILE)
+    except Exception:
+        pass  # Don't fail if file can't be deleted
+
 def write_progress(step: int, total: int, message: str, status: str = 'running') -> None:
     """Write progress to temp file for AHK GUI to read.
 
@@ -1289,13 +1297,19 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
         if response.status_code in [200, 201]:
             return _handle_invoice_success(response, payments, balance_due, order)
         else:
-            print(f"✗ Failed to create invoice: {response.status_code}")
+            error_msg = f"Invoice creation failed (HTTP {response.status_code})"
+            if response.status_code == 400:
+                error_msg = "Invalid invoice data - check order details"
+            elif response.status_code == 404:
+                error_msg = "Contact not found - link client to GHL first"
+            print(f"✗ {error_msg}")
             print(f"  Response: {response.text}")
-            return {'success': False, 'error': response.text, 'status_code': response.status_code}
+            return {'success': False, 'error': error_msg, 'status_code': response.status_code}
 
     except requests.exceptions.RequestException as e:
-        print(f"✗ Error creating invoice: {e}")
-        return {'success': False, 'error': str(e)}
+        error_msg = f"Network error: {str(e)}"
+        print(f"✗ Error creating invoice: {error_msg}")
+        return {'success': False, 'error': error_msg}
 
 def _verify_contact_update(contact_id: str, headers: dict) -> None:
     """Verify contact update by re-fetching.
@@ -1385,10 +1399,23 @@ def update_ghl_contact(contact_id: str, ps_data: dict) -> dict | None:
         return result
 
     except requests.exceptions.RequestException as e:
-        print(f"✗ Error updating contact: {e}")
+        error_msg = str(e)
+        # Provide user-friendly error messages for common issues
         if hasattr(e, 'response') and e.response is not None:
+            status_code = e.response.status_code
+            if status_code == 400:
+                error_msg = "Invalid contact ID - client may not be linked to GHL"
+            elif status_code == 401:
+                error_msg = "API authentication failed - check GHL API key"
+            elif status_code == 404:
+                error_msg = "Contact not found in GHL - link client first"
+            elif status_code == 429:
+                error_msg = "Rate limit exceeded - try again in a moment"
+            elif status_code >= 500:
+                error_msg = "GHL server error - try again later"
             print(f"  Response: {e.response.text}")
-        return {'success': False, 'error': str(e), 'contact_id': contact_id}
+        print(f"✗ Error updating contact: {error_msg}")
+        return {'success': False, 'error': error_msg, 'contact_id': contact_id}
 
 def list_ghl_folders():
     """List all folders in GHL Media - outputs ID|Name format for AHK parsing"""
@@ -1633,6 +1660,12 @@ def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, cr
     Returns:
         dict: Result dictionary.
     """
+    # Clear any old progress file first
+    clear_progress_file()
+    
+    # Write initial progress immediately so GUI knows we started
+    write_progress(0, 5, "Starting sync process...")
+    
     # Calculate total steps for progress
     total_steps = 3  # Parse, Update Contact, Done
     if create_contact_sheet:
