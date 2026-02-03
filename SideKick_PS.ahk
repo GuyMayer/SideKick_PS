@@ -1,12 +1,17 @@
 ﻿; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.4.0
-; Build Date:  2026-01-30
+; Version:     2.4.61
+; Build Date:  2026-02-03
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
 ; Changelog:
+;   v2.4.61 (2026-02-03)
+;     - FIX: Downpayment now correctly subtracted from balance before splitting payments
+;     - Payment calculator recalculates when downpayment amount changes
+;     - Made all input field text black for better readability
+;     - Increased payment line entry delay to 1000ms for reliability
 ;   v2.4.0 (2026-01-26)
 ;     - NEW: Collect client data from GHL URL and update ProSelect
 ;     - Auto-load option: automatically populate ProSelect client fields
@@ -557,9 +562,11 @@ Gui, PP:Add, GroupBox, x20 y60 w560 h110 c%ppGroupColor%, Downpayment / Deposit
 
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 Gui, PP:Add, Text, x40 y90 w100 h25 BackgroundTrans, Amount:
-Gui, PP:Add, Edit, x150 y87 w70 h28 vDownpaymentAmount, 
+Gui, PP:Font, s10 Norm cBlack, Segoe UI
+Gui, PP:Add, Edit, x150 y87 w70 h28 vDownpaymentAmount gRecalcFromNo, 
 Gui, PP:Add, DropDownList, x250 y87 w140 h2000 vDownpaymentMethod, Credit Card||GoCardless DD|Bank Transfer
 Gui, PP:Add, DateTime, x410 y87 w110 h28 vDownpaymentDate Choose%A_Now%, dd/MM/yy
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
 ; Rounding info text
 Gui, PP:Font, s9 Norm c%ppMutedColor%, Segoe UI
@@ -575,22 +582,32 @@ Gui, PP:Add, GroupBox, x20 y180 w560 h150 c%ppGroupColor%, Scheduled Payments
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 ; Row 1: No. Payments and Pay Type
 Gui, PP:Add, Text, x40 y210 w100 h25 BackgroundTrans, No. Payments:
+Gui, PP:Font, s10 Norm cBlack, Segoe UI
 Gui, PP:Add, Edit, x150 y207 w70 h28 vPayNo gRecalcFromNo, %PayNo%
 Gui, PP:Add, UpDown, vMyUpDown gRecalcFromNo Range1-24, 3
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 Gui, PP:Add, Text, x280 y210 w80 h25 BackgroundTrans, Pay Type:
+Gui, PP:Font, s10 Norm cBlack, Segoe UI
 Gui, PP:Add, DropDownList, x360 y207 w160 h2000 vPayTypeSel gPayTypeSel, %PayType%
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
 ; Row 2: Payment Amount and Recurring
 Gui, PP:Add, Text, x280 y250 w80 h25 BackgroundTrans, Payment:
+Gui, PP:Font, s10 Norm cBlack, Segoe UI
 Gui, PP:Add, Edit, x360 y247 w90 h28 vPayValue1, %PayValue%
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 Gui, PP:Add, Button, x455 y247 w65 h28 gRecalcFromAmount, Calc
 Gui, PP:Add, Text, x40 y290 w100 h25 BackgroundTrans, Recurring:
+Gui, PP:Font, s10 Norm cBlack, Segoe UI
 Gui, PP:Add, DropDownList, x150 y287 w120 h2000 vRecurring, %Recurring%
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
 ; Row 3: Start Date
 Gui, PP:Add, Text, x280 y290 w80 h25 BackgroundTrans, Start Date:
+Gui, PP:Font, s10 Norm cBlack, Segoe UI
 Gui, PP:Add, DropDownList, x360 y287 w80 h2000 vPayDay, %PayDayL%
 Gui, PP:Add, DropDownList, x445 y287 w75 h2000 vPayMonth, %PayMonthL%
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
 ; ========== BUTTONS ==========
 Gui, PP:Font, s10 Norm, Segoe UI
@@ -684,13 +701,20 @@ if (PayNo < 1)
 	PayNo := 1
 if (PayNo > 24)
 	PayNo := 24
-PayValue := ( PayDue / PayNo )
+
+; Calculate remaining balance after downpayment
+DownpaymentVal := (DownpaymentAmount != "" && DownpaymentAmount > 0) ? DownpaymentAmount : 0
+RemainingBalance := PayDue - DownpaymentVal
+if (RemainingBalance < 0)
+	RemainingBalance := 0
+
+PayValue := ( RemainingBalance / PayNo )
 PayValue := RegExReplace(PayValue,"(\.\d{2})\d*","$1")
 GuiControl,, PayValue1, %PayValue%
 
 ; Calculate rounding error
 TotalPayments := PayValue * PayNo
-RoundingError := PayDue - TotalPayments
+RoundingError := RemainingBalance - TotalPayments
 RoundingError := Round(RoundingError, 2)
 
 ; Update rounding info text
@@ -710,8 +734,14 @@ EnteredAmount := PayValue1
 if (EnteredAmount <= 0 || EnteredAmount = "")
 	Return
 
+; Calculate remaining balance after downpayment
+DownpaymentVal := (DownpaymentAmount != "" && DownpaymentAmount > 0) ? DownpaymentAmount : 0
+RemainingBalance := PayDue - DownpaymentVal
+if (RemainingBalance < 0)
+	RemainingBalance := 0
+
 ; Calculate how many payments needed (round to nearest whole number)
-CalcPayNo := PayDue / EnteredAmount
+CalcPayNo := RemainingBalance / EnteredAmount
 CalcPayNo := Round(CalcPayNo)
 
 ; Clamp to valid range 1-24
@@ -725,13 +755,13 @@ PayNo := CalcPayNo
 GuiControl,, PayNo, %PayNo%
 
 ; Recalculate actual payment amount based on whole number of payments
-PayValue := ( PayDue / PayNo )
+PayValue := ( RemainingBalance / PayNo )
 PayValue := RegExReplace(PayValue,"(\.\d{2})\d*","$1")
 GuiControl,, PayValue1, %PayValue%
 
 ; Calculate rounding error
 TotalPayments := PayValue * PayNo
-RoundingError := PayDue - TotalPayments
+RoundingError := RemainingBalance - TotalPayments
 RoundingError := Round(RoundingError, 2)
 
 ; Update rounding info text
@@ -1472,7 +1502,10 @@ logoPathLight := A_ScriptDir . "\SideKick_Logo_2025_Light.png"
 logoPath := Settings_DarkMode ? logoPathDark : logoPathLight
 
 if FileExist(logoPath) {
-	Gui, Settings:Add, Picture, x20 y480 w140 h140 vSettingsLogo, %logoPath%
+	; Add background patch to match sidebar color for logo area
+	Gui, Settings:Add, Progress, x20 y480 w140 h140 Background%sidebarBg% Disabled
+	; Add logo on top
+	Gui, Settings:Add, Picture, x20 y480 w140 h140 vSettingsLogo BackgroundTrans, %logoPath%
 } else {
 	; Fallback text if logo not found
 	Gui, Settings:Font, s14 cFF8C00, Segoe UI
@@ -7381,12 +7414,17 @@ if (HasDownpayment && DownpaymentMethod = "")
 	return
 }
 
-PayValue := FloorDecimal(PayDue/PayNo)
+; Calculate remaining balance after downpayment
+RemainingBalance := PayDue
+if (HasDownpayment)
+	RemainingBalance := PayDue - DownpaymentAmount
+
+PayValue := FloorDecimal(RemainingBalance/PayNo)
 GuiControl,, ComboBox3, %PayValue%
 
 ; Calculate rounding error for first payment adjustment
 TotalPayments := PayValue * PayNo
-RoundingError := PayDue - TotalPayments
+RoundingError := RemainingBalance - TotalPayments
 RoundingError := Round(RoundingError, 2)
 
 ; If downpayment is entered, add rounding error to it
@@ -7680,7 +7718,7 @@ if (ProSelectVersion = "2025")
 		WinWaitActive, Add Payment, Payments, 2
 		Sleep, 200
 		ControlClick, Button3, Add Payment, Payments
-		Sleep, 500
+		Sleep, 1000
 
 		; Ensure Payline window is active
 		WinActivate, Add Payment, Date
@@ -7722,7 +7760,7 @@ if (ProSelectVersion = "2025")
 		; Click "Add" button (Button1) to add payment line - Payline window closes
 		Sleep, 300
 		ControlClick, Button1, Add Payment, Date
-		Sleep, 500
+		Sleep, 1000
 	}
 	
 	; After last payment: close the small Payline window first (if still open)
@@ -7770,7 +7808,7 @@ else
 		PaymentIndex := StartIndex + A_Index - 1
 		Data_array := StrSplit(PayPlanLine[PaymentIndex],",")
 		ControlClick,Button3,Add Payment
-		sleep, 500
+		sleep, 1000
 		ControlClick,SysDateTimePick321,Add Payment
 		Sleep, 200
 		ControlSend,SysDateTimePick321,% Data_array[3]"/"Data_array[1]"/"Data_array[2]"{tab}",Add Payment
@@ -7782,7 +7820,7 @@ else
 		ControlSend, ComboBox1, {Enter}, Add Payment ; Confirm selection
 		Sleep, 200
 		ControlClick,Button4,Add Payment,D
-		Sleep, 500
+		Sleep, 1000
 	}
 	
 	; Play ding sound for 2022 too
