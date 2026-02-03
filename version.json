@@ -1,9 +1,33 @@
 {
-  "version": "2.4.59",
-  "build_date": "2026-02-02",
+  "version": "2.4.61",
+  "build_date": "2026-02-03",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Recurring payment schedules for future payments + full business details on invoices",
+  "release_notes": "Payment Calculator redesign with downpayment section and improved UX",
   "versions": [
+    {
+      "version": "2.4.61",
+      "build_date": "2026-02-03",
+      "release_notes": "Payment Calculator redesign with downpayment section and improved UX",
+      "changelog": [
+        "NEW: Downpayment/Deposit section in Payment Calculator",
+        "NEW: Enter downpayment amount, method, and date separately from scheduled payments",
+        "NEW: Hands Off warning tooltip while payments are being entered",
+        "IMPROVED: Payment Calculator redesigned with dark theme matching Settings",
+        "IMPROVED: Start date now defaults to today's day of month",
+        "IMPROVED: Direct Debit selections enforce 4-day setup window",
+        "FIXED: PayPlan button now hides when Add Payment window loses focus"
+      ]
+    },
+    {
+      "version": "2.4.60",
+      "build_date": "2026-02-02",
+      "release_notes": "Rounding in Downpayment setting for simpler payment plan invoicing",
+      "changelog": [
+        "NEW: Rounding in Downpayment toggle in GHL settings",
+        "IMPROVED: Rounding errors can now be added to deposit instead of creating extra invoices",
+        "IMPROVED: Cleaner payment schedules with equal monthly amounts"
+      ]
+    },
     {
       "version": "2.4.59",
       "build_date": "2026-02-02",

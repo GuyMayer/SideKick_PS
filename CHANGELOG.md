@@ -15,6 +15,58 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.61 (2026-02-03)
+
+### New Features
+- **Downpayment Section in PayPlan GUI**: Added dedicated downpayment/deposit fields to the Payment Calculator
+  - Amount, Method (dropdown), and Date fields
+  - Default method is Credit Card
+  - Date picker with dd/MM/yy format
+  - If amount entered, adds as first payment line before scheduled payments
+  - If left blank, downpayment is skipped
+  - Rounding info text shows guidance when there's a rounding difference
+
+### Improvements
+- **PayPlan GUI Redesign**: Complete visual overhaul to match Settings GUI style
+  - Dark theme (2D2D2D background, orange headers, grey labels)
+  - 50% larger window (600x420)
+  - Two organized GroupBoxes: "Downpayment / Deposit" and "Scheduled Payments"
+  - Start date now defaults to today's day of month (e.g., if today is 4th, defaults to "4th")
+  - Buttons moved to right with ✓ and ✗ icons
+  - Removed unnecessary labels for cleaner layout
+
+- **DD 4-Day Setup Window**: When Direct Debit or GoCardless DD is selected as pay type, enforces minimum 4-day setup window
+  - Automatically adjusts selected day if too soon
+  - Flexible matching for any DD-related payment types
+
+- **PayPlan Button Visibility Fix**: Button now properly hides when Add Payment window loses focus
+  - Only shows when Add Payment dialog is active
+
+- **Hands Off Warning**: Added tooltip warning during payment line entry
+  - Shows "⚠️ HANDS OFF! Do not touch mouse or keyboard while payments are being entered..."
+  - Automatically disappears when complete
+
+### Technical
+- Removed ToggleDownpayment handler (no checkbox needed)
+- Uses `HasDownpayment := (DownpaymentAmount != "" && DownpaymentAmount > 0)` logic
+- Added `GetDayNumber()` helper function for DD date validation
+- Fixed window focus detection in `KeepPayPlanVisible` timer
+
+---
+
+## v2.4.60 (2026-02-02)
+
+### New Features
+- **Rounding in Downpayment Setting**: New toggle in GHL tab to control how rounding errors are handled
+  - When ON (default): Rounding difference added to deposit for simpler invoicing
+  - When OFF: Creates separate first invoice with adjusted amount
+  - Tooltip explains the feature clearly
+
+### Technical
+- Added `--rounding-in-deposit` CLI argument to sync_ps_invoice.py
+- Added `rounding_in_deposit` parameter through function chain
+- Updated `_handle_invoice_success()` to respect the new setting
+
 ## v2.4.59 (2026-02-02)
 
 ### New Features

@@ -127,12 +127,14 @@ global Settings_GHLInvoiceWarningShown := 0  ; Has user been warned about GHL au
 global Settings_GHLPaymentSettingsURL := ""  ; URL to GHL payment settings for email configuration
 global Settings_CollectContactSheets := 0  ; Save local copy of contact sheets
 global Settings_ContactSheetFolder := ""  ; Folder to save contact sheets
+global Settings_RoundingInDeposit := 1  ; Add rounding errors to deposit instead of separate invoice
 global Settings_CurrentTab := "General"
 
 ; File Management settings
 global Settings_CardDrive := "F:\DCIM"  ; Default SD card path
 global Settings_CameraDownloadPath := ""  ; Temp download folder
 global Settings_ShootArchivePath := ""    ; Final archive location
+global Settings_FolderTemplatePath := ""  ; Folder template for new shoots
 global Settings_ShootPrefix := "P"        ; Shoot number prefix
 global Settings_ShootSuffix := "P"        ; Shoot number suffix
 global Settings_AutoShootYear := true     ; Include year in shoot number
@@ -455,8 +457,10 @@ IfWinExist, Add Payment, Date
 	}
 	else
 	{
-		; Position unchanged, but ensure button is visible since window is focused
-		Gui, PP:Show, NoActivate
+		; Position unchanged - ensure button is visible since Add Payment is focused
+		; Only show if Add Payment window is actually active (we passed the check above)
+		IfWinActive, Add Payment, Date
+			Gui, PP:Show, NoActivate
 	}
 }
 else
@@ -482,7 +486,24 @@ gosub, GetBalance
 
 ; Reset dropdown list variables to ensure correct format
 Recurring := "Monthly||Weekly|Bi-Weekly|4-Weekly"
-PayDayL := "Select||1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th|11th|12th|13th|14th|15th|16th|17th|18th|19th|20th|21st|22nd|23rd|24th|25th|26th|27th|28th|Last Day"
+
+; Build PayDayL with today's day pre-selected
+FormatTime, TodayDay, , d  ; Get current day of month (1-31)
+PayDays := ["1st","2nd","3rd","4th","5th","6th","7th","8th","9th","10th","11th","12th","13th","14th","15th","16th","17th","18th","19th","20th","21st","22nd","23rd","24th","25th","26th","27th","28th","Last Day"]
+PayDayL := ""
+Loop, % PayDays.Length()
+{
+	if (A_Index = TodayDay)
+		PayDayL .= PayDays[A_Index] "||"
+	else
+		PayDayL .= PayDays[A_Index] "|"
+}
+
+; Calculate earliest DD date (today + 4 days for DD setup window)
+EarliestDDDate := A_Now
+EarliestDDDate += 4, Days
+FormatTime, EarliestDDDay, %EarliestDDDate%, d
+
 GuiSetup()
 
 ; Read payment types from Payline window ComboBox1
@@ -507,73 +528,76 @@ Gui, PP:Destroy
 if (ProSelectVersion = "")
 	DetectProSelectVersion()
 
-; Apply ProSelect 2025 dark theme with orange accents
-if (ProSelectVersion = "2025") {
-	Gui, PP:Color, 1E1E1E  ; Dark background matching ProSelect
-	Gui, PP:Font, s9 cSilver, Segoe UI
+; Define colors matching Settings GUI
+ppBg := "2D2D2D"
+ppHeaderColor := "FF8C00"
+ppLabelColor := "CCCCCC"
+ppGroupColor := "888888"
+ppMutedColor := "666666"
 
-	; Balance Due with orange highlight
-	Gui, PP:Font, s11 cFF8000 Bold, Segoe UI
-	Gui, PP:Add, Text, x20 y15 w200 h25, % "Balance Due: £" . PayDue
+; Calculate initial payment value
+PayValue := ( PayDue / PayNo )
+PayValue := RegExReplace(PayValue,"(\.\d{2})\d*","$1")
 
-	; Labels
-	Gui, PP:Font, s9 cSilver, Segoe UI
-	Gui, PP:Add, Text, x20 y50 w110 h20, No. Payments:
-	Gui, PP:Add, Text, x20 y80 w110 h20, Payment Amount:
-	Gui, PP:Add, Text, x20 y120 w110 h20, Payment Type:
-	Gui, PP:Add, Text, x20 y160 w110 h20, Recurring Period:
+; Calculate initial rounding error
+TotalPayments := PayValue * PayNo
+RoundingError := PayDue - TotalPayments
+RoundingError := Round(RoundingError, 2)
 
-	; GroupBox for date selection
-	Gui, PP:Font, s9 cSilver, Segoe UI
-	Gui, PP:Add, GroupBox, x10 y195 w380 h70 cSilver, Start on Specific Date
-	Gui, PP:Add, Text, x20 y218 w40 h20, Day:
-	Gui, PP:Add, Text, x200 y218 w50 h20, Month:
+Gui, PP:Color, %ppBg%
+Gui, PP:Font, s11 Norm c%ppLabelColor%, Segoe UI
 
-	; Controls
-	Gui, PP:Add, Edit, x140 y47 w80 h22 vPayNo gRecalcFromNo, %PayNo%
-	Gui, PP:Add, UpDown, vMyUpDown gRecalcFromNo Range1-24, 3
-	PayValue := ( PayDue / PayNo )
-	PayValue := RegExReplace(PayValue,"(\.\d{2})\d*","$1")
-	Gui, PP:Add, Edit, x140 y77 w80 h22 vPayValue1, %PayValue%
-	Gui, PP:Add, Button, x230 y77 w60 h22 gRecalcFromAmount, Calc
-	Gui, PP:Add, DropDownList, x140 y117 w160 h2000 vPayTypeSel gPayTypeSel, %PayType%
-	Gui, PP:Add, DropDownList, x140 y157 w160 h2000 vRecurring, %Recurring%
-	Gui, PP:Add, DropDownList, x60 y218 w130 h2000 vPayDay, %PayDayL%
-	Gui, PP:Add, DropDownList, x250 y218 w130 h2000 vPayMonth, %PayMonthL%
+; ========== BALANCE DUE HEADER ==========
+Gui, PP:Font, s16 Norm c%ppHeaderColor%, Segoe UI
+Gui, PP:Add, Text, x30 y20 w540 h35 BackgroundTrans, % "Balance Due: £" . PayDue
 
-	; Buttons - Schedule first, then Cancel (same font as PayPlan button)
-	Gui, PP:Font, s10 Norm, Segoe UI Symbol
-	Gui, PP:Add, Button, x20 y280 w220 h35 gMakePayments, 📅 Schedule Payments
-	Gui, PP:Add, Button, x260 y280 w120 h35 gExitGui, Cancel
+; ========== DOWNPAYMENT SECTION ==========
+Gui, PP:Font, s11 Norm c%ppGroupColor%, Segoe UI
+Gui, PP:Add, GroupBox, x20 y60 w560 h110 c%ppGroupColor%, Downpayment / Deposit
 
-	Gui, PP:Show, w400 h330, SideKick_PS v%ScriptVersion% - Payment Calculator
-} else {
-	; ProSelect 2022 default style
-	Gui, PP:Color, Default
-	Gui, PP:Font, S10 CDefault, Verdana
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
+Gui, PP:Add, Text, x40 y90 w100 h25 BackgroundTrans, Amount:
+Gui, PP:Add, Edit, x150 y87 w70 h28 vDownpaymentAmount, 
+Gui, PP:Add, DropDownList, x250 y87 w140 h2000 vDownpaymentMethod, Credit Card||GoCardless DD|Bank Transfer
+Gui, PP:Add, DateTime, x410 y87 w110 h28 vDownpaymentDate Choose%A_Now%, dd/MM/yy
 
-	Gui, PP:Add, Text, x32 y39 w200 h20, % "Balance Due: £" . PayDue
-	Gui, PP:Add, Text, x32 y69 w100 h20 +Right, No. Payments
-	Gui, PP:Add, Text, x32 y99 w100 h20 +Right, Payments
-	Gui, PP:Add, Text, x32 y149 w100 h20, Payment Type
-	Gui, PP:Add, Text, x12 y192 w120 h20, Recurring Period
-	Gui, PP:Add, GroupBox, x12 y229 w380 h70 +Center, Start on Specific date
-	Gui, PP:Add, DropDownList, x32 y249 w140 h2000 vPayDay, %PayDayL%
-	Gui, PP:Add, DropDownList, x202 y249 w170 h2000 vPayMonth, %PayMonthL%
-	Gui, PP:Add, DropDownList, x142 y189 w160 h2000 vRecurring, %Recurring%
-	Gui, PP:Add, DropDownList, x142 y149 w160 h2000 vPayTypeSel gPayTypeSel, %PayType%
-	Gui, PP:Add, Edit, x142 y69 w100 h20 vPayNo gRecalcFromNo, %PayNo%
-	Gui, PP:Add, UpDown, vMyUpDown gRecalcFromNo Range1-24, 3
-	PayValue := ( PayDue / PayNo )
-	PayValue := RegExReplace(PayValue,"(\.\d{2})\d*","$1")
-	Gui, PP:Add, Edit, x142 y99 w100 h20 vPayValue1, %PayValue%
-	Gui, PP:Add, Button, x250 y99 w60 h20 gRecalcFromAmount, Calc
-	Gui, PP:Font, s10 Norm, Segoe UI Symbol
-	Gui, PP:Add, Button, x42 y329 w200 h35 gMakePayments, 📅 Schedule Payments
-	Gui, PP:Add, Button, x260 y329 w120 h35 gExitGui, Cancel
+; Rounding info text
+Gui, PP:Font, s9 Norm c%ppMutedColor%, Segoe UI
+if (RoundingError != 0)
+	Gui, PP:Add, Text, x40 y125 w530 h20 vRoundingInfoText BackgroundTrans, % "💰 Rounding of £" . Format("{:.2f}", RoundingError) . " - enter downpayment to absorb it, or leave blank to add to first payment"
+else
+	Gui, PP:Add, Text, x40 y125 w530 h20 vRoundingInfoText BackgroundTrans, Leave blank for no downpayment
 
-	Gui, PP:Show, x670 y236 h390 w414, SideKick_PS v%ScriptVersion% - Payment Calculator
-}
+; ========== SCHEDULED PAYMENTS SECTION ==========
+Gui, PP:Font, s11 Norm c%ppGroupColor%, Segoe UI
+Gui, PP:Add, GroupBox, x20 y180 w560 h150 c%ppGroupColor%, Scheduled Payments
+
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
+; Row 1: No. Payments and Pay Type
+Gui, PP:Add, Text, x40 y210 w100 h25 BackgroundTrans, No. Payments:
+Gui, PP:Add, Edit, x150 y207 w70 h28 vPayNo gRecalcFromNo, %PayNo%
+Gui, PP:Add, UpDown, vMyUpDown gRecalcFromNo Range1-24, 3
+Gui, PP:Add, Text, x280 y210 w80 h25 BackgroundTrans, Pay Type:
+Gui, PP:Add, DropDownList, x360 y207 w160 h2000 vPayTypeSel gPayTypeSel, %PayType%
+
+; Row 2: Payment Amount and Recurring
+Gui, PP:Add, Text, x280 y250 w80 h25 BackgroundTrans, Payment:
+Gui, PP:Add, Edit, x360 y247 w90 h28 vPayValue1, %PayValue%
+Gui, PP:Add, Button, x455 y247 w65 h28 gRecalcFromAmount, Calc
+Gui, PP:Add, Text, x40 y290 w100 h25 BackgroundTrans, Recurring:
+Gui, PP:Add, DropDownList, x150 y287 w120 h2000 vRecurring, %Recurring%
+
+; Row 3: Start Date
+Gui, PP:Add, Text, x280 y290 w80 h25 BackgroundTrans, Start Date:
+Gui, PP:Add, DropDownList, x360 y287 w80 h2000 vPayDay, %PayDayL%
+Gui, PP:Add, DropDownList, x445 y287 w75 h2000 vPayMonth, %PayMonthL%
+
+; ========== BUTTONS ==========
+Gui, PP:Font, s10 Norm, Segoe UI
+Gui, PP:Add, Button, x300 y370 w140 h32 gMakePayments, ✓ Schedule Payments
+Gui, PP:Add, Button, x500 y370 w80 h32 gExitGui, ✗ Cancel
+
+Gui, PP:Show, w600 h420, SideKick_PS v%ScriptVersion% - Payment Calculator
 
 Return
 
@@ -625,7 +649,32 @@ GetNextMonthName() {
 
 
 PayTypeSel:
+Gui, PP:Submit, NoHide
+; If Direct Debit selected (flexible matching for DD, Direct Debit, etc.), enforce 4-day setup window
+if (InStr(PayTypeSel, "DD") || InStr(PayTypeSel, "Direct Debit") || InStr(PayTypeSel, "direct debit"))
+{
+	; Check if selected day is before earliest DD date (today + 4)
+	FormatTime, CurrentDay, , d
+	SelectedDayNum := GetDayNumber(PayDay)
+	
+	; If in same month and day is too soon, adjust to earliest allowed
+	if (SelectedDayNum > 0 && SelectedDayNum < EarliestDDDay)
+	{
+		; Find the day name for EarliestDDDay
+		PayDays := ["1st","2nd","3rd","4th","5th","6th","7th","8th","9th","10th","11th","12th","13th","14th","15th","16th","17th","18th","19th","20th","21st","22nd","23rd","24th","25th","26th","27th","28th","Last Day"]
+		if (EarliestDDDay <= 28)
+			GuiControl, Choose, PayDay, %EarliestDDDay%
+	}
+}
 Return
+
+; Helper function to get day number from ordinal string
+GetDayNumber(dayStr) {
+	if (dayStr = "Last Day")
+		return 29
+	RegExMatch(dayStr, "(\d+)", match)
+	return match1 ? match1 : 0
+}
 
 ; Recalculate payment amount when number of payments changes
 RecalcFromNo:
@@ -643,6 +692,12 @@ GuiControl,, PayValue1, %PayValue%
 TotalPayments := PayValue * PayNo
 RoundingError := PayDue - TotalPayments
 RoundingError := Round(RoundingError, 2)
+
+; Update rounding info text
+if (RoundingError != 0)
+	GuiControl,, RoundingInfoText, % "💰 Rounding of £" . Format("{:.2f}", RoundingError) . " - enter downpayment to absorb it, or leave blank to add to first payment"
+else
+	GuiControl,, RoundingInfoText, Leave blank for no downpayment
 Return
 
 ; Recalculate number of payments when payment amount changes
@@ -678,6 +733,12 @@ GuiControl,, PayValue1, %PayValue%
 TotalPayments := PayValue * PayNo
 RoundingError := PayDue - TotalPayments
 RoundingError := Round(RoundingError, 2)
+
+; Update rounding info text
+if (RoundingError != 0)
+	GuiControl,, RoundingInfoText, % "💰 Rounding of £" . Format("{:.2f}", RoundingError) . " - enter downpayment to absorb it, or leave blank to add to first payment"
+else
+	GuiControl,, RoundingInfoText, Leave blank for no downpayment
 Return
 
 CheckForPS:
@@ -1277,6 +1338,8 @@ if !ErrorLevel
 		syncArgs .= " --no-contact-sheet"
 	if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
 		syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
+	if (Settings_RoundingInDeposit)
+		syncArgs .= " --rounding-in-deposit"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 	FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
 	
@@ -1409,11 +1472,11 @@ logoPathLight := A_ScriptDir . "\SideKick_Logo_2025_Light.png"
 logoPath := Settings_DarkMode ? logoPathDark : logoPathLight
 
 if FileExist(logoPath) {
-	Gui, Settings:Add, Picture, x20 y380 w140 h140 vSettingsLogo, %logoPath%
+	Gui, Settings:Add, Picture, x20 y480 w140 h140 vSettingsLogo, %logoPath%
 } else {
 	; Fallback text if logo not found
 	Gui, Settings:Font, s14 cFF8C00, Segoe UI
-	Gui, Settings:Add, Text, x15 y420 w150 h40 BackgroundTrans Center, 🚀 SIDEKICK
+	Gui, Settings:Add, Text, x15 y520 w150 h40 BackgroundTrans Center, 🚀 SIDEKICK
 }
 
 ; Version at bottom of sidebar
@@ -1563,6 +1626,13 @@ ToggleClick_ContactSheet:
 Toggle_ContactSheet_State := !Toggle_ContactSheet_State
 Settings_ContactSheet := Toggle_ContactSheet_State
 UpdateToggleSlider("Settings", "ContactSheet", Toggle_ContactSheet_State, 590)
+SaveSettings()
+Return
+
+ToggleClick_RoundingDeposit:
+Toggle_RoundingDeposit_State := !Toggle_RoundingDeposit_State
+Settings_RoundingInDeposit := Toggle_RoundingDeposit_State
+UpdateToggleSlider("Settings", "RoundingDeposit", Toggle_RoundingDeposit_State, 630)
 SaveSettings()
 Return
 
@@ -2475,14 +2545,18 @@ CreateGHLPanel()
 	Gui, Settings:Add, Text, x210 y195 w90 BackgroundTrans vGHLApiLabel Hidden gTT_GHLApiKey HwndHwndGHLApiKey, API Key:
 	RegisterSettingsTooltip(HwndGHLApiKey, "GHL API KEY (Private Integration Token)`n`nUsed for: Contacts, Invoices, Payments, etc.`n`nTo get your key:`n1. Go to GHL Marketplace`n2. My Apps > Create Private App`n3. Copy the Private Integration Token`n`nKeys are stored encrypted in the INI file.")
 	apiKeyDisplay := GHL_API_Key ? SubStr(GHL_API_Key, 1, 8) . "..." . SubStr(GHL_API_Key, -4) : "Not configured"
+	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
 	Gui, Settings:Add, Edit, x305 y192 w250 h25 vGHLApiKeyDisplay Hidden ReadOnly, %apiKeyDisplay%
 	Gui, Settings:Add, Button, x560 y190 w100 h28 gEditGHLApiKey vGHLApiEditBtn Hidden, Edit
 	
 	; Location ID display
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y225 w90 BackgroundTrans vGHLLocLabel Hidden gTT_GHLLocID HwndHwndGHLLocID, Location ID:
 	RegisterSettingsTooltip(HwndGHLLocID, "GHL LOCATION ID`n`nYour GoHighLevel sub-account ID.`nUsed for API calls to the correct location.`n`nFind it in GHL: Settings > Business Profile")
 	locIdDisplay := GHL_LocationID ? GHL_LocationID : "Not configured"
+	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
 	Gui, Settings:Add, Edit, x305 y222 w250 h25 vGHLLocIDDisplay Hidden ReadOnly, %locIdDisplay%
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Button, x560 y220 w100 h28 gEditGHLLocationID vGHLLocEditBtn Hidden, Edit
 	
 	; Status row
@@ -2509,7 +2583,7 @@ CreateGHLPanel()
 	
 	; Watch Folder
 	Gui, Settings:Add, Text, x210 y330 w90 BackgroundTrans vGHLWatchLabel Hidden, Watch Folder:
-	Gui, Settings:Add, Edit, x305 y327 w250 h25 vGHLWatchFolderEdit Hidden, %Settings_InvoiceWatchFolder%
+	Gui, Settings:Add, Edit, x305 y327 w250 h25 cBlack vGHLWatchFolderEdit Hidden, %Settings_InvoiceWatchFolder%
 	Gui, Settings:Add, Button, x560 y325 w100 h28 gBrowseInvoiceFolder vGHLWatchBrowseBtn Hidden, Browse
 	
 	; Search all tabs toggle slider
@@ -2529,6 +2603,12 @@ CreateGHLPanel()
 	RegisterSettingsTooltip(HwndContactSheet, "CONTACT SHEET WITH ORDER`n`nWhen enabled, creates a JPG contact sheet showing`nall product images and uploads to GHL Media.`n`nThe contact sheet is added as a note on the contact`nfor easy reference.")
 	CreateToggleSlider("Settings", "ContactSheet", 630, 418, Settings_ContactSheet)
 	
+	; Rounding in Deposit toggle slider
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y450 w360 BackgroundTrans vGHLRoundingDeposit Hidden HwndHwndRoundingDeposit, Rounding in downpayment
+	RegisterSettingsTooltip(HwndRoundingDeposit, "ROUNDING IN DOWNPAYMENT`n`nWhen splitting payments, small rounding differences`nmay occur (e.g. £100 ÷ 3 = £33.33 × 3 = £99.99).`n`nEnabled: Add the 1p difference to the deposit/first payment`nDisabled: Create a separate first invoice with adjusted amount`n`nRecommended: ON for simpler invoicing.")
+	CreateToggleSlider("Settings", "RoundingDeposit", 630, 448, Settings_RoundingInDeposit)
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; CONTACT SHEET COLLECTION GROUP BOX (y530 to y620)
 	; ═══════════════════════════════════════════════════════════════════════════
@@ -2545,7 +2625,7 @@ CreateGHLPanel()
 	; Contact Sheet folder path
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y590 w90 BackgroundTrans vGHLCSFolderLabel Hidden, Save Folder:
-	Gui, Settings:Add, Edit, x305 y587 w250 h25 vGHLCSFolderEdit Hidden, %Settings_ContactSheetFolder%
+	Gui, Settings:Add, Edit, x305 y587 w250 h25 cBlack vGHLCSFolderEdit Hidden, %Settings_ContactSheetFolder%
 	Gui, Settings:Add, Button, x560 y585 w100 h28 gBrowseContactSheetFolder vGHLCSFolderBrowse Hidden, Browse
 }
 
@@ -2660,7 +2740,7 @@ CreateFilesPanel()
 {
 	global
 	
-	; Theme-aware colors
+	; Theme-aware colors (matching Hotkeys panel)
 	if (Settings_DarkMode) {
 		headerColor := "4FC3F7"
 		textColor := "FFFFFF"
@@ -2696,77 +2776,83 @@ CreateFilesPanel()
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y110 w100 BackgroundTrans vFilesCardDriveLabel Hidden, Card Path:
-	Gui, Settings:Add, Edit, x315 y107 w240 h25 vFilesCardDriveEdit Hidden, %Settings_CardDrive%
+	Gui, Settings:Add, Edit, x315 y107 w240 h25 cBlack vFilesCardDriveEdit Hidden, %Settings_CardDrive%
 	Gui, Settings:Add, Button, x560 y106 w100 h27 gFilesCardDriveBrowseBtn vFilesCardDriveBrowse Hidden, Browse
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y140 w100 BackgroundTrans vFilesDownloadLabel Hidden, Download To:
-	Gui, Settings:Add, Edit, x315 y137 w240 h25 vFilesDownloadEdit Hidden, %Settings_CameraDownloadPath%
+	Gui, Settings:Add, Edit, x315 y137 w240 h25 cBlack vFilesDownloadEdit Hidden, %Settings_CameraDownloadPath%
 	Gui, Settings:Add, Button, x560 y136 w100 h27 gFilesDownloadBrowseBtn vFilesDownloadBrowse Hidden, Browse
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; ARCHIVE SETTINGS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y200 w480 h70 vFilesArchiveGroup Hidden, Archive Settings
+	Gui, Settings:Add, GroupBox, x195 y200 w480 h100 vFilesArchiveGroup Hidden, Archive Settings
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y225 w100 BackgroundTrans vFilesArchiveLabel Hidden HwndHwndFilesArchive, Archive Path:
 	RegisterSettingsTooltip(HwndFilesArchive, "ARCHIVE PATH`n`nLocation where completed shoots are archived.`nUsed for long-term storage and backup.`n`nOrganize by year/month for easy retrieval.")
-	Gui, Settings:Add, Edit, x315 y222 w240 h25 vFilesArchiveEdit Hidden, %Settings_ShootArchivePath%
+	Gui, Settings:Add, Edit, x315 y222 w240 h25 cBlack vFilesArchiveEdit Hidden, %Settings_ShootArchivePath%
 	Gui, Settings:Add, Button, x560 y221 w100 h27 gFilesArchiveBrowseBtn vFilesArchiveBrowse Hidden, Browse
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y255 w100 BackgroundTrans vFilesFolderTemplateLabel Hidden HwndHwndFolderTemplate, Folder Template:
+	RegisterSettingsTooltip(HwndFolderTemplate, "FOLDER TEMPLATE`n`nTemplate folder structure to copy when creating new shoots.`nContains subfolders like Originals, Edited, Exports, etc.`n`nLeave empty if not using folder templates.")
+	Gui, Settings:Add, Edit, x315 y252 w240 h25 cBlack vFilesFolderTemplateEdit Hidden, %Settings_FolderTemplatePath%
+	Gui, Settings:Add, Button, x560 y251 w100 h27 gFilesFolderTemplateBrowseBtn vFilesFolderTemplateBrowse Hidden, Browse
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; FILE NAMING GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y280 w480 h130 vFilesNamingGroup Hidden, File Naming
+	Gui, Settings:Add, GroupBox, x195 y310 w480 h130 vFilesNamingGroup Hidden, File Naming
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y305 w80 BackgroundTrans vFilesPrefixLabel Hidden HwndHwndFilesPrefix, Prefix:
+	Gui, Settings:Add, Text, x210 y335 w80 BackgroundTrans vFilesPrefixLabel Hidden HwndHwndFilesPrefix, Prefix:
 	RegisterSettingsTooltip(HwndFilesPrefix, "FILE PREFIX`n`nText added before the shoot number.`nExample: 'ZP' creates 'ZP2026001'`n`nUseful for studio branding or identification.")
-	Gui, Settings:Add, Edit, x295 y302 w60 h25 vFilesPrefixEdit Hidden, %Settings_ShootPrefix%
+	Gui, Settings:Add, Edit, x295 y332 w60 h25 cBlack vFilesPrefixEdit Hidden, %Settings_ShootPrefix%
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x380 y305 w80 BackgroundTrans vFilesSuffixLabel Hidden HwndHwndFilesSuffix, Suffix:
+	Gui, Settings:Add, Text, x380 y335 w80 BackgroundTrans vFilesSuffixLabel Hidden HwndHwndFilesSuffix, Suffix:
 	RegisterSettingsTooltip(HwndFilesSuffix, "FILE SUFFIX`n`nText added after the shoot number.`nExample: '_RAW' creates '2026001_RAW'`n`nUseful for categorizing shoot types.")
-	Gui, Settings:Add, Edit, x465 y302 w60 h25 vFilesSuffixEdit Hidden, %Settings_ShootSuffix%
+	Gui, Settings:Add, Edit, x465 y332 w60 h25 cBlack vFilesSuffixEdit Hidden, %Settings_ShootSuffix%
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y340 w200 BackgroundTrans vFilesAutoYear Hidden HwndHwndFilesAutoYear, Include Year in Shoot No
+	Gui, Settings:Add, Text, x210 y370 w200 BackgroundTrans vFilesAutoYear Hidden HwndHwndFilesAutoYear, Include Year in Shoot No
 	RegisterSettingsTooltip(HwndFilesAutoYear, "INCLUDE YEAR IN SHOOT NUMBER`n`nWhen enabled, adds the year prefix to shoot numbers.`nExample: '2026001' instead of just '001'`n`nRecommended for multi-year organization.")
-	CreateToggleSlider("Settings", "AutoShootYear", 630, 338, Settings_AutoShootYear)
+	CreateToggleSlider("Settings", "AutoShootYear", 630, 368, Settings_AutoShootYear)
 	GuiControl, Settings:Hide, Toggle_AutoShootYear
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y370 w200 BackgroundTrans vFilesAutoRename Hidden HwndHwndFilesAutoRename, Auto-Rename by Date
+	Gui, Settings:Add, Text, x210 y400 w200 BackgroundTrans vFilesAutoRename Hidden HwndHwndFilesAutoRename, Auto-Rename by Date
 	RegisterSettingsTooltip(HwndFilesAutoRename, "AUTO-RENAME BY DATE`n`nAutomatically rename downloaded images using`nthe capture date from EXIF metadata.`n`nCreates organized filenames like '2026-02-01_001.jpg'")
-	CreateToggleSlider("Settings", "AutoRenameImages", 630, 368, Settings_AutoRenameImages)
+	CreateToggleSlider("Settings", "AutoRenameImages", 630, 398, Settings_AutoRenameImages)
 	GuiControl, Settings:Hide, Toggle_AutoRenameImages
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; PHOTO EDITOR GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y420 w480 h130 vFilesEditorGroup Hidden, Photo Editor
+	Gui, Settings:Add, GroupBox, x195 y450 w480 h130 vFilesEditorGroup Hidden, Photo Editor
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y445 w100 BackgroundTrans vFilesEditorLabel Hidden HwndHwndFilesEditor, Editor Path:
+	Gui, Settings:Add, Text, x210 y475 w100 BackgroundTrans vFilesEditorLabel Hidden HwndHwndFilesEditor, Editor Path:
 	RegisterSettingsTooltip(HwndFilesEditor, "PHOTO EDITOR PATH`n`nPath to your preferred photo editing software.`nLeave as 'Windows Explorer' to open folder instead.`n`nCommon editors: Lightroom, Photoshop, Capture One")
 	editorDisplay := (Settings_EditorRunPath = "Explore" || Settings_EditorRunPath = "") ? "Windows Explorer" : Settings_EditorRunPath
-	Gui, Settings:Add, Edit, x315 y442 w240 h25 vFilesEditorEdit Hidden, %editorDisplay%
-	Gui, Settings:Add, Button, x560 y441 w100 h27 gFilesEditorBrowseBtn vFilesEditorBrowse Hidden, Browse
+	Gui, Settings:Add, Edit, x315 y472 w240 h25 cBlack vFilesEditorEdit Hidden, %editorDisplay%
+	Gui, Settings:Add, Button, x560 y471 w100 h27 gFilesEditorBrowseBtn vFilesEditorBrowse Hidden, Browse
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y480 w200 BackgroundTrans vFilesOpenEditor Hidden HwndHwndFilesOpenEditor, Open Editor After Download
+	Gui, Settings:Add, Text, x210 y510 w200 BackgroundTrans vFilesOpenEditor Hidden HwndHwndFilesOpenEditor, Open Editor After Download
 	RegisterSettingsTooltip(HwndFilesOpenEditor, "OPEN EDITOR AFTER DOWNLOAD`n`nAutomatically launch your photo editor`nafter SD card download completes.`n`nSaves time by jumping straight to editing.")
-	CreateToggleSlider("Settings", "BrowsDown", 630, 478, Settings_BrowsDown)
+	CreateToggleSlider("Settings", "BrowsDown", 630, 508, Settings_BrowsDown)
 	GuiControl, Settings:Hide, Toggle_BrowsDown
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y510 w200 BackgroundTrans vFilesAutoDrive Hidden HwndHwndFilesAutoDrive, Auto-Detect SD Cards
+	Gui, Settings:Add, Text, x210 y540 w200 BackgroundTrans vFilesAutoDrive Hidden HwndHwndFilesAutoDrive, Auto-Detect SD Cards
 	RegisterSettingsTooltip(HwndFilesAutoDrive, "AUTO-DETECT SD CARDS`n`nAutomatically detect when an SD card is inserted.`nShows a notification or prompt when detected.`n`nConvenient for streamlined download workflow.")
-	CreateToggleSlider("Settings", "AutoDriveDetect", 630, 508, Settings_AutoDriveDetect)
+	CreateToggleSlider("Settings", "AutoDriveDetect", 630, 538, Settings_AutoDriveDetect)
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
 }
 
@@ -2824,7 +2910,7 @@ CreateLicensePanel()
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y160 w80 BackgroundTrans vLicenseKeyLabel Hidden, Key:
 	keyDisplay := License_Key ? License_Key : ""
-	Gui, Settings:Add, Edit, x295 y157 w265 h25 vLicenseKeyEdit Hidden, %keyDisplay%
+	Gui, Settings:Add, Edit, x295 y157 w265 h25 cBlack vLicenseKeyEdit Hidden, %keyDisplay%
 	Gui, Settings:Add, Button, x565 y156 w95 h27 gActivateLicenseBtn vLicenseActivateBtn Hidden HwndHwndLicenseActivate, Activate
 	RegisterSettingsTooltip(HwndLicenseActivate, "ACTIVATE LICENSE`n`nEnter your license key and click Activate.`nYour license will be bound to your GHL Location ID.`n`nLicense keys are provided after purchase.")
 	
@@ -3873,6 +3959,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_FinancialsOnly
 	GuiControl, Settings:Hide, GHLContactSheet
 	GuiControl, Settings:Hide, Toggle_ContactSheet
+	GuiControl, Settings:Hide, GHLRoundingDeposit
+	GuiControl, Settings:Hide, Toggle_RoundingDeposit
 	GuiControl, Settings:Hide, GHLCollectCS
 	GuiControl, Settings:Hide, Toggle_CollectContactSheets
 	GuiControl, Settings:Hide, GHLCSFolderLabel
@@ -3979,6 +4067,9 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, FilesArchiveLabel
 	GuiControl, Settings:Hide, FilesArchiveEdit
 	GuiControl, Settings:Hide, FilesArchiveBrowse
+	GuiControl, Settings:Hide, FilesFolderTemplateLabel
+	GuiControl, Settings:Hide, FilesFolderTemplateEdit
+	GuiControl, Settings:Hide, FilesFolderTemplateBrowse
 	GuiControl, Settings:Hide, FilesNamingGroup
 	GuiControl, Settings:Hide, FilesPrefixLabel
 	GuiControl, Settings:Hide, FilesPrefixEdit
@@ -4079,6 +4170,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_FinancialsOnly
 		GuiControl, Settings:Show, GHLContactSheet
 		GuiControl, Settings:Show, Toggle_ContactSheet
+		GuiControl, Settings:Show, GHLRoundingDeposit
+		GuiControl, Settings:Show, Toggle_RoundingDeposit
 		GuiControl, Settings:Show, GHLCollectCS
 		GuiControl, Settings:Show, Toggle_CollectContactSheets
 		GuiControl, Settings:Show, GHLCSFolderLabel
@@ -4171,6 +4264,9 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, FilesArchiveLabel
 		GuiControl, Settings:Show, FilesArchiveEdit
 		GuiControl, Settings:Show, FilesArchiveBrowse
+		GuiControl, Settings:Show, FilesFolderTemplateLabel
+		GuiControl, Settings:Show, FilesFolderTemplateEdit
+		GuiControl, Settings:Show, FilesFolderTemplateBrowse
 		; File Naming GroupBox
 		GuiControl, Settings:Show, FilesNamingGroup
 		GuiControl, Settings:Show, FilesPrefixLabel
@@ -5404,6 +5500,15 @@ if (selectedFolder != "")
 }
 Return
 
+FilesFolderTemplateBrowseBtn:
+FileSelectFolder, selectedFolder, , 3, Select Folder Template
+if (selectedFolder != "")
+{
+	Settings_FolderTemplatePath := selectedFolder
+	GuiControl, Settings:, FilesFolderTemplateEdit, %selectedFolder%
+}
+Return
+
 FilesEditorBrowseBtn:
 FileSelectFile, selectedFile, 3, , Select Photo Editor, Executables (*.exe)
 if (selectedFile != "")
@@ -5623,6 +5728,8 @@ ProcessInvoiceXML(xmlFile)
 		syncArgs .= " --no-contact-sheet"
 	if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
 		syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
+	if (Settings_RoundingInDeposit)
+		syncArgs .= " --rounding-in-deposit"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 	
 	; Show non-blocking progress GUI
@@ -7084,6 +7191,7 @@ LoadSettings()
 	IniRead, Settings_ContactSheet, %IniFilename%, GHL, ContactSheet, 1
 	IniRead, Settings_CollectContactSheets, %IniFilename%, GHL, CollectContactSheets, 0
 	IniRead, Settings_ContactSheetFolder, %IniFilename%, GHL, ContactSheetFolder, %A_Space%
+	IniRead, Settings_RoundingInDeposit, %IniFilename%, GHL, RoundingInDeposit, 1
 	IniRead, Settings_GHLInvoiceWarningShown, %IniFilename%, GHL, InvoiceWarningShown, 0
 	IniRead, Settings_MediaFolderID, %IniFilename%, GHL, MediaFolderID, %A_Space%
 	IniRead, Settings_MediaFolderName, %IniFilename%, GHL, MediaFolderName, %A_Space%
@@ -7110,6 +7218,7 @@ LoadSettings()
 	IniRead, Settings_CardDrive, %IniFilename%, FileManagement, CardDrive, F:\DCIM
 	IniRead, Settings_CameraDownloadPath, %IniFilename%, FileManagement, CameraDownloadPath, %A_Space%
 	IniRead, Settings_ShootArchivePath, %IniFilename%, FileManagement, ShootArchivePath, %A_Space%
+	IniRead, Settings_FolderTemplatePath, %IniFilename%, FileManagement, FolderTemplatePath, %A_Space%
 	IniRead, Settings_ShootPrefix, %IniFilename%, FileManagement, ShootPrefix, P
 	IniRead, Settings_ShootSuffix, %IniFilename%, FileManagement, ShootSuffix, P
 	IniRead, Settings_AutoShootYear, %IniFilename%, FileManagement, AutoShootYear, 1
@@ -7187,6 +7296,7 @@ SaveSettings()
 	IniWrite, %Settings_ContactSheet%, %IniFilename%, GHL, ContactSheet
 	IniWrite, %Settings_CollectContactSheets%, %IniFilename%, GHL, CollectContactSheets
 	IniWrite, %Settings_ContactSheetFolder%, %IniFilename%, GHL, ContactSheetFolder
+	IniWrite, %Settings_RoundingInDeposit%, %IniFilename%, GHL, RoundingInDeposit
 	IniWrite, %Settings_GHLInvoiceWarningShown%, %IniFilename%, GHL, InvoiceWarningShown
 	
 	; Save license settings (secure/obfuscated)
@@ -7206,6 +7316,7 @@ SaveSettings()
 	IniWrite, %Settings_CardDrive%, %IniFilename%, FileManagement, CardDrive
 	IniWrite, %Settings_CameraDownloadPath%, %IniFilename%, FileManagement, CameraDownloadPath
 	IniWrite, %Settings_ShootArchivePath%, %IniFilename%, FileManagement, ShootArchivePath
+	IniWrite, %Settings_FolderTemplatePath%, %IniFilename%, FileManagement, FolderTemplatePath
 	IniWrite, %Settings_ShootPrefix%, %IniFilename%, FileManagement, ShootPrefix
 	IniWrite, %Settings_ShootSuffix%, %IniFilename%, FileManagement, ShootSuffix
 	IniWrite, %Settings_AutoShootYear%, %IniFilename%, FileManagement, AutoShootYear
@@ -7259,6 +7370,17 @@ If InStr(PayMonth, "Select")
 	DarkMsgBox("ATTENTION", "Select Pay Month", "warning")
 	return
 }
+
+; Check if downpayment is being used (amount > 0)
+HasDownpayment := (DownpaymentAmount != "" && DownpaymentAmount > 0)
+
+; Validate downpayment method if amount is entered
+if (HasDownpayment && DownpaymentMethod = "")
+{
+	DarkMsgBox("ATTENTION", "Select a downpayment method", "warning")
+	return
+}
+
 PayValue := FloorDecimal(PayDue/PayNo)
 GuiControl,, ComboBox3, %PayValue%
 
@@ -7266,6 +7388,13 @@ GuiControl,, ComboBox3, %PayValue%
 TotalPayments := PayValue * PayNo
 RoundingError := PayDue - TotalPayments
 RoundingError := Round(RoundingError, 2)
+
+; If downpayment is entered, add rounding error to it
+if (HasDownpayment && RoundingError != 0)
+{
+	DownpaymentAmount := DownpaymentAmount + RoundingError
+	DownpaymentAmount := Round(DownpaymentAmount, 2)
+}
 
 ToolTip,
 
@@ -7313,6 +7442,22 @@ if (LastPayPlanMonth := 12)
 Return
 
 BuildPayPlanLines: ; make PayPlanLines
+
+; If downpayment amount is entered, add it as the FIRST payment line (index 0)
+global DownpaymentLineAdded := false
+if (HasDownpayment)
+{
+	; Format downpayment date from DateTime control (YYYYMMDD format)
+	FormatTime, DPDay, %DownpaymentDate%, d
+	FormatTime, DPMonth, %DownpaymentDate%, M
+	FormatTime, DPYear, %DownpaymentDate%, yy
+	
+	; Create downpayment line: day,month,year,method,amount
+	DownpaymentLine := DPDay "," DPMonth "," DPYear "," DownpaymentMethod "," DownpaymentAmount
+	PayPlanLine[0] := DownpaymentLine
+	DownpaymentLineAdded := true
+}
+
 NextMonth := ObjIndexOf(Months, PayMonth)
 PayPlanDay := PayDay
 
@@ -7366,8 +7511,8 @@ if (WeeklyRecurring)
 		PayPlanMonth := PayPlanMonth + 0
 		PayPlanDay := PayPlanDay + 0
 		
-		; Add rounding error to first payment
-		if (A_Index = 1 && RoundingError != 0)
+		; Add rounding error to first payment (only if NOT adding to deposit)
+		if (A_Index = 1 && RoundingError != 0 && !Settings_RoundingInDeposit)
 		{
 			FirstPayValue := PayValue + RoundingError
 			FirstPayValue := Round(FirstPayValue, 2)
@@ -7387,8 +7532,8 @@ else  ; Monthly payments (original logic)
 	{
 		Gosub, ProcessData
 		
-		; Add rounding error to first payment
-		if (A_Index = 1 && RoundingError != 0)
+		; Add rounding error to first payment (only if NOT adding to deposit)
+		if (A_Index = 1 && RoundingError != 0 && !Settings_RoundingInDeposit)
 		{
 			FirstPayValue := PayValue + RoundingError
 			FirstPayValue := Round(FirstPayValue, 2)
@@ -7484,6 +7629,10 @@ Return
 
 UpdatePS:
 EnteringPaylines := True
+
+; Show warning tooltip - hands off!
+ToolTip, ⚠️ HANDS OFF! Do not touch mouse or keyboard while payments are being entered..., , , 1
+
 SetTitleMatchMode, 2
 SetTitleMatchMode, Slow
 WinActivate, Add Payment 
@@ -7510,10 +7659,21 @@ if (ProSelectVersion = "2025")
 		IniWrite, %PaymentTypes2025%, %IniFilename%, ProSelect2025, PaymentTypes
 	}
 
-	; Enter all payments - click Add button to open Payline window for each payment
-	Loop %PayNo%
+	; Determine how many payments to enter (including downpayment if added)
+	TotalPaymentsToEnter := PayNo
+	StartIndex := 1
+	if (DownpaymentLineAdded)
 	{
-		Data_array := StrSplit(PayPlanLine[A_Index],",")
+		TotalPaymentsToEnter := PayNo + 1
+		StartIndex := 0  ; Start from index 0 (downpayment)
+	}
+
+	; Enter all payments - click Add button to open Payline window for each payment
+	CurrentPayment := 0
+	Loop %TotalPaymentsToEnter%
+	{
+		PaymentIndex := StartIndex + A_Index - 1
+		Data_array := StrSplit(PayPlanLine[PaymentIndex],",")
 
 		; Click Add button on Add Payments window to open Payline window for EVERY payment
 		WinActivate, Add Payment, Payments
@@ -7585,19 +7745,30 @@ if (ProSelectVersion = "2025")
 	
 	; Play ding sound and show confirmation
 	SoundPlay, *48
-	DarkMsgBox("Payments Entered", "✅ " . PayNo . " payment(s) successfully entered!", "info", {timeout: 5})
+	if (DownpaymentLineAdded)
+		DarkMsgBox("Payments Entered", "✅ Downpayment + " . PayNo . " scheduled payment(s) entered!", "info", {timeout: 5})
+	else
+		DarkMsgBox("Payments Entered", "✅ " . PayNo . " payment(s) successfully entered!", "info", {timeout: 5})
 }
 else
 {
 	; ============================================================================
-	; ProSelect 2022 automation (original code)
-	; STABLE - DO NOT EDIT without specific instruction
-	; This code has been tested and works correctly. Any modifications
-	; should only be made with explicit user request.
+	; ProSelect 2022 automation
 	; ============================================================================
-	Loop %PayNo%
+	
+	; Determine how many payments to enter (including downpayment if added)
+	TotalPaymentsToEnter := PayNo
+	StartIndex := 1
+	if (DownpaymentLineAdded)
 	{
-		Data_array := StrSplit(PayPlanLine[A_Index],",")
+		TotalPaymentsToEnter := PayNo + 1
+		StartIndex := 0  ; Start from index 0 (downpayment)
+	}
+	
+	Loop %TotalPaymentsToEnter%
+	{
+		PaymentIndex := StartIndex + A_Index - 1
+		Data_array := StrSplit(PayPlanLine[PaymentIndex],",")
 		ControlClick,Button3,Add Payment
 		sleep, 500
 		ControlClick,SysDateTimePick321,Add Payment
@@ -7613,9 +7784,17 @@ else
 		ControlClick,Button4,Add Payment,D
 		Sleep, 500
 	}
+	
+	; Play ding sound for 2022 too
+	SoundPlay, *48
+	if (DownpaymentLineAdded)
+		DarkMsgBox("Payments Entered", "✅ Downpayment + " . PayNo . " scheduled payment(s) entered!", "info", {timeout: 5})
+	else
+		DarkMsgBox("Payments Entered", "✅ " . PayNo . " payment(s) successfully entered!", "info", {timeout: 5})
 }
 
 EnteringPaylines := False
+ToolTip, , , , 1  ; Remove warning tooltip
 Return
 
 Cord2Pos:
