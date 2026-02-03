@@ -1,12 +1,23 @@
 ﻿; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.4.61
+; Version:     2.4.64
 ; Build Date:  2026-02-03
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
 ; Changelog:
+;   v2.4.64 (2026-02-03)
+;     - IMPROVED: Payment Calculator window now persistent until closed or used
+;     - IMPROVED: Calculator stays on top of ProSelect but not other apps
+;     - IMPROVED: Rounding option radio buttons now have white text and tooltips
+;   v2.4.63 (2026-02-03)
+;     - NEW: Rounding option radio buttons in Payment Calculator
+;     - Choose to add rounding to Downpayment or 1st Payment
+;     - Setting is persistent (saved to INI)
+;   v2.4.62 (2026-02-03)
+;     - FIX: Payment entry windows now properly close after completing payment plan
+;     - Added loop to ensure all "Add Payment" windows are closed
 ;   v2.4.61 (2026-02-03)
 ;     - FIX: Downpayment now correctly subtracted from balance before splitting payments
 ;     - Payment calculator recalculates when downpayment amount changes
@@ -134,6 +145,7 @@ global Settings_CollectContactSheets := 0  ; Save local copy of contact sheets
 global Settings_ContactSheetFolder := ""  ; Folder to save contact sheets
 global Settings_RoundingInDeposit := 1  ; Add rounding errors to deposit instead of separate invoice
 global Settings_CurrentTab := "General"
+global PayCalcOpen := false  ; Track if Payment Calculator window is open
 
 ; File Management settings
 global Settings_CardDrive := "F:\DCIM"  ; Default SD card path
@@ -418,6 +430,10 @@ KeepPayPlanVisible:
 if EnteringPaylines
 	Return
 
+; If the Payment Calculator is open, don't hide or destroy it based on Add Payment focus
+if (PayCalcOpen)
+	Return
+
 ; Check if the Payline window exists
 IfWinExist, Add Payment, Date
 {
@@ -487,6 +503,9 @@ IfWinNotExist, Add Payment, Payments
 Return
 
 PayCalcGUI:
+; Flag that Payment Calculator is open (not just the button)
+global PayCalcOpen := true
+
 gosub, GetBalance
 
 ; Reset dropdown list variables to ensure correct format
@@ -549,6 +568,11 @@ TotalPayments := PayValue * PayNo
 RoundingError := PayDue - TotalPayments
 RoundingError := Round(RoundingError, 2)
 
+; Set PP GUI to be owned by ProSelect so it stays on top of PS but not other apps
+PSHwnd := WinExist("ahk_exe ProSelect.exe")
+if (PSHwnd)
+	Gui, PP: +Owner%PSHwnd%
+
 Gui, PP:Color, %ppBg%
 Gui, PP:Font, s11 Norm c%ppLabelColor%, Segoe UI
 
@@ -558,7 +582,7 @@ Gui, PP:Add, Text, x30 y20 w540 h35 BackgroundTrans, % "Balance Due: £" . PayDu
 
 ; ========== DOWNPAYMENT SECTION ==========
 Gui, PP:Font, s11 Norm c%ppGroupColor%, Segoe UI
-Gui, PP:Add, GroupBox, x20 y60 w560 h110 c%ppGroupColor%, Downpayment / Deposit
+Gui, PP:Add, GroupBox, x20 y60 w560 h130 c%ppGroupColor%, Downpayment / Deposit
 
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 Gui, PP:Add, Text, x40 y90 w100 h25 BackgroundTrans, Amount:
@@ -571,50 +595,73 @@ Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 ; Rounding info text
 Gui, PP:Font, s9 Norm c%ppMutedColor%, Segoe UI
 if (RoundingError != 0)
-	Gui, PP:Add, Text, x40 y125 w530 h20 vRoundingInfoText BackgroundTrans, % "💰 Rounding of £" . Format("{:.2f}", RoundingError) . " - enter downpayment to absorb it, or leave blank to add to first payment"
+	Gui, PP:Add, Text, x40 y125 w530 h20 vRoundingInfoText BackgroundTrans, % "💰 Rounding of £" . Format("{:.2f}", RoundingError)
 else
 	Gui, PP:Add, Text, x40 y125 w530 h20 vRoundingInfoText BackgroundTrans, Leave blank for no downpayment
 
+; Rounding option radio buttons
+Gui, PP:Font, s9 Norm c%ppLabelColor%, Segoe UI
+Gui, PP:Add, Text, x40 y150 w100 h20 BackgroundTrans HwndHwndRoundingLabel, Add rounding to:
+Gui, PP:Font, s9 Norm c%ppLabelColor%, Segoe UI
+if (Settings_RoundingInDeposit)
+{
+	Gui, PP:Add, Radio, x145 y150 w100 h20 BackgroundTrans vRoundingOption Checked gRoundingOptionChanged HwndHwndRadio1, Downpayment
+	Gui, PP:Add, Radio, x255 y150 w100 h20 BackgroundTrans gRoundingOptionChanged HwndHwndRadio2, 1st Payment
+}
+else
+{
+	Gui, PP:Add, Radio, x145 y150 w100 h20 BackgroundTrans vRoundingOption gRoundingOptionChanged HwndHwndRadio1, Downpayment
+	Gui, PP:Add, Radio, x255 y150 w100 h20 BackgroundTrans Checked gRoundingOptionChanged HwndHwndRadio2, 1st Payment
+}
+; Add tooltip to rounding option
+RoundingTooltip := "ROUNDING ADJUSTMENT`n`nWhen splitting a balance into equal payments,`nsmall rounding differences may occur.`n`nExample: £208.33 ÷ 3 = £69.44 x 3 = £208.32`nLeaves £0.01 difference.`n`nDownpayment: Add the difference to the deposit`n1st Payment: Add the difference to the first scheduled payment"
+RegisterSettingsTooltip(HwndRoundingLabel, RoundingTooltip)
+RegisterSettingsTooltip(HwndRadio1, RoundingTooltip)
+RegisterSettingsTooltip(HwndRadio2, RoundingTooltip)
+
 ; ========== SCHEDULED PAYMENTS SECTION ==========
 Gui, PP:Font, s11 Norm c%ppGroupColor%, Segoe UI
-Gui, PP:Add, GroupBox, x20 y180 w560 h150 c%ppGroupColor%, Scheduled Payments
+Gui, PP:Add, GroupBox, x20 y200 w560 h150 c%ppGroupColor%, Scheduled Payments
 
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 ; Row 1: No. Payments and Pay Type
-Gui, PP:Add, Text, x40 y210 w100 h25 BackgroundTrans, No. Payments:
+Gui, PP:Add, Text, x40 y230 w100 h25 BackgroundTrans, No. Payments:
 Gui, PP:Font, s10 Norm cBlack, Segoe UI
-Gui, PP:Add, Edit, x150 y207 w70 h28 vPayNo gRecalcFromNo, %PayNo%
+Gui, PP:Add, Edit, x150 y227 w70 h28 vPayNo gRecalcFromNo, %PayNo%
 Gui, PP:Add, UpDown, vMyUpDown gRecalcFromNo Range1-24, 3
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
-Gui, PP:Add, Text, x280 y210 w80 h25 BackgroundTrans, Pay Type:
+Gui, PP:Add, Text, x280 y230 w80 h25 BackgroundTrans, Pay Type:
 Gui, PP:Font, s10 Norm cBlack, Segoe UI
-Gui, PP:Add, DropDownList, x360 y207 w160 h2000 vPayTypeSel gPayTypeSel, %PayType%
+Gui, PP:Add, DropDownList, x360 y227 w160 h2000 vPayTypeSel gPayTypeSel, %PayType%
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
 ; Row 2: Payment Amount and Recurring
-Gui, PP:Add, Text, x280 y250 w80 h25 BackgroundTrans, Payment:
+Gui, PP:Add, Text, x280 y270 w80 h25 BackgroundTrans, Payment:
 Gui, PP:Font, s10 Norm cBlack, Segoe UI
-Gui, PP:Add, Edit, x360 y247 w90 h28 vPayValue1, %PayValue%
+Gui, PP:Add, Edit, x360 y267 w90 h28 vPayValue1, %PayValue%
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
-Gui, PP:Add, Button, x455 y247 w65 h28 gRecalcFromAmount, Calc
-Gui, PP:Add, Text, x40 y290 w100 h25 BackgroundTrans, Recurring:
+Gui, PP:Add, Button, x455 y267 w65 h28 gRecalcFromAmount, Calc
+Gui, PP:Add, Text, x40 y310 w100 h25 BackgroundTrans, Recurring:
 Gui, PP:Font, s10 Norm cBlack, Segoe UI
-Gui, PP:Add, DropDownList, x150 y287 w120 h2000 vRecurring, %Recurring%
+Gui, PP:Add, DropDownList, x150 y307 w120 h2000 vRecurring, %Recurring%
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
 ; Row 3: Start Date
-Gui, PP:Add, Text, x280 y290 w80 h25 BackgroundTrans, Start Date:
+Gui, PP:Add, Text, x280 y310 w80 h25 BackgroundTrans, Start Date:
 Gui, PP:Font, s10 Norm cBlack, Segoe UI
-Gui, PP:Add, DropDownList, x360 y287 w80 h2000 vPayDay, %PayDayL%
-Gui, PP:Add, DropDownList, x445 y287 w75 h2000 vPayMonth, %PayMonthL%
+Gui, PP:Add, DropDownList, x360 y307 w80 h2000 vPayDay, %PayDayL%
+Gui, PP:Add, DropDownList, x445 y307 w75 h2000 vPayMonth, %PayMonthL%
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
 ; ========== BUTTONS ==========
 Gui, PP:Font, s10 Norm, Segoe UI
-Gui, PP:Add, Button, x300 y370 w140 h32 gMakePayments, ✓ Schedule Payments
-Gui, PP:Add, Button, x500 y370 w80 h32 gExitGui, ✗ Cancel
+Gui, PP:Add, Button, x300 y390 w140 h32 gMakePayments, ✓ Schedule Payments
+Gui, PP:Add, Button, x500 y390 w80 h32 gExitGui, ✗ Cancel
 
-Gui, PP:Show, w600 h420, SideKick_PS v%ScriptVersion% - Payment Calculator
+; Register mouse move handler for hover tooltips (shared with Settings)
+OnMessage(0x200, "SettingsMouseMove")
+
+Gui, PP:Show, w600 h440, SideKick_PS v%ScriptVersion% - Payment Calculator
 
 Return
 
@@ -693,6 +740,15 @@ GetDayNumber(dayStr) {
 	return match1 ? match1 : 0
 }
 
+; Handle rounding option radio button change
+RoundingOptionChanged:
+Gui, PP:Submit, NoHide
+; RoundingOption = 1 means "Downpayment" is selected, 2 means "1st Payment"
+Settings_RoundingInDeposit := (RoundingOption = 1) ? 1 : 0
+; Save to INI immediately
+IniWrite, %Settings_RoundingInDeposit%, %IniFilename%, GHL, RoundingInDeposit
+Return
+
 ; Recalculate payment amount when number of payments changes
 RecalcFromNo:
 Gui, PP:Submit, NoHide
@@ -719,7 +775,7 @@ RoundingError := Round(RoundingError, 2)
 
 ; Update rounding info text
 if (RoundingError != 0)
-	GuiControl,, RoundingInfoText, % "💰 Rounding of £" . Format("{:.2f}", RoundingError) . " - enter downpayment to absorb it, or leave blank to add to first payment"
+	GuiControl,, RoundingInfoText, % "💰 Rounding of £" . Format("{:.2f}", RoundingError)
 else
 	GuiControl,, RoundingInfoText, Leave blank for no downpayment
 Return
@@ -766,7 +822,7 @@ RoundingError := Round(RoundingError, 2)
 
 ; Update rounding info text
 if (RoundingError != 0)
-	GuiControl,, RoundingInfoText, % "💰 Rounding of £" . Format("{:.2f}", RoundingError) . " - enter downpayment to absorb it, or leave blank to add to first payment"
+	GuiControl,, RoundingInfoText, % "💰 Rounding of £" . Format("{:.2f}", RoundingError)
 else
 	GuiControl,, RoundingInfoText, Leave blank for no downpayment
 Return
@@ -2192,16 +2248,16 @@ SyncProgressGuiEscape:
 Return
 
 ; ============================================================
-; Hover-based Tooltip System for Settings GUI
+; Hover-based Tooltip System for Settings and PayPlan GUIs
 ; ============================================================
 
-; Mouse hover handler for Settings window
+; Mouse hover handler for Settings and PP windows
 SettingsMouseMove(wParam, lParam, msg, hwnd) {
 	global SettingsTooltips, LastHoveredControl, SettingsHwnd
 	static hoverTimer := 0
 	
-	; Only process if Settings window is active
-	if !WinExist("ahk_id " . SettingsHwnd)
+	; Process if Settings window or PP window is active
+	if !WinExist("ahk_id " . SettingsHwnd) && !WinActive("Payment Calculator")
 		return
 	
 	; Get the control under the mouse
@@ -7380,6 +7436,9 @@ Reload
 Return
 
 ExitGui:
+PPGuiClose:
+PPGuiEscape:
+PayCalcOpen := false  ; Reset flag - Payment Calculator closed
 Gui, PP:destroy
 Goto, PlaceButton
 ExitApp,
@@ -7630,6 +7689,7 @@ loop, %PayNo%
 	Sleep 100
 }
 
+PayCalcOpen := false  ; Reset flag - Payment Calculator closed
 Gui, PP:Destroy
 GoSub, UpdatePS
 Reload 
@@ -7763,13 +7823,18 @@ if (ProSelectVersion = "2025")
 		Sleep, 1000
 	}
 	
-	; After last payment: close the small Payline window first (if still open)
-	if WinExist("Add Payment", "Date")
+	; After last payment: close ALL small Payline windows (there may be multiple)
+	Loop, 3  ; Try up to 3 times to catch any remaining windows
 	{
-		WinActivate, Add Payment, Date
-		Sleep, 200
-		ControlClick, Button2, Add Payment, Date  ; Cancel button on small Payline window
-		Sleep, 300
+		if WinExist("Add Payment", "Date")
+		{
+			WinActivate, Add Payment, Date
+			Sleep, 200
+			ControlClick, Button2, Add Payment, Date  ; Cancel button on small Payline window
+			Sleep, 1000
+		}
+		else
+			break
 	}
 	
 	; Then close the bigger Add Payment window
