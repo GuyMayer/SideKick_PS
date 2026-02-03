@@ -1,9 +1,37 @@
 {
-  "version": "2.4.61",
+  "version": "2.4.64",
   "build_date": "2026-02-03",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Payment Calculator redesign with downpayment section and improved UX",
+  "release_notes": "Payment Calculator now stays visible when switching apps",
   "versions": [
+    {
+      "version": "2.4.64",
+      "build_date": "2026-02-03",
+      "release_notes": "Payment Calculator now stays visible when switching apps",
+      "changelog": [
+        "IMPROVED: Calculator window stays visible when switching to other apps",
+        "IMPROVED: Calculator stays on top of ProSelect but not other apps",
+        "IMPROVED: Rounding option now has explanatory tooltip"
+      ]
+    },
+    {
+      "version": "2.4.63",
+      "build_date": "2026-02-03",
+      "release_notes": "Rounding option in Payment Calculator - choose downpayment or 1st payment",
+      "changelog": [
+        "NEW: Radio buttons to choose where rounding errors are added",
+        "NEW: Choose between Downpayment or 1st Payment for rounding",
+        "Setting is saved and remembered"
+      ]
+    },
+    {
+      "version": "2.4.62",
+      "build_date": "2026-02-03",
+      "release_notes": "Fixed payment entry windows not closing after completing payment plan",
+      "changelog": [
+        "FIXED: Payment entry windows now properly close after completing payment plan entry"
+      ]
+    },
     {
       "version": "2.4.61",
       "build_date": "2026-02-03",

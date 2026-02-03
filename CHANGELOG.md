@@ -15,6 +15,38 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.64 (2026-02-03)
+
+### Improvements
+- **Persistent Payment Calculator**: Calculator window no longer disappears when switching to another application
+  - Window stays visible until explicitly closed or payments scheduled
+  - Can switch between apps and return to continue editing
+- **Smart Window Layering**: Calculator stays on top of ProSelect windows but goes behind other applications
+  - No longer blocks other apps when multitasking
+- **Rounding Option Tooltips**: Added detailed hover tooltip explaining rounding adjustment options
+  - White text on radio buttons for better visibility
+
+---
+
+## v2.4.63 (2026-02-03)
+
+### New Features
+- **Rounding Option Radio Buttons**: Added radio buttons in Payment Calculator to choose where rounding errors are applied
+  - "Downpayment" - adds rounding to the deposit amount
+  - "1st Payment" - adds rounding to the first scheduled payment
+  - Setting is persistent and syncs with Settings GUI toggle
+
+---
+
+## v2.4.62 (2026-02-03)
+
+### Fixes
+- **Payment Entry Window Cleanup**: Fixed issue where 2 payline windows remained open after completing payment entry in ProSelect 2025
+  - Added loop to ensure all "Add Payment" windows are closed after payment entry completes
+  - Increased delay to 1000ms between cancel clicks for reliability
+
+---
+
 ## v2.4.61 (2026-02-03)
 
 ### New Features
