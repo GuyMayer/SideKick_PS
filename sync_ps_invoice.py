@@ -1380,7 +1380,8 @@ def _handle_invoice_success(
     balance_due: float,
     order: dict,
     ps_data: dict = None,
-    contact_id: str = None
+    contact_id: str = None,
+    rounding_in_deposit: bool = True
 ) -> dict:
     """Handle successful invoice creation response.
 
@@ -1391,6 +1392,7 @@ def _handle_invoice_success(
         order: Order dictionary.
         ps_data: ProSelect data for contact info.
         contact_id: GHL contact ID.
+        rounding_in_deposit: If True, add rounding to deposit; else create separate first invoice.
 
     Returns:
         dict: Success result dictionary.
@@ -1437,35 +1439,50 @@ def _handle_invoice_success(
             # First payment amount includes rounding adjustment
             first_payment_amount = round(base_amount + rounding_diff, 2)
 
-            # If there's a rounding difference, create first invoice separately with adjusted amount
+            # Handle rounding difference based on setting
             if rounding_diff != 0 and num_payments > 1:
-                # Create first invoice with adjusted amount
-                print(f"  Creating first payment: £{first_payment_amount:.2f}")
-                first_schedule = create_recurring_invoice_schedule(
-                    contact_id=contact_id,
-                    contact_name=client_name,
-                    email=email,
-                    amount=first_payment_amount,
-                    num_payments=1,
-                    start_date=first_date,
-                    invoice_name=f"ProSelect Payment 1 - {client_name}"
-                )
-
-                # Create remaining payments with base amount
-                if num_payments > 1:
-                    # Get second payment date
-                    second_date = future_payments[1].get('date', first_date) if len(future_payments) > 1 else first_date
-                    print(f"  Creating remaining {num_payments - 1} payments: £{base_amount:.2f} each")
+                if rounding_in_deposit:
+                    # Rounding goes to deposit - create single schedule with equal payments
+                    print(f"  Rounding of £{rounding_diff:.2f} added to deposit")
+                    print(f"  Creating {num_payments} equal payments: £{base_amount:.2f} each")
                     schedule = create_recurring_invoice_schedule(
                         contact_id=contact_id,
                         contact_name=client_name,
                         email=email,
                         amount=base_amount,
-                        num_payments=num_payments - 1,
-                        start_date=second_date,
+                        num_payments=num_payments,
+                        start_date=first_date,
                         invoice_name=f"ProSelect Payment Plan - {client_name}"
                     )
-                schedule_created = first_schedule is not None
+                    schedule_created = schedule is not None
+                else:
+                    # Create first invoice with adjusted amount (old behavior)
+                    print(f"  Creating first payment: £{first_payment_amount:.2f}")
+                    first_schedule = create_recurring_invoice_schedule(
+                        contact_id=contact_id,
+                        contact_name=client_name,
+                        email=email,
+                        amount=first_payment_amount,
+                        num_payments=1,
+                        start_date=first_date,
+                        invoice_name=f"ProSelect Payment 1 - {client_name}"
+                    )
+
+                    # Create remaining payments with base amount
+                    if num_payments > 1:
+                        # Get second payment date
+                        second_date = future_payments[1].get('date', first_date) if len(future_payments) > 1 else first_date
+                        print(f"  Creating remaining {num_payments - 1} payments: £{base_amount:.2f} each")
+                        schedule = create_recurring_invoice_schedule(
+                            contact_id=contact_id,
+                            contact_name=client_name,
+                            email=email,
+                            amount=base_amount,
+                            num_payments=num_payments - 1,
+                            start_date=second_date,
+                            invoice_name=f"ProSelect Payment Plan - {client_name}"
+                        )
+                    schedule_created = first_schedule is not None
             else:
                 # No rounding difference, create single recurring schedule
                 schedule = create_recurring_invoice_schedule(
@@ -1488,9 +1505,9 @@ def _handle_invoice_success(
     }
 
 
-def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False) -> dict | None:
+def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False, rounding_in_deposit: bool = True) -> dict | None:
     """Create an actual invoice in GHL Payments → Invoices using V2 API."""
-    debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only})
+    debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only, "rounding_in_deposit": rounding_in_deposit})
 
     order = ps_data.get('order', {})
     items = order.get('items', [])
@@ -1549,7 +1566,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
         debug_log(f"CREATE INVOICE RESPONSE: Status={response.status_code}", {"body": response_body})
 
         if response.status_code in [200, 201]:
-            return _handle_invoice_success(response, payments, balance_due, order, ps_data, contact_id)
+            return _handle_invoice_success(response, payments, balance_due, order, ps_data, contact_id, rounding_in_deposit)
         else:
             error_msg = f"Invoice creation failed (HTTP {response.status_code})"
             if response.status_code == 400:
@@ -1915,6 +1932,8 @@ def _parse_cli_args():
                         help='Skip contact sheet creation')
     parser.add_argument('--collect-folder', type=str, default='',
                         help='Folder to save local copy of contact sheet (named by album)')
+    parser.add_argument('--rounding-in-deposit', action='store_true',
+                        help='Add rounding errors to deposit instead of separate invoice')
     parser.add_argument('--list-folders', action='store_true',
                         help='List all folders in GHL Media and exit')
     return parser.parse_args()
@@ -1925,7 +1944,8 @@ def _process_sync(
     financials_only: bool,
     create_invoice: bool,
     create_contact_sheet: bool,
-    collect_folder: str = ''
+    collect_folder: str = '',
+    rounding_in_deposit: bool = True
 ) -> dict:
     """Process the sync operation.
 
@@ -1935,6 +1955,7 @@ def _process_sync(
         create_invoice: Whether invoice creation is enabled.
         create_contact_sheet: Whether contact sheet creation is enabled.
         collect_folder: Optional folder to save local copy of contact sheet.
+        rounding_in_deposit: If True, add rounding to deposit; else create separate first invoice.
 
     Returns:
         dict: Result dictionary.
@@ -1995,7 +2016,7 @@ def _process_sync(
         current_step += 1
         write_progress(current_step, total_steps, f"Creating invoice & recording payments...")
         print(f"\n📄 Creating GHL invoice...")
-        invoice_result = create_ghl_invoice(contact_id, ps_data, financials_only)
+        invoice_result = create_ghl_invoice(contact_id, ps_data, financials_only, rounding_in_deposit)
         if invoice_result:
             result['invoice'] = invoice_result
     elif not create_invoice:
@@ -2031,9 +2052,10 @@ def main() -> None:
     create_invoice = not args.no_invoice
     create_contact_sheet = not args.no_contact_sheet
     collect_folder = args.collect_folder if args.collect_folder else ''
+    rounding_in_deposit = args.rounding_in_deposit
 
     _print_sync_header(args.xml_path, financials_only, create_invoice, create_contact_sheet)
-    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder)
+    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit)
     _save_and_log_result(result)
     sys.exit(0 if result.get('success') else 1)
 
