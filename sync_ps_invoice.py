@@ -389,6 +389,10 @@ def load_config() -> dict:
     ghl = config['GHL']
     api_key = _decode_api_key(ghl)
     location_id = ghl.get('LocationID', '')
+    
+    # Tag settings (configurable)
+    sync_tag = ghl.get('SyncTag', 'PS Invoice')  # Tag added when invoice synced
+    opportunity_tags = ghl.get('OpportunityTags', 'ProSelect,Invoice Synced')  # Tags for opportunities
 
     # DEBUG: Override location ID if debug mode is on
     if DEBUG_MODE and DEBUG_LOCATION_ID:
@@ -398,6 +402,8 @@ def load_config() -> dict:
     return {
         'API_KEY': api_key,
         'LOCATION_ID': location_id,
+        'SYNC_TAG': sync_tag,
+        'OPPORTUNITY_TAGS': [t.strip() for t in opportunity_tags.split(',') if t.strip()],
     }
 
 # Load config
@@ -652,6 +658,154 @@ def _get_ghl_headers() -> dict:
         "Content-Type": "application/json",
         "Version": "2021-07-28"
     }
+
+
+def add_tags_to_contact(contact_id: str, tags: list[str]) -> bool:
+    """Add tags to a GHL contact using v2 API.
+
+    Args:
+        contact_id: The GHL contact ID.
+        tags: List of tag names to add.
+
+    Returns:
+        bool: True if tags were added successfully, False otherwise.
+    """
+    if not tags:
+        return True  # Nothing to add
+
+    url = f"https://services.leadconnectorhq.com/contacts/{contact_id}/tags"
+    payload = {"tags": tags}
+
+    debug_log(f"ADDING TAGS TO CONTACT: {contact_id}", {"tags": tags})
+
+    try:
+        response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
+        debug_log(f"ADD TAGS RESPONSE: Status={response.status_code}", {
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+        if response.status_code in [200, 201]:
+            print(f"   🏷️ Added tags: {', '.join(tags)}")
+            return True
+        else:
+            print(f"   ⚠️ Failed to add tags: {response.status_code}")
+            return False
+    except Exception as e:
+        debug_log(f"ADD TAGS FAILED: {e}")
+        print(f"   ⚠️ Failed to add tags: {e}")
+        return False
+
+
+def get_contact_opportunities(contact_id: str) -> list[dict]:
+    """Get all opportunities for a contact.
+
+    Args:
+        contact_id: The GHL contact ID.
+
+    Returns:
+        list[dict]: List of opportunities for the contact.
+    """
+    url = f"https://services.leadconnectorhq.com/opportunities/search"
+    payload = {
+        "locationId": CONFIG.get('LOCATION_ID', ''),
+        "contactId": contact_id
+    }
+
+    debug_log(f"SEARCHING OPPORTUNITIES FOR CONTACT: {contact_id}")
+
+    try:
+        response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
+        debug_log(f"OPPORTUNITIES RESPONSE: Status={response.status_code}", {
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+        if response.status_code == 200:
+            return response.json().get('opportunities', [])
+    except Exception as e:
+        debug_log(f"GET OPPORTUNITIES FAILED: {e}")
+
+    return []
+
+
+def add_tags_to_opportunity(opportunity_id: str, tags: list[str]) -> bool:
+    """Add tags to a GHL opportunity.
+
+    Note: GHL v2 API updates opportunity via PUT with tags array.
+
+    Args:
+        opportunity_id: The GHL opportunity ID.
+        tags: List of tag names to add.
+
+    Returns:
+        bool: True if tags were added successfully, False otherwise.
+    """
+    if not tags:
+        return True
+
+    # First get current opportunity to preserve existing tags
+    url = f"https://services.leadconnectorhq.com/opportunities/{opportunity_id}"
+    
+    try:
+        response = requests.get(url, headers=_get_ghl_headers(), timeout=30)
+        if response.status_code != 200:
+            debug_log(f"GET OPPORTUNITY FAILED: {response.status_code}")
+            return False
+        
+        opportunity = response.json().get('opportunity', {})
+        existing_tags = opportunity.get('tags', [])
+        
+        # Merge tags (avoid duplicates)
+        all_tags = list(set(existing_tags + tags))
+        
+        # Update opportunity with merged tags
+        update_payload = {"tags": all_tags}
+        response = requests.put(url, headers=_get_ghl_headers(), json=update_payload, timeout=30)
+        
+        debug_log(f"UPDATE OPPORTUNITY TAGS RESPONSE: Status={response.status_code}", {
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+        
+        if response.status_code == 200:
+            new_tags = [t for t in tags if t not in existing_tags]
+            if new_tags:
+                print(f"   🏷️ Added opportunity tags: {', '.join(new_tags)}")
+            return True
+        else:
+            print(f"   ⚠️ Failed to update opportunity tags: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        debug_log(f"ADD OPPORTUNITY TAGS FAILED: {e}")
+        print(f"   ⚠️ Failed to add opportunity tags: {e}")
+        return False
+
+
+def tag_contact_opportunities(contact_id: str, tags: list[str]) -> int:
+    """Add tags to all opportunities for a contact.
+
+    Args:
+        contact_id: The GHL contact ID.
+        tags: List of tag names to add.
+
+    Returns:
+        int: Number of opportunities tagged.
+    """
+    if not tags:
+        return 0
+
+    opportunities = get_contact_opportunities(contact_id)
+    if not opportunities:
+        debug_log(f"No opportunities found for contact {contact_id}")
+        return 0
+
+    tagged_count = 0
+    for opp in opportunities:
+        opp_id = opp.get('id')
+        if opp_id and add_tags_to_opportunity(opp_id, tags):
+            tagged_count += 1
+
+    if tagged_count > 0:
+        debug_log(f"Tagged {tagged_count} opportunities for contact {contact_id}")
+
+    return tagged_count
 
 
 def _search_ghl_contacts(filters: list, search_type: str) -> str | None:
@@ -2021,6 +2175,20 @@ def _process_sync(
             result['invoice'] = invoice_result
     elif not create_invoice:
         print("\n⏭ Skipping invoice creation (--no-invoice flag)")
+
+    # Step 5: Add tags to contact and opportunities on successful sync
+    if result.get('success'):
+        # Add sync tag to contact (configurable via INI: SyncTag)
+        sync_tag = CONFIG.get('SYNC_TAG', 'PS Invoice')
+        if sync_tag:
+            add_tags_to_contact(contact_id, [sync_tag])
+        
+        # Add tags to any opportunities for this contact (configurable via INI: OpportunityTags)
+        opp_tags = CONFIG.get('OPPORTUNITY_TAGS', [])
+        if opp_tags:
+            tagged = tag_contact_opportunities(contact_id, opp_tags)
+            if tagged > 0:
+                result['opportunities_tagged'] = tagged
 
     # Final step: Done
     current_step = total_steps

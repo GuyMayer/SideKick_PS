@@ -60,7 +60,46 @@
 ; #Warn  ; Enable warnings to assist with detecting common errors.
 SendMode Input  ; Recommended for new scripts due to its superior speed and reliability.
 SetWorkingDir %A_ScriptDir%  ; Ensures a consistent starting directory.
-#SingleInstance Force
+#SingleInstance, Off
+
+; Force close any previous instance of this script (handles .ahk and .exe versions)
+; Using mutex to prevent race condition on startup
+global SideKick_PS_Mutex := DllCall("CreateMutex", "Ptr", 0, "Int", 1, "Str", "SideKick_PS_SingleInstance", "Ptr")
+if (DllCall("GetLastError") = 183) { ; ERROR_ALREADY_EXISTS
+    ; Another instance is running, try to close it
+    DetectHiddenWindows, On
+    ; Match both .ahk and .exe versions
+    scriptBaseName := RegExReplace(A_ScriptName, "\.(ahk|exe)$", "")
+    WinGet, scriptList, List, %scriptBaseName% ahk_class AutoHotkey
+    Loop, %scriptList%
+    {
+        hwnd := scriptList%A_Index%
+        if (hwnd != A_ScriptHwnd)
+            WinClose, ahk_id %hwnd%
+    }
+    ; Also check for compiled exe
+    WinGet, exeList, List, %scriptBaseName%.exe ahk_class AutoHotkey
+    Loop, %exeList%
+    {
+        hwnd := exeList%A_Index%
+        if (hwnd != A_ScriptHwnd)
+            WinClose, ahk_id %hwnd%
+    }
+    DetectHiddenWindows, Off
+    Sleep, 100 ; Give old instance time to close
+} else {
+    ; We're the first instance, still try to clean up any orphans
+    DetectHiddenWindows, On
+    scriptBaseName := RegExReplace(A_ScriptName, "\.(ahk|exe)$", "")
+    WinGet, scriptList, List, %scriptBaseName% ahk_class AutoHotkey
+    Loop, %scriptList%
+    {
+        hwnd := scriptList%A_Index%
+        if (hwnd != A_ScriptHwnd)
+            WinClose, ahk_id %hwnd%
+    }
+    DetectHiddenWindows, Off
+}
 
 ; DEBUG: Create startup log file
 global DebugLogFile := A_ScriptDir . "\startup_debug.log"
@@ -143,7 +182,13 @@ global Settings_GHLInvoiceWarningShown := 0  ; Has user been warned about GHL au
 global Settings_GHLPaymentSettingsURL := ""  ; URL to GHL payment settings for email configuration
 global Settings_CollectContactSheets := 0  ; Save local copy of contact sheets
 global Settings_ContactSheetFolder := ""  ; Folder to save contact sheets
-global Settings_RoundingInDeposit := 1  ; Add rounding errors to deposit instead of separate invoice
+global Settings_GHLTags := ""  ; Tags to add to GHL contacts on sync
+global Settings_GHLOppTags := ""  ; Tags to add to GHL opportunities on sync
+global Settings_AutoAddContactTags := 1  ; Automatically add contact tags on sync
+global Settings_AutoAddOppTags := 1  ; Automatically add opportunity tags on sync
+global Settings_RoundingInDeposit := 1  ; Add rounding errors to deposit (1) or 1st payment (0)
+global GHL_CachedTags := ""  ; Cached list of contact tags from GHL
+global GHL_CachedOppTags := ""  ; Cached list of opportunity tags from GHL
 global Settings_CurrentTab := "General"
 global PayCalcOpen := false  ; Track if Payment Calculator window is open
 
@@ -179,7 +224,7 @@ global License_ExpiresAt := ""
 global License_InstanceID := ""
 global License_ActivatedAt := ""
 global License_ValidatedAt := ""  ; Last successful validation date
-global License_PurchaseURL := "https://zoomphoto.lemonsqueezy.com/checkout/buy/234060d4-063d-4e6f-b91b-744c254c0e7c"
+global License_PurchaseURL := "https://zoomphoto.lemonsqueezy.com/checkout/buy/077d6b76-ca2a-42df-a653-86f7aa186895"
 
 ; Update check settings
 global Update_SkippedVersion := ""    ; Version user chose to skip
@@ -203,9 +248,6 @@ global ProSelectVersion := ""
 global ProSelect2022Path := "C:\Program Files\Pro Studio Software\ProSelect 2022\ProSelect.exe"
 global ProSelect2025Path := "C:\Program Files\Pro Studio Software\ProSelect 2025\ProSelect.exe"
 global PsConsolePath := ""
-
-; Close any previous instances (no admin required)
-#SingleInstance Force
 
 ; Clean up any stale progress files and timers from previous runs
 progressFile := A_Temp . "\sidekick_sync_progress.txt"
@@ -1732,6 +1774,20 @@ UpdateToggleSlider("Settings", "CollectContactSheets", Toggle_CollectContactShee
 SaveSettings()
 Return
 
+ToggleClick_AutoAddContactTags:
+Toggle_AutoAddContactTags_State := !Toggle_AutoAddContactTags_State
+Settings_AutoAddContactTags := Toggle_AutoAddContactTags_State
+UpdateToggleSlider("Settings", "AutoAddContactTags", Toggle_AutoAddContactTags_State, 630)
+SaveSettings()
+Return
+
+ToggleClick_AutoAddOppTags:
+Toggle_AutoAddOppTags_State := !Toggle_AutoAddOppTags_State
+Settings_AutoAddOppTags := Toggle_AutoAddOppTags_State
+UpdateToggleSlider("Settings", "AutoAddOppTags", Toggle_AutoAddOppTags_State, 630)
+SaveSettings()
+Return
+
 BrowseContactSheetFolder:
 Gui, Settings:Submit, NoHide
 startFolder := Settings_ContactSheetFolder ? Settings_ContactSheetFolder : A_Desktop
@@ -2692,30 +2748,62 @@ CreateGHLPanel()
 	RegisterSettingsTooltip(HwndContactSheet, "CONTACT SHEET WITH ORDER`n`nWhen enabled, creates a JPG contact sheet showing`nall product images and uploads to GHL Media.`n`nThe contact sheet is added as a note on the contact`nfor easy reference.")
 	CreateToggleSlider("Settings", "ContactSheet", 630, 418, Settings_ContactSheet)
 	
-	; Rounding in Deposit toggle slider
+	; GHL Contact Tags field with ComboBox for selecting from existing tags
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y450 w360 BackgroundTrans vGHLRoundingDeposit Hidden HwndHwndRoundingDeposit, Rounding in downpayment
-	RegisterSettingsTooltip(HwndRoundingDeposit, "ROUNDING IN DOWNPAYMENT`n`nWhen splitting payments, small rounding differences`nmay occur (e.g. £100 ÷ 3 = £33.33 × 3 = £99.99).`n`nEnabled: Add the 1p difference to the deposit/first payment`nDisabled: Create a separate first invoice with adjusted amount`n`nRecommended: ON for simpler invoicing.")
-	CreateToggleSlider("Settings", "RoundingDeposit", 630, 448, Settings_RoundingInDeposit)
+	Gui, Settings:Add, Text, x210 y453 w95 BackgroundTrans vGHLTagsLabel Hidden HwndHwndGHLTags, Contact tags:
+	RegisterSettingsTooltip(HwndGHLTags, "CONTACT TAGS`n`nTags to add to the GHL contact when syncing.`nThese appear in CRM > Contacts > Tags.`n`nClick 🔄 to fetch existing tags from GHL,`nor type a new tag name to create it.`n`nExample: proselect, vip-client")
+	; Build tag list for ComboBox (saved value first, then cached tags)
+	tagList := Settings_GHLTags
+	if (GHL_CachedTags != "") {
+		if (tagList != "")
+			tagList .= "||"
+		tagList .= GHL_CachedTags
+	}
+	Gui, Settings:Add, ComboBox, x305 y450 w170 r15 vGHLTagsEdit Hidden, %tagList%
+	Gui, Settings:Add, Button, x480 y449 w40 h27 gRefreshGHLTags vGHLTagsRefresh Hidden HwndHwndTagsRefresh, 🔄
+	RegisterSettingsTooltip(HwndTagsRefresh, "REFRESH CONTACT TAGS`n`nFetch your existing contact tags from GHL.")
+	Gui, Settings:Font, s8 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x525 y453 w100 BackgroundTrans vAutoTagContactLabel Hidden, Auto tag on inv
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	CreateToggleSlider("Settings", "AutoAddContactTags", 630, 448, Settings_AutoAddContactTags)
+	
+	; GHL Opportunity Tags field with ComboBox
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y483 w95 BackgroundTrans vGHLOppTagsLabel Hidden HwndHwndGHLOppTags, Opp tags:
+	RegisterSettingsTooltip(HwndGHLOppTags, "OPPORTUNITY TAGS`n`nTags to add to the GHL opportunity when syncing.`nThese are used for Smart Lists and filtering.`n`nClick 🔄 to fetch existing opp tags from GHL,`nor type any tag name you want to use.`n`nExample: proselect, invoice-synced")
+	; Build opp tag list for ComboBox (saved value first, then cached opp tags)
+	oppTagList := Settings_GHLOppTags
+	if (GHL_CachedOppTags != "") {
+		if (oppTagList != "")
+			oppTagList .= "||"
+		oppTagList .= GHL_CachedOppTags
+	}
+	Gui, Settings:Add, ComboBox, x305 y480 w170 r15 vGHLOppTagsEdit Hidden, %oppTagList%
+	Gui, Settings:Add, Button, x480 y479 w40 h27 gRefreshGHLOppTags vGHLOppTagsRefresh Hidden HwndHwndOppTagsRefresh, 🔄
+	RegisterSettingsTooltip(HwndOppTagsRefresh, "REFRESH OPPORTUNITY TAGS`n`nFetch existing tags from your GHL opportunities.")
+	Gui, Settings:Font, s8 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x525 y483 w100 BackgroundTrans vAutoTagOppLabel Hidden, Auto tag on inv
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	CreateToggleSlider("Settings", "AutoAddOppTags", 630, 478, Settings_AutoAddOppTags)
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; CONTACT SHEET COLLECTION GROUP BOX (y530 to y620)
+	; CONTACT SHEET COLLECTION GROUP BOX (y560 to y650)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y530 w480 h95 vGHLInfo Hidden, Contact Sheet Collection
+	Gui, Settings:Add, GroupBox, x195 y560 w480 h95 vGHLInfo Hidden, Contact Sheet Collection
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Collect Contact Sheets toggle slider
-	Gui, Settings:Add, Text, x210 y555 w360 BackgroundTrans vGHLCollectCS Hidden HwndHwndCollectCS, Save local copies of contact sheets
+	Gui, Settings:Add, Text, x210 y585 w360 BackgroundTrans vGHLCollectCS Hidden HwndHwndCollectCS, Save local copies of contact sheets
 	RegisterSettingsTooltip(HwndCollectCS, "COLLECT CONTACT SHEETS`n`nSave a copy of each contact sheet JPG to a local folder.`n`nFiles are named using the ProSelect album name`nfor easy organization and reference.")
-	CreateToggleSlider("Settings", "CollectContactSheets", 630, 553, Settings_CollectContactSheets)
+	CreateToggleSlider("Settings", "CollectContactSheets", 630, 583, Settings_CollectContactSheets)
 	
 	; Contact Sheet folder path
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y590 w90 BackgroundTrans vGHLCSFolderLabel Hidden, Save Folder:
-	Gui, Settings:Add, Edit, x305 y587 w250 h25 cBlack vGHLCSFolderEdit Hidden, %Settings_ContactSheetFolder%
-	Gui, Settings:Add, Button, x560 y585 w100 h28 gBrowseContactSheetFolder vGHLCSFolderBrowse Hidden, Browse
+	Gui, Settings:Add, Text, x210 y620 w90 BackgroundTrans vGHLCSFolderLabel Hidden, Save Folder:
+	Gui, Settings:Add, Edit, x305 y617 w250 h25 cBlack vGHLCSFolderEdit Hidden, %Settings_ContactSheetFolder%
+	Gui, Settings:Add, Button, x560 y615 w100 h28 gBrowseContactSheetFolder vGHLCSFolderBrowse Hidden, Browse
 }
 
 CreateHotkeysPanel()
@@ -4048,8 +4136,16 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_FinancialsOnly
 	GuiControl, Settings:Hide, GHLContactSheet
 	GuiControl, Settings:Hide, Toggle_ContactSheet
-	GuiControl, Settings:Hide, GHLRoundingDeposit
-	GuiControl, Settings:Hide, Toggle_RoundingDeposit
+	GuiControl, Settings:Hide, GHLTagsLabel
+	GuiControl, Settings:Hide, GHLTagsEdit
+	GuiControl, Settings:Hide, GHLTagsRefresh
+	GuiControl, Settings:Hide, AutoTagContactLabel
+	GuiControl, Settings:Hide, Toggle_AutoAddContactTags
+	GuiControl, Settings:Hide, GHLOppTagsLabel
+	GuiControl, Settings:Hide, GHLOppTagsEdit
+	GuiControl, Settings:Hide, GHLOppTagsRefresh
+	GuiControl, Settings:Hide, AutoTagOppLabel
+	GuiControl, Settings:Hide, Toggle_AutoAddOppTags
 	GuiControl, Settings:Hide, GHLCollectCS
 	GuiControl, Settings:Hide, Toggle_CollectContactSheets
 	GuiControl, Settings:Hide, GHLCSFolderLabel
@@ -4259,8 +4355,16 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_FinancialsOnly
 		GuiControl, Settings:Show, GHLContactSheet
 		GuiControl, Settings:Show, Toggle_ContactSheet
-		GuiControl, Settings:Show, GHLRoundingDeposit
-		GuiControl, Settings:Show, Toggle_RoundingDeposit
+		GuiControl, Settings:Show, GHLTagsLabel
+		GuiControl, Settings:Show, GHLTagsEdit
+		GuiControl, Settings:Show, GHLTagsRefresh
+		GuiControl, Settings:Show, AutoTagContactLabel
+		GuiControl, Settings:Show, Toggle_AutoAddContactTags
+		GuiControl, Settings:Show, GHLOppTagsLabel
+		GuiControl, Settings:Show, GHLOppTagsEdit
+		GuiControl, Settings:Show, GHLOppTagsRefresh
+		GuiControl, Settings:Show, AutoTagOppLabel
+		GuiControl, Settings:Show, Toggle_AutoAddOppTags
 		GuiControl, Settings:Show, GHLCollectCS
 		GuiControl, Settings:Show, Toggle_CollectContactSheets
 		GuiControl, Settings:Show, GHLCSFolderLabel
@@ -4567,28 +4671,40 @@ DevQuickPush:
 	; One-click: Build EXE-only release, commit, push, and create GitHub release
 	global ScriptVersion
 	
-	; Parse current version and increment patch
-	versionParts := StrSplit(ScriptVersion, ".")
-	if (versionParts.Length() >= 3) {
-		major := versionParts[1]
-		minor := versionParts[2]
-		patch := versionParts[3] + 1
-		newVersion := major . "." . minor . "." . patch
-	} else {
-		DarkMsgBox("Error", "Could not parse version: " . ScriptVersion, "error")
+	; Use current version (don't auto-increment - user can change if needed)
+	newVersion := ScriptVersion
+	
+	; Ask for version using always-on-top GUI
+	Gui, QuickPub:New, +AlwaysOnTop +ToolWindow
+	Gui, QuickPub:Add, Text,, Enter version number:
+	Gui, QuickPub:Add, Edit, w180 vQuickPubVersion, %newVersion%
+	Gui, QuickPub:Add, Button, x10 w85 Default gQuickPubOK, OK
+	Gui, QuickPub:Add, Button, x+10 w85 gQuickPubCancel, Cancel
+	Gui, QuickPub:Show,, Quick Publish
+	WinWaitClose, Quick Publish
+	if (QuickPubCancelled) {
+		QuickPubCancelled := false
 		return
 	}
+	newVersion := QuickPubVersionResult
+	if (newVersion = "")
+		return
 	
-	; Ask for version and commit message
-	InputBox, newVersion, Quick Publish, Enter version number:,, 300, 130,,,,, %newVersion%
-	if (ErrorLevel || newVersion = "") {
-		return  ; User cancelled
+	; Ask for commit message using always-on-top GUI
+	Gui, QuickPub2:New, +AlwaysOnTop +ToolWindow
+	Gui, QuickPub2:Add, Text,, Enter release notes for v%newVersion%:
+	Gui, QuickPub2:Add, Edit, w280 vQuickPubCommit, v%newVersion% release
+	Gui, QuickPub2:Add, Button, x10 w85 Default gQuickPub2OK, OK
+	Gui, QuickPub2:Add, Button, x+10 w85 gQuickPub2Cancel, Cancel
+	Gui, QuickPub2:Show,, Quick Publish
+	WinWaitClose, Quick Publish
+	if (QuickPub2Cancelled) {
+		QuickPub2Cancelled := false
+		return
 	}
-	
-	InputBox, commitMsg, Quick Publish, Enter release notes for v%newVersion%:,, 400, 130,,,,, v%newVersion% release
-	if (ErrorLevel || commitMsg = "") {
-		return  ; User cancelled
-	}
+	commitMsg := QuickPub2CommitResult
+	if (commitMsg = "")
+		return
 	
 	repoDir := A_ScriptDir
 	buildScript := repoDir . "\build_and_archive.ps1"
@@ -5473,6 +5589,11 @@ Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 Settings_SDCardEnabled := Toggle_SDCardEnabled_State
+; GHL settings from edit controls
+Settings_GHLTags := GHLTagsEdit
+Settings_GHLOppTags := GHLOppTagsEdit
+Settings_InvoiceWatchFolder := GHLWatchFolderEdit
+Settings_ContactSheetFolder := GHLCSFolderEdit
 ; Save settings
 SaveSettings()
 ToolTip, Settings saved!
@@ -5510,6 +5631,11 @@ Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 Settings_SDCardEnabled := Toggle_SDCardEnabled_State
+; GHL settings from edit controls
+Settings_GHLTags := GHLTagsEdit
+Settings_GHLOppTags := GHLOppTagsEdit
+Settings_InvoiceWatchFolder := GHLWatchFolderEdit
+Settings_ContactSheetFolder := GHLCSFolderEdit
 ; Save settings
 SaveSettings()
 Gui, Settings:Destroy
@@ -5934,6 +6060,172 @@ ShowGHLFolderPicker()
 	FolderPickerGuiEscape:
 		Gui, FolderPicker:Destroy
 		return
+}
+
+; ============================================================================
+; Refresh GHL Tags - Fetch CONTACT tags from GHL API
+; Note: Opportunity tags are free-form strings, not from a central list
+; ============================================================================
+RefreshGHLTags:
+{
+	global GHL_API_Key, GHL_LocationID, GHL_CachedTags, Settings_GHLTags, Settings_GHLOppTags
+	
+	if (!GHL_API_Key || GHL_API_Key = "") {
+		DarkMsgBox("No API Key", "Please configure your GHL API Key first.", "warning")
+		return
+	}
+	if (!GHL_LocationID || GHL_LocationID = "") {
+		DarkMsgBox("No Location ID", "Please configure your GHL Location ID first.", "warning")
+		return
+	}
+	
+	ToolTip, Fetching contact tags from GHL...
+	
+	try {
+		http := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+		http.SetTimeouts(10000, 10000, 10000, 10000)
+		tagsUrl := "https://services.leadconnectorhq.com/locations/" . GHL_LocationID . "/tags"
+		http.open("GET", tagsUrl, false)
+		http.SetRequestHeader("Authorization", "Bearer " . GHL_API_Key)
+		http.SetRequestHeader("Version", "2021-07-28")
+		http.send()
+		
+		if (http.status = 200) {
+			responseText := http.responseText
+			; Parse JSON to extract tag names
+			tagNames := []
+			; Simple regex extraction for tag names from JSON
+			pos := 1
+			while (pos := RegExMatch(responseText, """name""\s*:\s*""([^""]+)""", match, pos)) {
+				tagNames.Push(match1)
+				pos += StrLen(match)
+			}
+			
+			; Build pipe-separated list for ComboBox
+			GHL_CachedTags := ""
+			for i, tagName in tagNames {
+				if (GHL_CachedTags != "")
+					GHL_CachedTags .= "|"
+				GHL_CachedTags .= tagName
+			}
+			
+			; Save to INI for persistence
+			IniWrite, %GHL_CachedTags%, %IniFilename%, GHL, CachedTags
+			
+			; Update the Contact Tags ComboBox
+			currentValue := Settings_GHLTags
+			newList := currentValue
+			if (GHL_CachedTags != "") {
+				if (newList != "")
+					newList .= "||"
+				newList .= GHL_CachedTags
+			}
+			GuiControl, Settings:, GHLTagsEdit, |%newList%
+			if (currentValue != "")
+				GuiControl, Settings:ChooseString, GHLTagsEdit, %currentValue%
+			
+			ToolTip
+			tagCount := tagNames.MaxIndex() ? tagNames.MaxIndex() : 0
+			DarkMsgBox("Contact Tags Loaded", "Loaded " . tagCount . " contact tags from GHL.", "success")
+		} else {
+			ToolTip
+			DarkMsgBox("Failed to Load Tags", "GHL API returned error: " . http.status . "`n`nCheck your API key and Location ID.", "error")
+		}
+	} catch e {
+		ToolTip
+		DarkMsgBox("Connection Failed", "Could not connect to GHL API.`n`nError: " . e.Message, "error")
+	}
+	return
+}
+
+; ============================================================================
+; Refresh GHL Opportunity Tags - Fetch tags from existing opportunities
+; ============================================================================
+RefreshGHLOppTags:
+{
+	global GHL_API_Key, GHL_LocationID, GHL_CachedOppTags, Settings_GHLOppTags
+	
+	if (!GHL_API_Key || GHL_API_Key = "") {
+		DarkMsgBox("No API Key", "Please configure your GHL API Key first.", "warning")
+		return
+	}
+	if (!GHL_LocationID || GHL_LocationID = "") {
+		DarkMsgBox("No Location ID", "Please configure your GHL Location ID first.", "warning")
+		return
+	}
+	
+	ToolTip, Fetching opportunity tags from GHL...
+	
+	try {
+		http := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+		http.SetTimeouts(15000, 15000, 15000, 15000)
+		; Search for opportunities in this location
+		oppUrl := "https://services.leadconnectorhq.com/opportunities/search"
+		http.open("POST", oppUrl, false)
+		http.SetRequestHeader("Authorization", "Bearer " . GHL_API_Key)
+		http.SetRequestHeader("Version", "2021-07-28")
+		http.SetRequestHeader("Content-Type", "application/json")
+		
+		; Build JSON payload - get first 100 opportunities
+		payload := "{""locationId"": """ . GHL_LocationID . """, ""limit"": 100}"
+		http.send(payload)
+		
+		if (http.status = 200) {
+			responseText := http.responseText
+			; Parse JSON to extract all unique tags from opportunities
+			allTags := {}
+			; Match tags arrays: "tags":["tag1","tag2"]
+			pos := 1
+			while (pos := RegExMatch(responseText, """tags""\s*:\s*\[([^\]]*)\]", match, pos)) {
+				tagsContent := match1
+				; Extract individual tag strings
+				tagPos := 1
+				while (tagPos := RegExMatch(tagsContent, """([^""]+)""", tagMatch, tagPos)) {
+					tagName := tagMatch1
+					if (tagName != "")
+						allTags[tagName] := true
+					tagPos += StrLen(tagMatch)
+				}
+				pos += StrLen(match)
+			}
+			
+			; Build pipe-separated list for ComboBox
+			GHL_CachedOppTags := ""
+			for tagName, _ in allTags {
+				if (GHL_CachedOppTags != "")
+					GHL_CachedOppTags .= "|"
+				GHL_CachedOppTags .= tagName
+			}
+			
+			; Save to INI for persistence
+			IniWrite, %GHL_CachedOppTags%, %IniFilename%, GHL, CachedOppTags
+			
+			; Update the Opportunity Tags ComboBox
+			currentValue := Settings_GHLOppTags
+			newList := currentValue
+			if (GHL_CachedOppTags != "") {
+				if (newList != "")
+					newList .= "||"
+				newList .= GHL_CachedOppTags
+			}
+			GuiControl, Settings:, GHLOppTagsEdit, |%newList%
+			if (currentValue != "")
+				GuiControl, Settings:ChooseString, GHLOppTagsEdit, %currentValue%
+			
+			ToolTip
+			tagCount := 0
+			for _ in allTags
+				tagCount++
+			DarkMsgBox("Opportunity Tags Loaded", "Found " . tagCount . " unique tags from your opportunities.", "success")
+		} else {
+			ToolTip
+			DarkMsgBox("Failed to Load Tags", "GHL API returned error: " . http.status . "`n`nCheck your API key and Location ID.", "error")
+		}
+	} catch e {
+		ToolTip
+		DarkMsgBox("Connection Failed", "Could not connect to GHL API.`n`nError: " . e.Message, "error")
+	}
+	return
 }
 
 TestGHLConnection:
@@ -7280,6 +7572,12 @@ LoadSettings()
 	IniRead, Settings_ContactSheet, %IniFilename%, GHL, ContactSheet, 1
 	IniRead, Settings_CollectContactSheets, %IniFilename%, GHL, CollectContactSheets, 0
 	IniRead, Settings_ContactSheetFolder, %IniFilename%, GHL, ContactSheetFolder, %A_Space%
+	IniRead, Settings_GHLTags, %IniFilename%, GHL, Tags, %A_Space%
+	IniRead, Settings_GHLOppTags, %IniFilename%, GHL, OppTags, %A_Space%
+	IniRead, Settings_AutoAddContactTags, %IniFilename%, GHL, AutoAddContactTags, 1
+	IniRead, Settings_AutoAddOppTags, %IniFilename%, GHL, AutoAddOppTags, 1
+	IniRead, GHL_CachedTags, %IniFilename%, GHL, CachedTags, %A_Space%
+	IniRead, GHL_CachedOppTags, %IniFilename%, GHL, CachedOppTags, %A_Space%
 	IniRead, Settings_RoundingInDeposit, %IniFilename%, GHL, RoundingInDeposit, 1
 	IniRead, Settings_GHLInvoiceWarningShown, %IniFilename%, GHL, InvoiceWarningShown, 0
 	IniRead, Settings_MediaFolderID, %IniFilename%, GHL, MediaFolderID, %A_Space%
@@ -7385,7 +7683,10 @@ SaveSettings()
 	IniWrite, %Settings_ContactSheet%, %IniFilename%, GHL, ContactSheet
 	IniWrite, %Settings_CollectContactSheets%, %IniFilename%, GHL, CollectContactSheets
 	IniWrite, %Settings_ContactSheetFolder%, %IniFilename%, GHL, ContactSheetFolder
-	IniWrite, %Settings_RoundingInDeposit%, %IniFilename%, GHL, RoundingInDeposit
+	IniWrite, %Settings_GHLTags%, %IniFilename%, GHL, Tags
+	IniWrite, %Settings_GHLOppTags%, %IniFilename%, GHL, OppTags
+	IniWrite, %Settings_AutoAddContactTags%, %IniFilename%, GHL, AutoAddContactTags
+	IniWrite, %Settings_AutoAddOppTags%, %IniFilename%, GHL, AutoAddOppTags
 	IniWrite, %Settings_GHLInvoiceWarningShown%, %IniFilename%, GHL, InvoiceWarningShown
 	
 	; Save license settings (secure/obfuscated)
@@ -9100,7 +9401,7 @@ Sleep, 100
 
 MultiCardDownload := false
 OnMessage(0x44, "OnMsgBox4")
-MsgBox 0x40223, SideKick ~ Downloader, %DriveLabel% Drive %driveLetter%\  Detected `n`nWould you like to download Images?`n`nNext Available Shoot No: %NextShootNo%`n`nSelect Multi Card for shoots spanning more than a single card., 120
+MsgBox 0x40223, SideKick PS ~ Downloader, %DriveLabel% Drive %driveLetter%\  Detected `n`nWould you like to download Images?`n`nNext Available Shoot No: %NextShootNo%`n`nSelect Multi Card for shoots spanning more than a single card., 120
 OnMessage(0x44, "")
 
 IfMsgBox, Yes
@@ -9510,3 +9811,32 @@ DriveGet, DriveListOld, List
 ; Start drive detection timer if enabled
 if (Settings_AutoDriveDetect)
 	SetTimer, checkNewDrives, 3000
+
+; ============================================
+; Quick Publish GUI Handlers
+; ============================================
+QuickPubOK:
+	Gui, QuickPub:Submit
+	QuickPubVersionResult := QuickPubVersion
+	Gui, QuickPub:Destroy
+Return
+
+QuickPubCancel:
+QuickPubGuiClose:
+QuickPubGuiEscape:
+	QuickPubCancelled := true
+	Gui, QuickPub:Destroy
+Return
+
+QuickPub2OK:
+	Gui, QuickPub2:Submit
+	QuickPub2CommitResult := QuickPubCommit
+	Gui, QuickPub2:Destroy
+Return
+
+QuickPub2Cancel:
+QuickPub2GuiClose:
+QuickPub2GuiEscape:
+	QuickPub2Cancelled := true
+	Gui, QuickPub2:Destroy
+Return
