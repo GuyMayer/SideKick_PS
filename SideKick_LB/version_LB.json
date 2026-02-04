@@ -1,0 +1,33 @@
+{
+  "version": "1.1.1",
+  "build_date": "2026-02-04",
+  "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_LB_Setup.exe",
+  "release_notes": "GitHub-based update system and license management",
+  "versions": [
+    {
+      "version": "1.1.1",
+      "build_date": "2026-02-04",
+      "release_notes": "GitHub-based update system and license management",
+      "changelog": [
+        "NEW: Update system now uses GitHub releases API",
+        "NEW: LemonSqueezy license system with user-based binding",
+        "NEW: Developer panel with build and release tools",
+        "NEW: What's New dialog to view version history",
+        "IMPROVED: License bound to Light Blue user account",
+        "IMPROVED: Shared release infrastructure with SideKick_PS"
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "build_date": "2026-01-15",
+      "release_notes": "Initial public release",
+      "changelog": [
+        "NEW: Light Blue integration for contact management",
+        "NEW: Quick Response system for client communications",
+        "NEW: Download management for client galleries",
+        "NEW: Hotkey customization panel",
+        "NEW: Settings GUI with dark theme"
+      ]
+    }
+  ]
+}
