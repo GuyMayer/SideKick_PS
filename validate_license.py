@@ -15,7 +15,7 @@ import requests
 # LemonSqueezy API Configuration
 LEMON_API_URL = "https://api.lemonsqueezy.com/v1"
 STORE_ID = "zoomphoto"
-PRODUCT_ID = "234060d4-063d-4e6f-b91b-744c254c0e7c"
+PRODUCT_ID = "077d6b76-ca2a-42df-a653-86f7aa186895"
 
 
 def _get_data_dir():
