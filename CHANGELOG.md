@@ -15,6 +15,20 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.66 (2026-02-05)
+
+### Bug Fixes
+- **Invoice Now Visible in GHL**: Fixed critical bug where invoices were created as drafts
+  - Invoices were being created but not published, making them invisible in GHL
+  - Added API call to send/publish invoice after creation
+  - Invoices now appear in GHL Payments → Invoices immediately
+
+### Improvements
+- **Toolbar Icon Color Picker**: Added Windows color picker for custom icon colors
+  - Pick any custom color instead of just White/Black/Yellow presets
+  - Color preview swatch shows current selection
+  - Custom colors saved to INI and persist across sessions
+
 ## v2.4.65 (2026-02-05)
 
 ### New Features

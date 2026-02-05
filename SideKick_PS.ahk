@@ -1,12 +1,16 @@
 ﻿; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.4.64
-; Build Date:  2026-02-03
+; Version:     2.4.66
+; Build Date:  2026-02-05
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
 ; Changelog:
+;   v2.4.66 (2026-02-05)
+;     - FIX: Invoice now published after creation (was staying as draft)
+;     - Draft invoices weren't visible in GHL invoice list
+;     - Added _send_invoice API call to sync_ps_invoice.py
 ;   v2.4.64 (2026-02-03)
 ;     - IMPROVED: Payment Calculator window now persistent until closed or used
 ;     - IMPROVED: Calculator stays on top of ProSelect but not other apps
@@ -208,6 +212,7 @@ global Settings_AutoRenameImages := false ; Auto-rename by date
 global Settings_AutoDriveDetect := true   ; Detect SD card insertion
 global Settings_SDCardEnabled := true    ; Enable SD Card Download feature (show toolbar icon)
 global Settings_RoomCaptureFolder := ""  ; Folder for room capture JPGs (default: Documents\ProSelect Room Captures)
+global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow
 
 ; Export automation state
 global ExportInProgress := false  ; Flag to suspend file watcher during export
@@ -794,6 +799,92 @@ Settings_RoundingInDeposit := (RoundingOption = 1) ? 1 : 0
 IniWrite, %Settings_RoundingInDeposit%, %IniFilename%, GHL, RoundingInDeposit
 Return
 
+; Handle toolbar icon color change
+ToolbarIconColorChanged:
+Gui, Settings:Submit, NoHide
+GuiControlGet, selectedColor,, Settings_ToolbarIconColor_DDL
+Settings_ToolbarIconColor := selectedColor
+IniWrite, %Settings_ToolbarIconColor%, %IniFilename%, Appearance, ToolbarIconColor
+; Update color preview
+previewColor := GetColorHex(Settings_ToolbarIconColor)
+GuiControl, Settings:+Background%previewColor%, HKColorPreview
+; Recreate toolbar with new color
+Gui, Toolbar:Destroy
+CreateFloatingToolbar()
+Return
+
+; Open color picker for custom toolbar icon color
+HKPickColor:
+Gui, Settings:Submit, NoHide
+customColor := ChooseColor(Settings_ToolbarIconColor)
+if (customColor != "") {
+	Settings_ToolbarIconColor := customColor
+	IniWrite, %Settings_ToolbarIconColor%, %IniFilename%, Appearance, ToolbarIconColor
+	; Update dropdown to show Custom
+	GuiControl, Settings:, Settings_ToolbarIconColor_DDL, White|Black|Yellow|Custom
+	GuiControl, Settings:ChooseString, Settings_ToolbarIconColor_DDL, Custom
+	; Update color preview
+	GuiControl, Settings:+Background%customColor%, HKColorPreview
+	; Recreate toolbar with new color
+	Gui, Toolbar:Destroy
+	CreateFloatingToolbar()
+}
+Return
+
+; Windows Color Picker Dialog
+ChooseColor(initialColor := "FFFFFF") {
+	static cc, customColors
+	
+	; Convert named colors to hex
+	if (initialColor = "White")
+		initialColor := "FFFFFF"
+	else if (initialColor = "Black")
+		initialColor := "000000"
+	else if (initialColor = "Yellow")
+		initialColor := "FFFF00"
+	else if (SubStr(initialColor, 1, 1) != "0")
+		initialColor := SubStr(initialColor, 1, 6)  ; Strip any prefix
+	
+	; Convert hex to BGR format
+	initialColor := "0x" . initialColor
+	rgb := initialColor & 0xFFFFFF
+	bgr := ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF)
+	
+	; Allocate custom colors array (16 DWORDs)
+	VarSetCapacity(customColors, 64, 0)
+	
+	; CHOOSECOLOR structure
+	VarSetCapacity(cc, A_PtrSize = 8 ? 72 : 36, 0)
+	NumPut(A_PtrSize = 8 ? 72 : 36, cc, 0, "UInt")  ; lStructSize
+	NumPut(0, cc, A_PtrSize, "UPtr")  ; hwndOwner - can be 0
+	NumPut(bgr, cc, A_PtrSize * 3, "UInt")  ; rgbResult
+	NumPut(&customColors, cc, A_PtrSize * 4, "UPtr")  ; lpCustColors
+	NumPut(0x103, cc, A_PtrSize * 5, "UInt")  ; Flags: CC_RGBINIT | CC_FULLOPEN | CC_ANYCOLOR
+	
+	; Call ChooseColor
+	if !DllCall("comdlg32\ChooseColor" . (A_IsUnicode ? "W" : "A"), "Ptr", &cc)
+		return ""
+	
+	; Get result and convert BGR to RGB hex
+	bgr := NumGet(cc, A_PtrSize * 3, "UInt")
+	r := bgr & 0xFF
+	g := (bgr >> 8) & 0xFF
+	b := (bgr >> 16) & 0xFF
+	return Format("{:02X}{:02X}{:02X}", r, g, b)
+}
+
+; Convert color name or hex to hex code
+GetColorHex(colorName) {
+	if (colorName = "White")
+		return "FFFFFF"
+	else if (colorName = "Black")
+		return "000000"
+	else if (colorName = "Yellow")
+		return "FFFF00"
+	else
+		return colorName  ; Already hex
+}
+
 ; Recalculate payment amount when number of payments changes
 RecalcFromNo:
 Gui, PP:Submit, NoHide
@@ -1052,18 +1143,21 @@ CreateFloatingToolbar()
 	Gui, Toolbar:Color, 1E1E1E
 	Gui, Toolbar:Font, s16, Segoe UI
 	
+	; Get icon color from settings
+	iconColor := Settings_ToolbarIconColor ? Settings_ToolbarIconColor : "White"
+	
 	; Colored icon buttons (0.75x: 44x38)
-	Gui, Toolbar:Add, Text, x2 y3 w44 h38 Center BackgroundBlue cWhite gToolbar_GetClient vTB_Client, 👤
-	Gui, Toolbar:Add, Text, x53 y3 w44 h38 Center BackgroundGreen cWhite gToolbar_GetInvoice vTB_Invoice, 📋
-	Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundTeal cWhite gToolbar_OpenGHL vTB_OpenGHL, 🌐
-	Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundMaroon cWhite gToolbar_CaptureRoom vTB_Camera, 📷
+	Gui, Toolbar:Add, Text, x2 y3 w44 h38 Center BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client, 👤
+	Gui, Toolbar:Add, Text, x53 y3 w44 h38 Center BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice, 📋
+	Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL, 🌐
+	Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_Camera, 📷
 	
 	; SD Card Download button - only if enabled
 	if (Settings_SDCardEnabled) {
-		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundOrange cWhite gToolbar_DownloadSD vTB_Download, 📥
-		Gui, Toolbar:Add, Text, x257 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download, 📥
+		Gui, Toolbar:Add, Text, x257 y3 w44 h38 Center BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings, ⚙
 	} else {
-		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings, ⚙
 	}
 	
 	; Make background transparent
@@ -3079,9 +3173,41 @@ CreateHotkeysPanel()
 	RegisterSettingsTooltip(HwndHKClear, "CLEAR ALL HOTKEYS`n`nRemove all assigned keyboard shortcuts.`nHotkey fields will be empty until you set new ones.`n`nUse this if hotkeys conflict with other applications`nor if you prefer to use the tray menu/GUI instead.")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
+	; TOOLBAR GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	toolbarY := A_IsCompiled ? 305 : 345
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y%toolbarY% w480 h70 vHotkeysToolbarGroup Hidden, Toolbar Appearance
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	iconLabelY := toolbarY + 30
+	Gui, Settings:Add, Text, x210 y%iconLabelY% w120 BackgroundTrans vHKToolbarIconLabel Hidden HwndHwndHKToolbarIcon, Icon Color:
+	RegisterSettingsTooltip(HwndHKToolbarIcon, "TOOLBAR ICON COLOR`n`nSelect the color for toolbar button icons.`n`n• White - Best for dark backgrounds (default)`n• Black - Best for light backgrounds`n• Yellow - High visibility option`n`nThe toolbar will be recreated after changing.")
+	iconDropY := iconLabelY - 3
+	; Check if current color is a preset or custom
+	if (Settings_ToolbarIconColor = "White" || Settings_ToolbarIconColor = "Black" || Settings_ToolbarIconColor = "Yellow")
+		colorOptions := "White|Black|Yellow"
+	else
+		colorOptions := "White|Black|Yellow|Custom"
+	Gui, Settings:Add, DropDownList, x340 y%iconDropY% w100 vSettings_ToolbarIconColor_DDL gToolbarIconColorChanged Hidden, %colorOptions%
+	if (Settings_ToolbarIconColor = "White" || Settings_ToolbarIconColor = "Black" || Settings_ToolbarIconColor = "Yellow")
+		GuiControl, Settings:ChooseString, Settings_ToolbarIconColor_DDL, %Settings_ToolbarIconColor%
+	else
+		GuiControl, Settings:ChooseString, Settings_ToolbarIconColor_DDL, Custom
+	
+	; Color preview swatch
+	previewColor := GetColorHex(Settings_ToolbarIconColor)
+	previewX := 445
+	Gui, Settings:Add, Progress, x%previewX% y%iconDropY% w30 h23 Background%previewColor% vHKColorPreview Hidden
+	
+	; Pick button
+	pickBtnX := 480
+	Gui, Settings:Add, Button, x%pickBtnX% y%iconDropY% w65 h25 gHKPickColor vHKPickColorBtn Hidden, Pick...
+	
+	; ═══════════════════════════════════════════════════════════════════════════
 	; INSTRUCTIONS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
-	instructY := A_IsCompiled ? 305 : 345
+	instructY := A_IsCompiled ? 385 : 425
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y%instructY% w480 h130 vHotkeysInstructGroup Hidden, How to Set Hotkeys
 	
@@ -4361,6 +4487,11 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, HKInstructions2
 	GuiControl, Settings:Hide, HKInstructions3
 	GuiControl, Settings:Hide, HKInstructions4
+	GuiControl, Settings:Hide, HotkeysToolbarGroup
+	GuiControl, Settings:Hide, HKToolbarIconLabel
+	GuiControl, Settings:Hide, Settings_ToolbarIconColor_DDL
+	GuiControl, Settings:Hide, HKColorPreview
+	GuiControl, Settings:Hide, HKPickColorBtn
 	
 	; Hide all panels - About
 	GuiControl, Settings:Hide, PanelAbout
@@ -4580,6 +4711,11 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, HotkeysActionsGroup
 		GuiControl, Settings:Show, HKResetBtn
 		GuiControl, Settings:Show, HKClearBtn
+		GuiControl, Settings:Show, HotkeysToolbarGroup
+		GuiControl, Settings:Show, HKToolbarIconLabel
+		GuiControl, Settings:Show, Settings_ToolbarIconColor_DDL
+		GuiControl, Settings:Show, HKColorPreview
+		GuiControl, Settings:Show, HKPickColorBtn
 		GuiControl, Settings:Show, HotkeysInstructGroup
 		GuiControl, Settings:Show, HKInstructions1
 		GuiControl, Settings:Show, HKInstructions2
@@ -7798,6 +7934,7 @@ LoadSettings()
 	IniRead, Settings_AutoRenameImages, %IniFilename%, FileManagement, AutoRenameImages, 0
 	IniRead, Settings_AutoDriveDetect, %IniFilename%, FileManagement, AutoDriveDetect, 1
 	IniRead, Settings_SDCardEnabled, %IniFilename%, FileManagement, SDCardEnabled, 1
+	IniRead, Settings_ToolbarIconColor, %IniFilename%, Toolbar, IconColor, White
 	
 	; Build GHL payment settings URL from location ID
 	if (GHL_LocationID != "")

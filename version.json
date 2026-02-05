@@ -1,9 +1,20 @@
 {
-  "version": "2.4.65",
+  "version": "2.4.66",
   "build_date": "2026-02-05",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Room capture button and payment progress bar with cancel option",
+  "release_notes": "Invoice visibility fix - invoices now appear in GHL immediately",
   "versions": [
+    {
+      "version": "2.4.66",
+      "build_date": "2026-02-05",
+      "release_notes": "Invoice visibility fix - invoices now appear in GHL immediately",
+      "changelog": [
+        "FIX: Invoices now appear in GHL Payments immediately after sync",
+        "FIX: Invoices were being created as drafts (invisible in GHL)",
+        "NEW: Color picker for custom toolbar icon colors",
+        "IMPROVED: Color preview swatch in settings"
+      ]
+    },
     {
       "version": "2.4.65",
       "build_date": "2026-02-05",
