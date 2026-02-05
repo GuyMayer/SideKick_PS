@@ -15,6 +15,18 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.68 (2026-02-05)
+
+### Improvements
+- **Activity Logs on Every Sync**: Auto-send logs now uploads after every sync
+  - Previously only sent on errors, now sends on success too
+  - Helps track successful syncs and diagnose issues proactively
+  - Renamed "Auto-send logs on error" to "Auto-send activity logs"
+
+- **Quick Publish Force Rebuild**: Publish button now always recompiles Python scripts
+  - Added -ForceRebuild flag to bypass caching
+  - Ensures all code changes are included in new releases
+
 ## v2.4.66 (2026-02-05)
 
 ### Bug Fixes
