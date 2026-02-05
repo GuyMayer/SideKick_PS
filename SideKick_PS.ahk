@@ -240,7 +240,7 @@ global Update_LastCheckDate := ""     ; Last time we checked for updates
 global Update_AvailableVersion := ""  ; Latest version found
 global Update_DownloadURL := ""       ; URL to download update
 global Settings_AutoUpdate := true    ; Enable automatic silent updates
-global Settings_AutoSendLogs := true  ; Auto-send debug logs to developer
+global Settings_AutoSendLogs := true  ; Auto-send activity logs after every sync
 global Settings_DebugLogging := false  ; Enable debug logging (defaults OFF, auto-disables after 24hrs)
 global Settings_DebugLoggingTimestamp := ""  ; When debug logging was enabled
 global Update_DownloadReady := false  ; True when installer is downloaded and ready
@@ -2532,10 +2532,11 @@ SyncProgress_UpdateTimer:
 						GuiControl, SyncProgress:, SyncProgress_Bar, 100
 					} else {
 						GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Failed
-						; Auto-send logs if enabled
-						if (Settings_AutoSendLogs)
-							SetTimer, AutoSendLogsOnError, -500
 					}
+					
+					; Auto-send logs if enabled (on BOTH success and error)
+					if (Settings_AutoSendLogs)
+						SetTimer, AutoSendLogsOnComplete, -500
 					
 					; Close after 2 seconds
 					SetTimer, SyncProgress_Close, -2000
@@ -2558,7 +2559,7 @@ SyncProgress_UpdateTimer:
 			GuiControl, SyncProgress:, SyncProgress_Status, No response from sync process
 			; Auto-send logs if enabled
 			if (Settings_AutoSendLogs)
-				SetTimer, AutoSendLogsOnError, -500
+				SetTimer, AutoSendLogsOnComplete, -500
 			SetTimer, SyncProgress_Close, -3000
 			SyncProgress_NoUpdateCount := 0
 		}
@@ -4282,8 +4283,8 @@ CreateAboutPanel()
 	Gui, Settings:Add, GroupBox, x195 y370 w480 h125 vAboutDiagnostics Hidden, Diagnostics
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y395 w300 BackgroundTrans vAboutAutoSendText Hidden HwndHwndAboutAutoSend, Auto-send logs on error
-	RegisterSettingsTooltip(HwndAboutAutoSend, "AUTO-SEND LOGS ON ERROR`n`nWhen enabled, diagnostic logs are automatically sent`nto support when an error occurs.`n`nThis helps identify and fix issues faster.`nNo personal data is included - only error details`nand script state information.`n`nRecommended: Keep enabled for proactive support.")
+	Gui, Settings:Add, Text, x210 y395 w300 BackgroundTrans vAboutAutoSendText Hidden HwndHwndAboutAutoSend, Auto-send activity logs
+	RegisterSettingsTooltip(HwndAboutAutoSend, "AUTO-SEND ACTIVITY LOGS`n`nWhen enabled, sync activity logs are automatically`nsent to support after every invoice sync.`n`nThis helps track successful syncs AND identify issues.`nNo personal data is included - only sync details`nand script state information.`n`nRecommended: Keep enabled for proactive support.")
 	CreateToggleSlider("Settings", "AutoSendLogs", 630, 393, Settings_AutoSendLogs)
 	GuiControl, Settings:Hide, Toggle_AutoSendLogs
 	
@@ -5053,7 +5054,7 @@ DevQuickPush:
 	FileAppend, @echo off`n, %batchFile%
 	FileAppend, cd /d "%repoDir%"`n, %batchFile%
 	FileAppend, call C:\Stash\.venv\Scripts\activate.bat`n, %batchFile%
-	FileAppend, powershell -ExecutionPolicy Bypass -File "build_and_archive.ps1" -Version "%newVersion%"`n, %batchFile%
+	FileAppend, powershell -ExecutionPolicy Bypass -File "build_and_archive.ps1" -Version "%newVersion%" -ForceRebuild`n, %batchFile%
 	FileAppend, pause`n, %batchFile%
 	
 	Run, %batchFile%, %repoDir%
@@ -7227,8 +7228,8 @@ Toggle_AutoSendLogs:
 	SaveSettings()
 Return
 
-; Timer handler for auto-sending logs on error (silent, no prompts)
-AutoSendLogsOnError:
+; Timer handler for auto-sending logs on sync complete (silent, no prompts)
+AutoSendLogsOnComplete:
 	SendDebugLogsSilent()
 Return
 
