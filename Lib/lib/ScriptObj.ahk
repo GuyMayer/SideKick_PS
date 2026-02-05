@@ -1,4 +1,5 @@
-﻿/**
+#Requires AutoHotkey v1.1+
+/**
  * ============================================================================ *
  * @Author           : RaptorX <graptorx@gmail.com>
  * @Script Name      : Script Object

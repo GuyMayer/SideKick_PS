@@ -1,4 +1,5 @@
-﻿class WebSocket
+#Requires AutoHotkey v1.1+
+class WebSocket
 {
 	__New(WS_URL)
 	{

@@ -10,7 +10,7 @@
 # OPTIMIZATION: Caches compiled EXEs and reuses them if source unchanged
 
 param(
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory=$true)]
     [string]$Version,
     
     [switch]$SkipPythonCompile = $false,
@@ -19,25 +19,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# If no version provided, read from version.json
-if (-not $Version) {
-    $versionJsonPath = Join-Path $PSScriptRoot "version.json"
-    if (Test-Path $versionJsonPath) {
-        $versionJson = Get-Content $versionJsonPath -Raw | ConvertFrom-Json
-        $Version = $versionJson.version
-        Write-Host "  Using version from version.json: $Version" -ForegroundColor Cyan
-    } else {
-        Write-Error "No version specified and version.json not found. Use -Version parameter."
-        exit 1
-    }
-}
-
-# Wrap entire script in try-catch for clean error handling
-try {
-
 # Paths
 $ScriptDir = $PSScriptRoot
-$SourceDir = $PSScriptRoot
+$SourceDir = "C:\Stash"
 $ReleaseDir = "$ScriptDir\Release"
 $ArchiveDir = "$ScriptDir\Releases\latest"
 $CacheDir = "$ScriptDir\.build_cache"
@@ -64,19 +48,10 @@ if (Test-Path $HashFile) {
     }
 }
 
-# Function to get file hash (using .NET for compatibility)
+# Function to get file hash
 function Get-FileHashMD5($path) {
     if (Test-Path $path) {
-        try {
-            $md5 = [System.Security.Cryptography.MD5]::Create()
-            $stream = [System.IO.File]::OpenRead($path)
-            $hashBytes = $md5.ComputeHash($stream)
-            $stream.Close()
-            $md5.Dispose()
-            return [BitConverter]::ToString($hashBytes) -replace '-', ''
-        } catch {
-            return $null
-        }
+        return (Get-FileHash -Path $path -Algorithm MD5).Hash
     }
     return $null
 }
@@ -159,9 +134,8 @@ $pythonFiles = @(
     "validate_license",
     "fetch_ghl_contact",
     "update_ghl_contact",
-    "sync_ps_invoice",
-    "upload_ghl_media",
-    "create_ghl_contactsheet"
+    "sync_ps_invoice_v2",
+    "upload_ghl_media"
 )
 
 $compiledCount = 0
@@ -426,16 +400,4 @@ Write-Host "   [OK] Uninstaller included" -ForegroundColor Gray
 Write-Host ""
 Write-Host " Ready for GitHub release!" -ForegroundColor Green
 Write-Host ""
-
-} catch {
-    Write-Host "`n========================================" -ForegroundColor Red
-    Write-Host " BUILD FAILED!" -ForegroundColor Red
-    Write-Host "========================================" -ForegroundColor Red
-    Write-Host ""
-    Write-Host " Error: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host ""
-    Write-Host " Location: $($_.InvocationInfo.ScriptName):$($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Yellow
-    Write-Host ""
-    exit 1
-}
 
