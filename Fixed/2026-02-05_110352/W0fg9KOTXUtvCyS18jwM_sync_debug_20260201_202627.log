@@ -1,0 +1,23 @@
+
+======================================================================
+SIDEKICK DEBUG LOG - VERBOSE MODE
+======================================================================
+Session Start:  2026-02-01 20:26:27
+Computer Name:  OFFICE-PC
+Windows User:   Andrew
+Location ID:    W0fg9KOTXUtvCyS18jwM
+Python Version: 3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]
+Script Path:    C:\Program Files (x86)\SideKick_PS\sync_ps_invoice.exe
+Working Dir:    C:\Program Files (x86)\SideKick_PS
+Command Args:   ['C:\\Program Files (x86)\\SideKick_PS\\sync_ps_invoice.exe', 'G:\\My Drive\\Proselect orders accounts\\2026-02-01_202551_Ball_160_1.xml" > C:\\Users\\andre\\AppData\\Local\\Temp\\sync_output_165066453.txt']
+======================================================================
+
+[2026-02-01 20:26:27.953] Using DEBUG location ID: W0fg9KOTXUtvCyS18jwM
+------------------------------------------------------------
+[2026-02-01 20:26:27.954] Config loaded successfully
+{
+  "location_id": "W0fg9KOTXUtvCyS18jwM",
+  "api_key_set": true
+}
+------------------------------------------------------------
+

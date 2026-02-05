@@ -1,0 +1,18 @@
+
+======================================================================
+SIDEKICK DEBUG LOG - VERBOSE MODE
+======================================================================
+Session Start:  2026-02-01 15:45:16
+Computer Name:  OFFICE-PC
+Windows User:   Andrew
+Location ID:    W0fg9KOTXUtvCyS18jwM
+Python Version: 3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]
+Script Path:    C:\Program Files (x86)\SideKick_PS\sync_ps_invoice.exe
+Working Dir:    C:\Program Files (x86)\SideKick_PS
+Command Args:   ['C:\\Program Files (x86)\\SideKick_PS\\sync_ps_invoice.exe', 'G:\\My Drive\\Proselect orders accounts\\2026-02-01_154420_Ball_160_1.xml', '--financials-only > C:\\Users\\andre\\AppData\\Local\\Temp\\sync_output_148195578.txt']
+======================================================================
+
+[2026-02-01 15:45:16.484] CONFIG ERROR
+[Errno 2] No such file or directory: 'C:\\Program Files (x86)\\SideKick_PS.ini'
+------------------------------------------------------------
+
