@@ -1,4 +1,5 @@
-﻿; ============================================================================
+﻿#Requires AutoHotkey v1.1+
+; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
 ; Version:     2.4.68
@@ -185,7 +186,7 @@ global Settings_DefaultRecurring := "Monthly"
 global Settings_DefaultPayType := "Gocardles DD"
 global Settings_GHL_Enabled := 1
 global Settings_GHL_AutoLoad := 0  ; 0=Manual confirmation, 1=Auto-load to ProSelect
-global Settings_SearchAllTabs := 1  ; Search all Chrome tabs for GHL contact
+global Settings_OpenInvoiceURL := 1  ; Open invoice URL in browser after sync
 global Settings_InvoiceWatchFolder := ""  ; Folder to watch for ProSelect invoice XML files
 global Settings_GHLInvoiceWarningShown := 0  ; Has user been warned about GHL automated emails?
 global Settings_GHLPaymentSettingsURL := ""  ; URL to GHL payment settings for email configuration
@@ -307,20 +308,18 @@ if !FileExist(IniFilename) && FileExist(A_ScriptDir . "\SideKick_PS.ini") {
 	FileCopy, %A_ScriptDir%\SideKick_PS.ini, %IniFilename%
 }
 
+; MIGRATION: If credentials.json exists in script folder but not AppData, copy it
+credFile := IniFolder . "\ghl_credentials.json"
+if !FileExist(credFile) && FileExist(A_ScriptDir . "\ghl_credentials.json") {
+	FileCopy, %A_ScriptDir%\ghl_credentials.json, %credFile%
+}
+
 PayPlanLine := []
 LastButtonX := 0
 LastButtonY := 0
 
-; Load GHL API Key from SideKick_PS.ini (Base64 encoded)
-; Try new key name first, fall back to V2 key for backwards compatibility
-IniRead, GHL_API_Key_B64, %IniFilename%, GHL, API_Key_B64, %A_Space%
-if (GHL_API_Key_B64 = "")
-	IniRead, GHL_API_Key_B64, %IniFilename%, GHL, API_Key_V2_B64, %A_Space%
-IniRead, GHL_LocationID, %IniFilename%, GHL, LocationID, %A_Space%
-
-; Decode API key from Base64
-if (GHL_API_Key_B64 != "")
-	GHL_API_Key := Base64_Decode(GHL_API_Key_B64)
+; Load GHL API credentials from JSON (with INI fallback for migration)
+LoadGHLCredentials()
 
 FileAppend, % A_Now . " - Loading settings from INI...`n", %DebugLogFile%
 ; Load settings from INI
@@ -1069,6 +1068,84 @@ LoadVersionFromJson() {
 		BuildDate := "Unknown"
 }
 
+; ============================================================
+; GHL Credentials - stored in JSON to avoid INI line length limits
+; ============================================================
+
+; Get the path to the GHL credentials file
+GetCredentialsFilePath() {
+	global IniFilename
+	SplitPath, IniFilename, , iniDir
+	return iniDir . "\ghl_credentials.json"
+}
+
+; Load GHL API credentials from JSON file
+; Falls back to legacy INI format for backwards compatibility
+LoadGHLCredentials() {
+	global GHL_API_Key, GHL_LocationID, IniFilename
+	
+	credFile := GetCredentialsFilePath()
+	
+	; Try loading from new JSON format first
+	if (FileExist(credFile)) {
+		FileRead, jsonText, %credFile%
+		if (!ErrorLevel && jsonText != "") {
+			; Parse api_key_b64 field
+			if (RegExMatch(jsonText, """api_key_b64"":\s*""([^""]+)""", match)) {
+				GHL_API_Key := Base64_Decode(match1)
+			}
+			; Parse location_id field
+			if (RegExMatch(jsonText, """location_id"":\s*""([^""]+)""", match)) {
+				GHL_LocationID := match1
+			}
+			return true
+		}
+	}
+	
+	; Fall back to legacy INI format for backwards compatibility
+	IniRead, GHL_API_Key_B64, %IniFilename%, GHL, API_Key_B64, %A_Space%
+	if (GHL_API_Key_B64 = "")
+		IniRead, GHL_API_Key_B64, %IniFilename%, GHL, API_Key_V2_B64, %A_Space%
+	IniRead, GHL_LocationID, %IniFilename%, GHL, LocationID, %A_Space%
+	
+	if (GHL_API_Key_B64 != "")
+		GHL_API_Key := Base64_Decode(GHL_API_Key_B64)
+	else
+		GHL_API_Key := ""
+	
+	; If we loaded from INI, migrate to JSON format
+	if (GHL_API_Key != "" || GHL_LocationID != "") {
+		SaveGHLCredentials()
+		; Clean up legacy INI entries (optional - leave for now for safety)
+	}
+	
+	return false
+}
+
+; Save GHL API credentials to JSON file
+SaveGHLCredentials() {
+	global GHL_API_Key, GHL_LocationID
+	
+	credFile := GetCredentialsFilePath()
+	
+	; Encode API key to Base64 for storage
+	apiKeyB64 := ""
+	if (GHL_API_Key != "")
+		apiKeyB64 := Base64_Encode(GHL_API_Key)
+	
+	; Build JSON content - simple format, no library needed
+	jsonContent := "{"
+	jsonContent .= "`n  ""api_key_b64"": """ . apiKeyB64 . ""","
+	jsonContent .= "`n  ""location_id"": """ . GHL_LocationID . """"
+	jsonContent .= "`n}"
+	
+	; Write to file
+	FileDelete, %credFile%
+	FileAppend, %jsonContent%, %credFile%, UTF-8
+	
+	return !ErrorLevel
+}
+
 ; Function to get the correct Python executable path
 ; Checks for bundled Python first, then system Python
 GetPythonPath() {
@@ -1193,7 +1270,7 @@ if (psTitle = "" || psTitle = "ProSelect")
 ; Skip dialog windows (Review Orders, Add Payment, etc.) - only attach to main album window
 ; Main window titles contain album name and end with " - ProSelect" or similar patterns
 ; Dialog windows have titles like "Review Orders", "Add Payment", "Print", etc.
-dialogTitles := ["Review Orders", "Add Payment", "Print", "Export", "Preferences", "About", "License", "Settings", "Order Summary"]
+dialogTitles := ["Review Orders", "Add Payment", "Print", "Export", "Preferences", "About", "License", "Settings", "Order Summary", "Client Setup"]
 for index, dialogTitle in dialogTitles {
 	if (psTitle = dialogTitle || InStr(psTitle, dialogTitle) = 1) {
 		; This is a dialog, don't move toolbar - just hide it or keep position
@@ -1713,6 +1790,8 @@ if !ErrorLevel
 		syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
 	if (Settings_RoundingInDeposit)
 		syncArgs .= " --rounding-in-deposit"
+	if (!Settings_OpenInvoiceURL)
+		syncArgs .= " --no-open-browser"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 	FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
 	
@@ -1986,9 +2065,9 @@ Toggle_GHL_AutoLoad_State := !Toggle_GHL_AutoLoad_State
 UpdateToggleSlider("Settings", "GHL_AutoLoad", Toggle_GHL_AutoLoad_State, 590)
 Return
 
-ToggleClick_SearchAllTabs:
-Toggle_SearchAllTabs_State := !Toggle_SearchAllTabs_State
-UpdateToggleSlider("Settings", "SearchAllTabs", Toggle_SearchAllTabs_State, 590)
+ToggleClick_OpenInvoiceURL:
+Toggle_OpenInvoiceURL_State := !Toggle_OpenInvoiceURL_State
+UpdateToggleSlider("Settings", "OpenInvoiceURL", Toggle_OpenInvoiceURL_State, 590)
 Return
 
 ToggleClick_FinancialsOnly:
@@ -3013,10 +3092,10 @@ CreateGHLPanel()
 	Gui, Settings:Add, Edit, x305 y327 w250 h25 cBlack vGHLWatchFolderEdit Hidden, %Settings_InvoiceWatchFolder%
 	Gui, Settings:Add, Button, x560 y325 w100 h28 gBrowseInvoiceFolder vGHLWatchBrowseBtn Hidden, Browse
 	
-	; Search all tabs toggle slider
-	Gui, Settings:Add, Text, x210 y360 w360 BackgroundTrans vGHLSearchAllTabs Hidden HwndHwndSearchAllTabs, Search all Chrome tabs for GHL contact
-	RegisterSettingsTooltip(HwndSearchAllTabs, "SEARCH ALL CHROME TABS`n`nWhen enabled, searches all open Chrome tabs`nfor a matching GHL contact URL.`n`nDisabled: Only checks the active tab.")
-	CreateToggleSlider("Settings", "SearchAllTabs", 630, 358, Settings_SearchAllTabs)
+	; Open invoice URL toggle slider
+	Gui, Settings:Add, Text, x210 y360 w360 BackgroundTrans vGHLOpenInvoiceURL Hidden HwndHwndOpenInvoiceURL, Open invoice URL
+	RegisterSettingsTooltip(HwndOpenInvoiceURL, "OPEN INVOICE URL`n`nWhen enabled, opens the newly created invoice`nin Chrome after syncing to GHL.`n`nDisabled: Invoice is created but not opened.")
+	CreateToggleSlider("Settings", "OpenInvoiceURL", 630, 358, Settings_OpenInvoiceURL)
 	
 	; Financials only toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
@@ -4444,8 +4523,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GHLWatchLabel
 	GuiControl, Settings:Hide, GHLWatchFolderEdit
 	GuiControl, Settings:Hide, GHLWatchBrowseBtn
-	GuiControl, Settings:Hide, GHLSearchAllTabs
-	GuiControl, Settings:Hide, Toggle_SearchAllTabs
+	GuiControl, Settings:Hide, GHLOpenInvoiceURL
+	GuiControl, Settings:Hide, Toggle_OpenInvoiceURL
 	GuiControl, Settings:Hide, GHLFinancialsOnly
 	GuiControl, Settings:Hide, Toggle_FinancialsOnly
 	GuiControl, Settings:Hide, GHLContactSheet
@@ -4668,8 +4747,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GHLWatchLabel
 		GuiControl, Settings:Show, GHLWatchFolderEdit
 		GuiControl, Settings:Show, GHLWatchBrowseBtn
-		GuiControl, Settings:Show, GHLSearchAllTabs
-		GuiControl, Settings:Show, Toggle_SearchAllTabs
+		GuiControl, Settings:Show, GHLOpenInvoiceURL
+		GuiControl, Settings:Show, Toggle_OpenInvoiceURL
 		GuiControl, Settings:Show, GHLFinancialsOnly
 		GuiControl, Settings:Show, Toggle_FinancialsOnly
 		GuiControl, Settings:Show, GHLContactSheet
@@ -5982,9 +6061,8 @@ InputBox, newApiKey, 🔑 Edit GHL API Key, Enter your GHL API Key (Private Inte
 if (!ErrorLevel && newApiKey != "")
 {
 	GHL_API_Key := newApiKey
-	; Save Base64 encoded to SideKick_PS.ini
-	encodedKey := Base64_Encode(GHL_API_Key)
-	IniWrite, %encodedKey%, %IniFilename%, GHL, API_Key_B64
+	; Save to JSON credentials file
+	SaveGHLCredentials()
 	; Update display
 	apiKeyDisplay := SubStr(GHL_API_Key, 1, 8) . "..." . SubStr(GHL_API_Key, -4)
 	GuiControl, Settings:, GHLApiKeyDisplay, %apiKeyDisplay%
@@ -6001,8 +6079,8 @@ InputBox, newLocID, 📍 Edit GHL Location ID, Enter your GHL Location ID:`n`nFi
 if (!ErrorLevel && newLocID != "")
 {
 	GHL_LocationID := newLocID
-	; Save to SideKick_PS.ini (not encrypted - it's not sensitive)
-	IniWrite, %GHL_LocationID%, %IniFilename%, GHL, LocationID
+	; Save to JSON credentials file
+	SaveGHLCredentials()
 	; Update display
 	GuiControl, Settings:, GHLLocIDDisplay, %GHL_LocationID%
 	ToolTip, Location ID updated!
@@ -6280,6 +6358,8 @@ ProcessInvoiceXML(xmlFile)
 		syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
 	if (Settings_RoundingInDeposit)
 		syncArgs .= " --rounding-in-deposit"
+	if (!Settings_OpenInvoiceURL)
+		syncArgs .= " --no-open-browser"
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 	
 	; Show non-blocking progress GUI
@@ -6425,7 +6505,7 @@ RefreshGHLTags:
 		http.SetRequestHeader("Version", "2021-07-28")
 		http.send()
 		
-		if (http.status = 200) {
+		if (http.status >= 200 && http.status < 300) {
 			responseText := http.responseText
 			; Parse JSON to extract tag names
 			tagNames := []
@@ -6461,7 +6541,10 @@ RefreshGHLTags:
 			
 			ToolTip
 			tagCount := tagNames.MaxIndex() ? tagNames.MaxIndex() : 0
-			DarkMsgBox("Contact Tags Loaded", "Loaded " . tagCount . " contact tags from GHL.", "success")
+			if (tagCount > 0)
+				DarkMsgBox("Contact Tags Loaded", "Loaded " . tagCount . " contact tags from GHL.", "success")
+			else
+				DarkMsgBox("No Tags Found", "No contact tags found in GHL.`n`nCreate tags in GHL first, then refresh.", "info")
 		} else {
 			ToolTip
 			DarkMsgBox("Failed to Load Tags", "GHL API returned error: " . http.status . "`n`nCheck your API key and Location ID.", "error")
@@ -6505,7 +6588,7 @@ RefreshGHLOppTags:
 		payload := "{""locationId"": """ . GHL_LocationID . """, ""limit"": 100}"
 		http.send(payload)
 		
-		if (http.status = 200) {
+		if (http.status >= 200 && http.status < 300) {
 			responseText := http.responseText
 			; Parse JSON to extract all unique tags from opportunities
 			allTags := {}
@@ -6551,7 +6634,10 @@ RefreshGHLOppTags:
 			tagCount := 0
 			for _ in allTags
 				tagCount++
-			DarkMsgBox("Opportunity Tags Loaded", "Found " . tagCount . " unique tags from your opportunities.", "success")
+			if (tagCount > 0)
+				DarkMsgBox("Opportunity Tags Loaded", "Found " . tagCount . " unique tags from your opportunities.", "success")
+			else
+				DarkMsgBox("No Tags Found", "No opportunity tags found in GHL.`n`nTags will appear here once you add them to opportunities.", "info")
 		} else {
 			ToolTip
 			DarkMsgBox("Failed to Load Tags", "GHL API returned error: " . http.status . "`n`nCheck your API key and Location ID.", "error")
@@ -7684,7 +7770,7 @@ if (importWarnings != "") {
 }
 Return
 
-; Build settings data for export - reads complete INI file
+; Build settings data for export - reads complete INI file and credentials
 BuildExportData() {
 	global IniFilename
 	
@@ -7695,7 +7781,16 @@ BuildExportData() {
 		return ""
 	}
 	
-	; Export everything - license included for multi-machine setup
+	; Add credentials.json content (marked with special header)
+	credFile := GetCredentialsFilePath()
+	if FileExist(credFile) {
+		FileRead, credData, %credFile%
+		if (!ErrorLevel && credData != "") {
+			data .= "`n[__CREDENTIALS_JSON__]`n" . credData . "`n[__END_CREDENTIALS__]"
+		}
+	}
+	
+	; Export everything - license and credentials included for multi-machine setup
 	return data
 }
 
@@ -7785,6 +7880,26 @@ ParseImportData(data) {
 ApplyImportedSettings(data) {
 	global
 	
+	; Check for embedded credentials JSON
+	credStart := InStr(data, "[__CREDENTIALS_JSON__]")
+	credEnd := InStr(data, "[__END_CREDENTIALS__]")
+	if (credStart && credEnd) {
+		; Extract credentials JSON
+		credJsonStart := credStart + StrLen("[__CREDENTIALS_JSON__]") + 1
+		credJson := SubStr(data, credJsonStart, credEnd - credJsonStart - 1)
+		credJson := Trim(credJson, "`n`r")
+		
+		; Save credentials to file
+		if (credJson != "") {
+			credFile := GetCredentialsFilePath()
+			FileDelete, %credFile%
+			FileAppend, %credJson%, %credFile%, UTF-8
+		}
+		
+		; Remove credentials section from INI data for processing
+		data := SubStr(data, 1, credStart - 1)
+	}
+	
 	currentSection := ""
 	
 	Loop, Parse, data, `n, `r
@@ -7808,6 +7923,9 @@ ApplyImportedSettings(data) {
 				IniWrite, %value%, %IniFilename%, %currentSection%, %key%
 		}
 	}
+	
+	; Reload credentials from JSON
+	LoadGHLCredentials()
 }
 
 ; Refresh settings display after import
@@ -7873,17 +7991,8 @@ LoadSettings()
 {
 	global
 	
-	; Reload GHL API credentials (important after import!)
-	IniRead, GHL_API_Key_B64, %IniFilename%, GHL, API_Key_B64, %A_Space%
-	if (GHL_API_Key_B64 = "")
-		IniRead, GHL_API_Key_B64, %IniFilename%, GHL, API_Key_V2_B64, %A_Space%
-	IniRead, GHL_LocationID, %IniFilename%, GHL, LocationID, %A_Space%
-	
-	; Decode API key from Base64
-	if (GHL_API_Key_B64 != "")
-		GHL_API_Key := Base64_Decode(GHL_API_Key_B64)
-	else
-		GHL_API_Key := ""
+	; Reload GHL API credentials from JSON (important after import!)
+	LoadGHLCredentials()
 	
 	IniRead, Settings_StartOnBoot, %IniFilename%, Settings, StartOnBoot, 0
 	IniRead, Settings_ShowTrayIcon, %IniFilename%, Settings, ShowTrayIcon, 1
@@ -7902,7 +8011,7 @@ LoadSettings()
 	
 	; Invoice folder settings
 	IniRead, Settings_InvoiceWatchFolder, %IniFilename%, GHL, InvoiceWatchFolder, %A_Space%
-	IniRead, Settings_SearchAllTabs, %IniFilename%, GHL, SearchAllTabs, 1
+	IniRead, Settings_OpenInvoiceURL, %IniFilename%, GHL, OpenInvoiceURL, 1
 	IniRead, Settings_FinancialsOnly, %IniFilename%, GHL, FinancialsOnly, 0
 	IniRead, Settings_ContactSheet, %IniFilename%, GHL, ContactSheet, 1
 	IniRead, Settings_CollectContactSheets, %IniFilename%, GHL, CollectContactSheets, 0
@@ -8014,7 +8123,7 @@ SaveSettings()
 	
 	; Save invoice folder settings
 	IniWrite, %Settings_InvoiceWatchFolder%, %IniFilename%, GHL, InvoiceWatchFolder
-	IniWrite, %Settings_SearchAllTabs%, %IniFilename%, GHL, SearchAllTabs
+	IniWrite, %Settings_OpenInvoiceURL%, %IniFilename%, GHL, OpenInvoiceURL
 	IniWrite, %Settings_FinancialsOnly%, %IniFilename%, GHL, FinancialsOnly
 	IniWrite, %Settings_ContactSheet%, %IniFilename%, GHL, ContactSheet
 	IniWrite, %Settings_CollectContactSheets%, %IniFilename%, GHL, CollectContactSheets
@@ -9381,8 +9490,6 @@ Return
 
 FindFBPEURLFromChrome()
 {
-	global Settings_SearchAllTabs
-	
 	; Find Chrome window with "fullybookedphotographer" or "Contacts" in title
 	chromeHwnd := ""
 	WinGet, ChromeList, List, ahk_exe chrome.exe
@@ -9410,35 +9517,12 @@ FindFBPEURLFromChrome()
 	WinActivate, ahk_id %chromeHwnd%
 	WinWaitActive, ahk_id %chromeHwnd%, , 1
 	
-	; Try active tab first
+	; Check active tab only
 	url := GetChromeTabURL()
 	if (url && InStr(url, "thefullybookedphotographer.com") && InStr(url, "contacts/detail"))
 	{
 		WinActivate, ahk_id %origHwnd%
 		return url
-	}
-	
-	; Only cycle tabs if Search All Tabs is enabled
-	if (Settings_SearchAllTabs)
-	{
-		; Cycle through tabs to find GHL contact (max 20 tabs)
-		WinGetTitle, startTitle, A
-		Loop, 20
-		{
-			Send, ^{Tab}
-			Sleep, 150
-			
-			WinGetTitle, currentTitle, A
-			if (currentTitle = startTitle)
-				break  ; Back to start, stop cycling
-			
-			url := GetChromeTabURL()
-			if (url && InStr(url, "thefullybookedphotographer.com") && InStr(url, "contacts/detail"))
-			{
-				WinActivate, ahk_id %origHwnd%
-				return url
-			}
-		}
 	}
 	
 	; Return focus to original window
