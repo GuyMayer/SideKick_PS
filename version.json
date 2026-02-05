@@ -1,9 +1,19 @@
 {
-  "version": "2.4.68",
+  "version": "2.4.69",
   "build_date": "2026-02-05",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Activity logs now sent after every sync for better diagnostics",
+  "release_notes": "Fixed invoice creation and auto-repair for settings issues",
   "versions": [
+    {
+      "version": "2.4.69",
+      "build_date": "2026-02-05",
+      "release_notes": "Fixed invoice creation and auto-repair for settings issues",
+      "changelog": [
+        "FIX: Invoice creation now works correctly with GHL API",
+        "FIX: Auto-repairs corrupted settings files automatically",
+        "IMPROVED: Better error handling for configuration issues"
+      ]
+    },
     {
       "version": "2.4.68",
       "build_date": "2026-02-05",
