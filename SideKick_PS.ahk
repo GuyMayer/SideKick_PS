@@ -147,6 +147,8 @@ FileAppend, % A_Now . " - Loading Chrome.ahk...`n", %DebugLogFile%
 #Include %A_ScriptDir%\Lib\Chrome.ahk
 FileAppend, % A_Now . " - Loading Notes.ahk...`n", %DebugLogFile%
 #Include %A_ScriptDir%\Lib\Notes.ahk
+FileAppend, % A_Now . " - Loading Gdip_All.ahk...`n", %DebugLogFile%
+#Include %A_ScriptDir%\Lib\Gdip_All.ahk
 FileAppend, % A_Now . " - All includes loaded`n", %DebugLogFile%
 
 ; Script version info - loaded from version.json (single source of truth)
@@ -205,6 +207,7 @@ global Settings_BrowsDown := true         ; Open editor after download
 global Settings_AutoRenameImages := false ; Auto-rename by date
 global Settings_AutoDriveDetect := true   ; Detect SD card insertion
 global Settings_SDCardEnabled := true    ; Enable SD Card Download feature (show toolbar icon)
+global Settings_RoomCaptureFolder := ""  ; Folder for room capture JPGs (default: Documents\ProSelect Room Captures)
 
 ; Export automation state
 global ExportInProgress := false  ; Flag to suspend file watcher during export
@@ -1040,8 +1043,8 @@ CreateFloatingToolbar()
 	global
 	
 	; Toolbar dimensions - add 51px for each button (44+7 spacing)
-	; Base: Client(44) + Invoice(44) + OpenGHL(44) + Settings(44) = 4 buttons + spacing
-	toolbarWidth := Settings_SDCardEnabled ? 254 : 203  ; +51 for new OpenGHL button
+	; Base: Client(44) + Invoice(44) + OpenGHL(44) + Camera(44) + Settings(44) = 5 buttons + spacing
+	toolbarWidth := Settings_SDCardEnabled ? 305 : 254  ; +51 for camera button
 	toolbarHeight := 43
 	
 	; Transparent background with colored buttons
@@ -1053,13 +1056,14 @@ CreateFloatingToolbar()
 	Gui, Toolbar:Add, Text, x2 y3 w44 h38 Center BackgroundBlue cWhite gToolbar_GetClient vTB_Client, 👤
 	Gui, Toolbar:Add, Text, x53 y3 w44 h38 Center BackgroundGreen cWhite gToolbar_GetInvoice vTB_Invoice, 📋
 	Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundTeal cWhite gToolbar_OpenGHL vTB_OpenGHL, 🌐
+	Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundMaroon cWhite gToolbar_CaptureRoom vTB_Camera, 📷
 	
 	; SD Card Download button - only if enabled
 	if (Settings_SDCardEnabled) {
-		Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundOrange cWhite gToolbar_DownloadSD vTB_Download, 📥
-		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundOrange cWhite gToolbar_DownloadSD vTB_Download, 📥
+		Gui, Toolbar:Add, Text, x257 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
 	} else {
-		Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
+		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundPurple cWhite gToolbar_Settings vTB_Settings, ⚙
 	}
 	
 	; Make background transparent
@@ -1116,7 +1120,7 @@ if (psW < 800 || psH < 600)
 }
 
 ; Position inline with window close X button - adjust for toolbar width
-tbWidth := Settings_SDCardEnabled ? 254 : 203
+tbWidth := Settings_SDCardEnabled ? 305 : 254
 newX := psX + psW - (tbWidth + 147)
 newY := psY + 6
 
@@ -1132,7 +1136,151 @@ Gosub, OpenGHLClientURL
 Return
 
 Toolbar_DownloadSD:
-Gosub, DownloadSDCard
+; Placeholder - Image download functionality coming soon
+DarkMsgBox("Coming Soon", "📥 Image Download`n`nImage download functionality to follow in a future update.", "info", {timeout: 5})
+Return
+
+Toolbar_CaptureRoom:
+; Capture the central room view from ProSelect and save as JPG
+{
+	global Settings_RoomCaptureFolder, IniFilename
+	
+	; Get the album name from ProSelect window title
+	WinGetTitle, psTitle, ahk_exe ProSelect.exe
+	if (psTitle = "" || psTitle = "ProSelect")
+	{
+		DarkMsgBox("Capture Failed", "No album is open in ProSelect.", "warning", {timeout: 3})
+		return
+	}
+	
+	; Extract album name - remove "ProSelect - " prefix and " - ProSelect" suffix
+	albumName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")  ; Remove "ProSelect - " prefix
+	albumName := RegExReplace(albumName, "\s*-\s*ProSelect.*$", "")  ; Remove " - ProSelect" suffix
+	albumName := RegExReplace(albumName, "[\\/:*?""<>|]", "_")  ; Remove invalid filename chars
+	
+	; Get save folder from settings or use default
+	if (Settings_RoomCaptureFolder = "" || !FileExist(Settings_RoomCaptureFolder))
+	{
+		; Default to Documents folder
+		Settings_RoomCaptureFolder := A_MyDocuments . "\ProSelect Room Captures"
+		if (!FileExist(Settings_RoomCaptureFolder))
+			FileCreateDir, %Settings_RoomCaptureFolder%
+	}
+	
+	; Generate filename with room counter
+	roomNum := 1
+	Loop
+	{
+		outputFile := Settings_RoomCaptureFolder . "\" . albumName . "-room" . roomNum . ".jpg"
+		if (!FileExist(outputFile))
+			break
+		roomNum++
+		if (roomNum > 99)
+		{
+			DarkMsgBox("Capture Failed", "Too many room captures for this album.", "warning", {timeout: 3})
+			return
+		}
+	}
+	
+	; Hide the toolbar temporarily
+	Gui, Toolbar:Hide
+	Sleep, 100
+	
+	; Activate ProSelect and wait
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	Sleep, 200
+	
+	; Get ProSelect window position
+	WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
+	
+	; Calculate the central panel area for room view
+	; ProSelect UI: Left sidebar is fixed ~170px, top toolbar ~90px, right sidebar ~45px
+	; These are fixed UI element sizes, scaled by DPI
+	; Apply DPI scaling to fixed UI element sizes
+	leftSidebarWidth := Round(220 * DPI_Scale)   ; Fixed left sidebar (collections panel)
+	topToolbarHeight := Round(115 * DPI_Scale)   ; Fixed menu bar + icon toolbar
+	rightSidebarWidth := Round(70 * DPI_Scale)   ; Fixed right sidebar icons
+	bottomBarHeight := Round(5 * DPI_Scale)      ; Small margin to include price bar
+	
+	captureX := psX + leftSidebarWidth
+	captureY := psY + topToolbarHeight
+	captureW := psW - leftSidebarWidth - rightSidebarWidth
+	captureH := psH - topToolbarHeight - bottomBarHeight
+	
+	; Ensure minimum size (scaled)
+	minW := Round(400 * DPI_Scale)
+	minH := Round(300 * DPI_Scale)
+	if (captureW < minW || captureH < minH)
+	{
+		; Fall back to capturing more of the window
+		captureX := psX + Round(100 * DPI_Scale)
+		captureY := psY + Round(80 * DPI_Scale)
+		captureW := psW - Round(150 * DPI_Scale)
+		captureH := psH - Round(120 * DPI_Scale)
+	}
+	
+	; Initialize GDI+
+	pToken := Gdip_Startup()
+	if (!pToken)
+	{
+		DarkMsgBox("Capture Failed", "Could not initialize GDI+.", "error", {timeout: 3})
+		Gui, Toolbar:Show
+		return
+	}
+	
+	; Capture the screen region
+	pBitmap := Gdip_BitmapFromScreen(captureX . "|" . captureY . "|" . captureW . "|" . captureH)
+	if (!pBitmap)
+	{
+		Gdip_Shutdown(pToken)
+		DarkMsgBox("Capture Failed", "Could not capture screen.", "error", {timeout: 3})
+		Gui, Toolbar:Show
+		return
+	}
+	
+	; Save as JPEG (quality 95)
+	result := Gdip_SaveBitmapToFile(pBitmap, outputFile, 95)
+	
+	; Cleanup
+	Gdip_DisposeImage(pBitmap)
+	Gdip_Shutdown(pToken)
+	
+	; Show toolbar again
+	Sleep, 100
+	Gui, Toolbar:Show
+	
+	if (result = 0)
+	{
+		; Play success sound
+		SoundPlay, *48
+		
+		; Auto-copy path to clipboard
+		Clipboard := outputFile
+		
+		; Show confirmation with Open and Reveal buttons - path already copied
+		btnTips := {"OK": "Close this dialog", "Open": "Open image in default viewer", "Reveal": "Show file in Explorer"}
+		captureResult := DarkMsgBox("Room Captured", "Saved: " . albumName . "-room" . roomNum . ".jpg`n`nFolder: " . Settings_RoomCaptureFolder . "`n`n📋 Image path copied to clipboard", "info", {buttons: ["OK", "Open", "Reveal"], tooltips: btnTips})
+		if (captureResult = "Open")
+		{
+			; Open the image file with default viewer
+			Run, "%outputFile%"
+		}
+		else if (captureResult = "Reveal")
+		{
+			; Open Explorer and select the file
+			Run, explorer.exe /select`,"%outputFile%"
+		}
+	}
+	else
+	{
+		DarkMsgBox("Capture Failed", "Could not save image. Error: " . result, "error", {timeout: 3})
+	}
+}
+Return
+
+RemoveCopyToolTip:
+ToolTip, , , , 2
 Return
 
 Toolbar_GetInvoice:
@@ -1974,6 +2122,7 @@ DarkMsgBox(title, message, type := "info", options := "") {
 	checkboxText := (options && options.checkbox) ? options.checkbox : ""
 	customWidth := (options && options.width) ? options.width : 0
 	timeout := (options && options.timeout) ? options.timeout : 0
+	btnTooltips := (options && options.tooltips) ? options.tooltips : {}
 	
 	; Calculate dimensions
 	msgLines := StrSplit(message, "`n")
@@ -2096,14 +2245,27 @@ DarkMsgBox(title, message, type := "info", options := "") {
 	; Add buttons - use styled text buttons for dark mode
 	btnFont := Round(10 * dpi)
 	Gui, DarkMsg:Font, s%btnFont% Bold c%btnTextColor%, Segoe UI
+	static DarkMsgBox_BtnHwnds := []
+	DarkMsgBox_BtnHwnds := []
 	for i, btnText in buttons {
 		xPos := btnStartX + ((i - 1) * (btnWidth + btnSpacing))
 		defaultFlag := (i = defaultBtn) ? "Default" : ""
 		if (Settings_DarkMode) {
 			; Dark mode: use styled buttons with dark background
-			Gui, DarkMsg:Add, Button, x%xPos% y%btnYPos% w%btnWidth% h%btnHeight% %defaultFlag% gDarkMsgBox_Click hwndBtnHwnd%i%, %btnText%
+			Gui, DarkMsg:Add, Button, x%xPos% y%btnYPos% w%btnWidth% h%btnHeight% %defaultFlag% gDarkMsgBox_Click hwndBtnHwnd, %btnText%
+			DarkMsgBox_BtnHwnds.Push({hwnd: BtnHwnd, text: btnText})
 		} else {
-			Gui, DarkMsg:Add, Button, x%xPos% y%btnYPos% w%btnWidth% h%btnHeight% %defaultFlag% gDarkMsgBox_Click, %btnText%
+			Gui, DarkMsg:Add, Button, x%xPos% y%btnYPos% w%btnWidth% h%btnHeight% %defaultFlag% gDarkMsgBox_Click hwndBtnHwnd, %btnText%
+			DarkMsgBox_BtnHwnds.Push({hwnd: BtnHwnd, text: btnText})
+		}
+	}
+	
+	; Add tooltips if provided
+	if (btnTooltips.Count() > 0) {
+		for idx, btnInfo in DarkMsgBox_BtnHwnds {
+			if (btnTooltips.HasKey(btnInfo.text)) {
+				DarkMsgBox_AddTooltip(btnInfo.hwnd, btnTooltips[btnInfo.text])
+			}
 		}
 	}
 	
@@ -2149,6 +2311,28 @@ DarkMsgBox_TimeoutHandler:
 		DarkMsgBox_Result := "Timeout"
 		Gui, DarkMsg:Destroy
 	}
+Return
+
+DarkMsgBox_AddTooltip(hwnd, tipText) {
+	static TT_ADDTOOL := 0x432, TTF_IDISHWND := 1, TTF_SUBCLASS := 0x10
+	static hToolTip := 0
+	
+	; Create tooltip control once
+	if (!hToolTip) {
+		hToolTip := DllCall("CreateWindowEx", "UInt", 0, "Str", "tooltips_class32", "Str", ""
+			, "UInt", 0x80000002, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "Ptr", 0, "Ptr", 0, "Ptr", 0, "Ptr", 0, "Ptr")
+	}
+	
+	; Set up TOOLINFO structure
+	VarSetCapacity(ti, A_PtrSize = 8 ? 72 : 48, 0)
+	NumPut(A_PtrSize = 8 ? 72 : 48, ti, 0, "UInt")  ; cbSize
+	NumPut(TTF_IDISHWND | TTF_SUBCLASS, ti, 4, "UInt")  ; uFlags
+	NumPut(hwnd, ti, A_PtrSize = 8 ? 16 : 12, "Ptr")  ; uId
+	NumPut(&tipText, ti, A_PtrSize = 8 ? 48 : 36, "Ptr")  ; lpszText
+	
+	; Add tool
+	DllCall("SendMessage", "Ptr", hToolTip, "UInt", TT_ADDTOOL, "Ptr", 0, "Ptr", &ti)
+}
 Return
 
 DarkMsgGuiClose:
@@ -8026,11 +8210,29 @@ If (PayDue = "0.00" || PayDue = "")
 }
 Return
 
+; Global flag for cancelling payment entry
+global PaymentEntryCancelled := false
+
 UpdatePS:
 EnteringPaylines := True
+PaymentEntryCancelled := false
 
-; Show warning tooltip - hands off!
-ToolTip, ⚠️ HANDS OFF! Do not touch mouse or keyboard while payments are being entered..., , , 1
+; Create progress bar GUI
+Gui, PayProgress:New, +AlwaysOnTop +ToolWindow +HwndPayProgressHwnd
+Gui, PayProgress:Color, 1E1E1E
+Gui, PayProgress:Font, s12 cFFFFFF, Segoe UI
+Gui, PayProgress:Add, Text, x20 y15 w300 vPayProgressTitle, 💳 Entering Payments...
+Gui, PayProgress:Font, s10 cCCCCCC, Segoe UI
+Gui, PayProgress:Add, Text, x20 y45 w300 vPayProgressStatus, Preparing...
+Gui, PayProgress:Add, Progress, x20 y80 w300 h25 vPayProgressBar Range0-100 c4FC3F7 Background2D2D2D, 0
+Gui, PayProgress:Font, s9 cFFCC00, Segoe UI
+Gui, PayProgress:Add, Text, x20 y115 w300 Center, ⚠️ HANDS OFF - Do not touch mouse or keyboard
+Gui, PayProgress:Font, s9 cFFFFFF Bold, Segoe UI
+Gui, PayProgress:Add, Button, x120 y145 w100 h30 gPayProgressCancel vPayProgressCancelBtn, Cancel
+Gui, PayProgress:Show, w340 h190, Payment Entry Progress
+
+; Apply dark title bar
+DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", PayProgressHwnd, "Int", 20, "Int*", 1, "Int", 4)
 
 SetTitleMatchMode, 2
 SetTitleMatchMode, Slow
@@ -8068,18 +8270,38 @@ if (ProSelectVersion = "2025")
 	}
 
 	; Enter all payments - click Add button to open Payline window for each payment
+	; EXCEPT the first one - the Payline window is already open from where PayPlan button was clicked
 	CurrentPayment := 0
 	Loop %TotalPaymentsToEnter%
 	{
+		; Check if cancelled
+		if (PaymentEntryCancelled)
+		{
+			Gui, PayProgress:Destroy
+			DarkMsgBox("Cancelled", "Payment entry was cancelled.`n`n" . (A_Index - 1) . " of " . TotalPaymentsToEnter . " payments entered.", "warning", {timeout: 3})
+			EnteringPaylines := False
+			return
+		}
+		
+		; Update progress bar
+		progressPercent := Round((A_Index / TotalPaymentsToEnter) * 100)
+		GuiControl, PayProgress:, PayProgressBar, %progressPercent%
+		GuiControl, PayProgress:, PayProgressStatus, % "Payment " . A_Index . " of " . TotalPaymentsToEnter . " (" . progressPercent . "%)"
+		
 		PaymentIndex := StartIndex + A_Index - 1
 		Data_array := StrSplit(PayPlanLine[PaymentIndex],",")
 
-		; Click Add button on Add Payments window to open Payline window for EVERY payment
-		WinActivate, Add Payment, Payments
-		WinWaitActive, Add Payment, Payments, 2
-		Sleep, 200
-		ControlClick, Button3, Add Payment, Payments
-		Sleep, 1000
+		; For first payment, use the already-open Payline window
+		; For subsequent payments, click Add button to open a new Payline window
+		if (A_Index > 1)
+		{
+			; Click Add button on Add Payments window to open Payline window
+			WinActivate, Add Payment, Payments
+			WinWaitActive, Add Payment, Payments, 2
+			Sleep, 200
+			ControlClick, Button3, Add Payment, Payments
+			Sleep, 2000
+		}
 
 		; Ensure Payline window is active
 		WinActivate, Add Payment, Date
@@ -8121,31 +8343,11 @@ if (ProSelectVersion = "2025")
 		; Click "Add" button (Button1) to add payment line - Payline window closes
 		Sleep, 300
 		ControlClick, Button1, Add Payment, Date
-		Sleep, 1000
+		Sleep, 2000
 	}
 	
-	; After last payment: close ALL small Payline windows (there may be multiple)
-	Loop, 3  ; Try up to 3 times to catch any remaining windows
-	{
-		if WinExist("Add Payment", "Date")
-		{
-			WinActivate, Add Payment, Date
-			Sleep, 200
-			ControlClick, Button2, Add Payment, Date  ; Cancel button on small Payline window
-			Sleep, 1000
-		}
-		else
-			break
-	}
-	
-	; Then close the bigger Add Payment window
-	if WinExist("Add Payment", "Payments")
-	{
-		WinActivate, Add Payment, Payments
-		Sleep, 200
-		ControlClick, Button2, Add Payment, Payments  ; Cancel button on bigger window
-		Sleep, 300
-	}
+	; Destroy progress bar
+	Gui, PayProgress:Destroy
 	
 	; Play ding sound and show confirmation
 	SoundPlay, *48
@@ -8171,6 +8373,20 @@ else
 	
 	Loop %TotalPaymentsToEnter%
 	{
+		; Check if cancelled
+		if (PaymentEntryCancelled)
+		{
+			Gui, PayProgress:Destroy
+			DarkMsgBox("Cancelled", "Payment entry was cancelled.`n`n" . (A_Index - 1) . " of " . TotalPaymentsToEnter . " payments entered.", "warning", {timeout: 3})
+			EnteringPaylines := False
+			return
+		}
+		
+		; Update progress bar
+		progressPercent := Round((A_Index / TotalPaymentsToEnter) * 100)
+		GuiControl, PayProgress:, PayProgressBar, %progressPercent%
+		GuiControl, PayProgress:, PayProgressStatus, % "Payment " . A_Index . " of " . TotalPaymentsToEnter . " (" . progressPercent . "%)"
+		
 		PaymentIndex := StartIndex + A_Index - 1
 		Data_array := StrSplit(PayPlanLine[PaymentIndex],",")
 		ControlClick,Button3,Add Payment
@@ -8189,6 +8405,9 @@ else
 		Sleep, 1000
 	}
 	
+	; Destroy progress bar
+	Gui, PayProgress:Destroy
+	
 	; Play ding sound for 2022 too
 	SoundPlay, *48
 	if (DownpaymentLineAdded)
@@ -8198,7 +8417,10 @@ else
 }
 
 EnteringPaylines := False
-ToolTip, , , , 1  ; Remove warning tooltip
+Return
+
+PayProgressCancel:
+PaymentEntryCancelled := true
 Return
 
 Cord2Pos:
