@@ -11,7 +11,7 @@
       "changelog": [
         "FIX: Invoice creation now works correctly with GHL API",
         "FIX: Auto-repairs corrupted settings files automatically",
-        "IMPROVED: Better error handling for configuration issues"
+        "IMPROVED: Build process simplified - no manual version entry needed"
       ]
     },
     {

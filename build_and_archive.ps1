@@ -10,7 +10,7 @@
 # OPTIMIZATION: Caches compiled EXEs and reuses them if source unchanged
 
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [string]$Version,
     
     [switch]$SkipPythonCompile = $false,
@@ -18,6 +18,19 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# If no version provided, read from version.json
+if (-not $Version) {
+    $versionJsonPath = Join-Path $PSScriptRoot "version.json"
+    if (Test-Path $versionJsonPath) {
+        $versionJson = Get-Content $versionJsonPath -Raw | ConvertFrom-Json
+        $Version = $versionJson.version
+        Write-Host "  Using version from version.json: $Version" -ForegroundColor Cyan
+    } else {
+        Write-Error "No version specified and version.json not found. Use -Version parameter."
+        exit 1
+    }
+}
 
 # Wrap entire script in try-catch for clean error handling
 try {

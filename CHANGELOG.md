@@ -26,6 +26,10 @@ AI INSTRUCTIONS - When publishing a new version:
   - Fixes multi-line PaymentTypes issue that broke config parsing
   - No user action required - repairs automatically on next sync
 
+### Improvements
+- **Build Script Auto-Version**: Build script now auto-reads version from version.json
+  - No longer requires manual `-Version` parameter when run from terminal
+
 ## v2.4.68 (2026-02-05)
 
 ### Improvements
