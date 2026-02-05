@@ -1,12 +1,15 @@
 ﻿; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.4.66
+; Version:     2.4.68
 ; Build Date:  2026-02-05
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
 ; Changelog:
+;   v2.4.68 (2026-02-05)
+;     - IMPROVED: Activity logs now sent after every sync (not just errors)
+;     - IMPROVED: Quick Publish always recompiles all Python scripts
 ;   v2.4.66 (2026-02-05)
 ;     - FIX: Invoice now published after creation (was staying as draft)
 ;     - Draft invoices weren't visible in GHL invoice list
