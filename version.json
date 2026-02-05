@@ -1,9 +1,21 @@
 {
-  "version": "2.4.69",
+  "version": "2.4.70",
   "build_date": "2026-02-05",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fixed invoice creation and auto-repair for settings issues",
+  "release_notes": "Invoice improvements and full customer details",
   "versions": [
+    {
+      "version": "2.4.70",
+      "build_date": "2026-02-05",
+      "release_notes": "Invoice improvements and full customer details",
+      "changelog": [
+        "IMPROVED: Invoice name now shows Client Name - ShootNo instead of ProSelect prefix",
+        "IMPROVED: Invoices include full customer address and phone details",
+        "IMPROVED: Auto-fetches contact email/phone from GHL if missing in ProSelect",
+        "FIX: Opportunity tags now handles empty state gracefully",
+        "FIX: Toolbar stays on main window when Client Setup opens"
+      ]
+    },
     {
       "version": "2.4.69",
       "build_date": "2026-02-05",
