@@ -1504,6 +1504,48 @@ def _open_invoice_in_browser(invoice_id: str) -> None:
     os.startfile(invoice_url)
 
 
+def _send_invoice(invoice_id: str) -> bool:
+    """Send/publish the invoice so it appears in GHL invoice list.
+
+    GHL invoices are created as 'draft' by default and don't appear
+    in the main invoice list until sent/published.
+
+    Args:
+        invoice_id: GHL invoice ID.
+
+    Returns:
+        bool: True if successfully sent, False otherwise.
+    """
+    url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/send"
+    headers = _get_ghl_headers()
+    
+    payload = {
+        "altId": CONFIG.get('LOCATION_ID', ''),
+        "altType": "location",
+        "liveMode": True
+    }
+    
+    debug_log(f"SEND INVOICE REQUEST: {url}", payload)
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        debug_log(f"SEND INVOICE RESPONSE: Status={response.status_code}", {
+            "body": response.text[:1000] if response.text else "EMPTY"
+        })
+        
+        if response.status_code in [200, 201]:
+            print(f"  ✓ Invoice published - now visible in GHL")
+            return True
+        else:
+            print(f"  ⚠ Could not publish invoice: {response.status_code}")
+            debug_log(f"SEND INVOICE ERROR: {response.text}")
+            return False
+    except Exception as e:
+        print(f"  ⚠ Error publishing invoice: {e}")
+        debug_log(f"SEND INVOICE EXCEPTION: {e}")
+        return False
+
+
 def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total: float) -> None:
     """Adjust invoice totals if they don't match order total.
 
@@ -1559,6 +1601,9 @@ def _handle_invoice_success(
     print(f"  Invoice ID: {invoice_id}")
     print(f"  Invoice #: {invoice_number}")
     print(f"  Total: £{order.get('total_amount', 0):.2f}")
+
+    # Publish the invoice so it's visible in GHL
+    _send_invoice(invoice_id)
 
     payments_recorded = _process_invoice_payments(invoice_id, payments) if payments else 0
     print(f"  Balance Due: £{balance_due:.2f}")
