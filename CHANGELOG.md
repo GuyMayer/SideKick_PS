@@ -12,8 +12,28 @@ AI INSTRUCTIONS - When publishing a new version:
    function names, or technical details - users don't care about 
    "sync_ps_invoice.py" or "cyclomatic complexity")
 3. Commit and push both files to Git
-4. Run the build script to compile and create installer
+4. ask developer to Run the build script to compile and create installer
 -->
+
+## v2.4.70 (2026-02-05)
+
+### Improvements
+- **Invoice Names Updated**: Invoice name now shows "Client Name - ShootNo" format
+  - Removed "ProSelect" prefix for cleaner invoice appearance
+  - Payment plan invoices also use the new naming format
+
+- **Full Customer Details on Invoices**: Invoices now include complete customer information
+  - Phone number included when available
+  - Full address (street, city, state, zip, country) added to invoice
+  - Auto-fetches missing contact details from GHL if not in ProSelect
+
+- **Opportunity Tags Handling**: Loading tags now handles empty state gracefully
+  - Shows helpful message when no opportunity tags exist yet
+  - Fixed HTTP 201 being incorrectly treated as an error
+
+### Bug Fixes
+- **Toolbar Position Fixed**: Toolbar no longer follows Client Setup dialog
+  - Toolbar stays on main ProSelect window when dialogs open
 
 ## v2.4.69 (2026-02-05)
 
