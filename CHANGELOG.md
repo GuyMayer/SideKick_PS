@@ -15,6 +15,17 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.69 (2026-02-05)
+
+### Bug Fixes
+- **Invoice Creation Fixed**: Fixed GHL API error 422 when creating invoices
+  - Business address format now matches GHL API requirements
+  - Invoices should now create successfully on all accounts
+
+- **Auto-Repair Corrupted Settings**: Script automatically fixes corrupted INI files
+  - Fixes multi-line PaymentTypes issue that broke config parsing
+  - No user action required - repairs automatically on next sync
+
 ## v2.4.68 (2026-02-05)
 
 ### Improvements

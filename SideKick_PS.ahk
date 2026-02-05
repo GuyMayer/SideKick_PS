@@ -4720,6 +4720,17 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Settings_ToolbarIconColor_DDL
 		GuiControl, Settings:Show, HKColorPreview
 		GuiControl, Settings:Show, HKPickColorBtn
+		; Restore icon color dropdown to current value
+		if (Settings_ToolbarIconColor = "White" || Settings_ToolbarIconColor = "Black" || Settings_ToolbarIconColor = "Yellow") {
+			GuiControl, Settings:, Settings_ToolbarIconColor_DDL, White|Black|Yellow
+			GuiControl, Settings:ChooseString, Settings_ToolbarIconColor_DDL, %Settings_ToolbarIconColor%
+		} else {
+			GuiControl, Settings:, Settings_ToolbarIconColor_DDL, White|Black|Yellow|Custom
+			GuiControl, Settings:ChooseString, Settings_ToolbarIconColor_DDL, Custom
+		}
+		; Update color preview
+		previewColor := GetColorHex(Settings_ToolbarIconColor)
+		GuiControl, Settings:+Background%previewColor%, HKColorPreview
 		GuiControl, Settings:Show, HotkeysInstructGroup
 		GuiControl, Settings:Show, HKInstructions1
 		GuiControl, Settings:Show, HKInstructions2
@@ -7938,7 +7949,7 @@ LoadSettings()
 	IniRead, Settings_AutoRenameImages, %IniFilename%, FileManagement, AutoRenameImages, 0
 	IniRead, Settings_AutoDriveDetect, %IniFilename%, FileManagement, AutoDriveDetect, 1
 	IniRead, Settings_SDCardEnabled, %IniFilename%, FileManagement, SDCardEnabled, 1
-	IniRead, Settings_ToolbarIconColor, %IniFilename%, Toolbar, IconColor, White
+	IniRead, Settings_ToolbarIconColor, %IniFilename%, Appearance, ToolbarIconColor, White
 	
 	; Build GHL payment settings URL from location ID
 	if (GHL_LocationID != "")

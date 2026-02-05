@@ -19,6 +19,36 @@ from datetime import datetime
 # =============================================================================
 # DEBUG MODE - Read from INI file (Settings > DebugLogging)
 # =============================================================================
+def _sanitize_ini_file(ini_path: str) -> bool:
+    """Fix corrupted INI files with multi-line values that break configparser.
+    
+    Args:
+        ini_path: Path to the INI file.
+        
+    Returns:
+        bool: True if file was fixed, False if no fix needed or failed.
+    """
+    try:
+        import re
+        with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        
+        # Pattern: PaymentTypes= followed by lines that aren't key=value or [section]
+        # These are orphan lines that break configparser
+        fixed = re.sub(
+            r'(PaymentTypes=[^\r\n]*)\r?\n((?:(?![\[\w]+=)[^\r\n]+\r?\n)+)',
+            lambda m: m.group(1) + '|' + '|'.join(line.strip() for line in m.group(2).strip().split('\n') if line.strip()) + '\n',
+            content
+        )
+        
+        if fixed != content:
+            with open(ini_path, 'w', encoding='utf-8') as f:
+                f.write(fixed)
+            return True
+    except Exception:
+        pass
+    return False
+
 def get_debug_mode_setting() -> bool:
     """Read DebugLogging setting from INI file.
 
@@ -39,7 +69,14 @@ def get_debug_mode_setting() -> bool:
         for ini_path in possible_paths:
             if os.path.exists(ini_path):
                 config = configparser.ConfigParser()
-                config.read(ini_path)
+                try:
+                    config.read(ini_path)
+                except configparser.ParsingError:
+                    # Try to fix corrupted INI and retry
+                    if _sanitize_ini_file(ini_path):
+                        config.read(ini_path)
+                    else:
+                        continue
                 enabled = config.get('Settings', 'DebugLogging', fallback='0') == '1'
                 if not enabled:
                     return False
@@ -116,7 +153,13 @@ def get_auto_send_logs_setting() -> bool:
             if os.path.exists(ini_path):
                 import configparser
                 config = configparser.ConfigParser()
-                config.read(ini_path)
+                try:
+                    config.read(ini_path)
+                except configparser.ParsingError:
+                    if _sanitize_ini_file(ini_path):
+                        config.read(ini_path)
+                    else:
+                        continue
                 return config.get('Settings', 'AutoSendLogs', fallback='0') == '1'
         return False
     except Exception:
@@ -318,6 +361,9 @@ def _parse_ini_file(ini_path: str) -> dict:
     Returns:
         dict: Nested dictionary with sections as keys.
     """
+    # Auto-fix corrupted INI files (e.g., multi-line PaymentTypes)
+    _sanitize_ini_file(ini_path)
+    
     config = {}
     current_section = None
 
@@ -449,10 +495,14 @@ def get_business_details() -> dict:
                 "name": data.get('name') or business.get('name') or 'Business'
             }
 
-            # Add address if available
+            # Add address if available - must be object for invoice API
             address = data.get('address') or data.get('businessAddress') or business.get('address')
             if address:
-                details["address"] = address
+                # If address is a string, convert to object format required by invoice API
+                if isinstance(address, str):
+                    details["address"] = {"addressLine1": address}
+                else:
+                    details["address"] = address
 
             # Add phone if available
             phone = data.get('phone') or business.get('phone')
