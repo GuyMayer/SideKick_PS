@@ -1,3 +1,4 @@
+#Requires AutoHotkey v1.1+
 
 
 #Include %A_ScriptDir%\lib\BARCODER.ahk

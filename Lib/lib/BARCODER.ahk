@@ -1,3 +1,4 @@
+#Requires AutoHotkey v1.1+
 ;############################################################################################################
 ; Barcode Generator Library v1.02 by Giordanno Sperotto. 
 ; Updated: 27 December 2014.

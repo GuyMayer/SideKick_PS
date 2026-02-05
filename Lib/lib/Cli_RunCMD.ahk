@@ -1,3 +1,4 @@
+#Requires AutoHotkey v1.1+
 Cli_RunCMD(CmdLine, WorkingDir:="", Codepage:="CP850", Fn:="RunCMD_Output", maxDelay:=15250) {
 ; modified by Marius ?ucan
   Local         ; RunCMD v0.94 by SKAN on D34E/D37C @ https://www.autohotkey.com/boards/viewtopic.php?t=74647                                                             

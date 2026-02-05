@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.4.69"
+#define MyAppVersion "2.4.70"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -95,13 +95,11 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 [Code]
 var
   IniBackupPath: String;
-  CredBackupPath: String;
 
-// Backup INI file and credentials before installation starts
+// Backup INI file before installation starts
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   IniSourcePath, IniAppDataFolder, IniAppDataPath: String;
-  CredSourcePath, CredAppDataPath: String;
 begin
   if CurStep = ssInstall then
   begin
@@ -120,14 +118,6 @@ begin
     begin
       FileCopy(IniSourcePath, IniBackupPath, False);
     end;
-    
-    // Backup credentials.json (only exists in AppData)
-    CredAppDataPath := ExpandConstant('{userappdata}\SideKick_PS\ghl_credentials.json');
-    CredBackupPath := ExpandConstant('{tmp}\ghl_credentials.json.backup');
-    if FileExists(CredAppDataPath) then
-    begin
-      FileCopy(CredAppDataPath, CredBackupPath, False);
-    end;
   end
   else if CurStep = ssPostInstall then
   begin
@@ -135,68 +125,20 @@ begin
     IniSourcePath := ExpandConstant('{app}\SideKick_PS.ini');
     IniAppDataFolder := ExpandConstant('{userappdata}\SideKick_PS');
     IniAppDataPath := ExpandConstant('{userappdata}\SideKick_PS\SideKick_PS.ini');
-    CredAppDataPath := ExpandConstant('{userappdata}\SideKick_PS\ghl_credentials.json');
-    
-    // Create AppData folder if it doesn't exist
-    if not DirExists(IniAppDataFolder) then
-      CreateDir(IniAppDataFolder);
     
     if FileExists(IniBackupPath) then
     begin
+      // Create AppData folder if it doesn't exist
+      if not DirExists(IniAppDataFolder) then
+        CreateDir(IniAppDataFolder);
+      
       // Restore to both locations
       FileCopy(IniBackupPath, IniSourcePath, False);
       FileCopy(IniBackupPath, IniAppDataPath, False);
       DeleteFile(IniBackupPath);
     end;
-    
-    // Restore credentials.json
-    if FileExists(CredBackupPath) then
-    begin
-      FileCopy(CredBackupPath, CredAppDataPath, False);
-      DeleteFile(CredBackupPath);
-    end;
   end;
 end;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

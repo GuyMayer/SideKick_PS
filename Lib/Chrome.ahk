@@ -1,4 +1,5 @@
-﻿class Chrome
+#Requires AutoHotkey v1.1+
+class Chrome
 {
 	static version := "1.3.0-git"
 	

@@ -1,3 +1,4 @@
+#Requires AutoHotkey v1.1+
 ; ==================================================================================
 ; SK_LB_Hotkeys.ahk - LightBurn Hotkeys Module  
 ; Extracted from SideKick_LB_PubAI.ahk for modularization

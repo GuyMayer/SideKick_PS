@@ -1,3 +1,4 @@
+#Requires AutoHotkey v1.1+
 #NoEnv  ; Recommended for performance and compatibility with future AutoHotkey releases.
 
 Notes_Plus(String,Delimiters)

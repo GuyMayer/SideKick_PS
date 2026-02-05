@@ -1,3 +1,4 @@
+#Requires AutoHotkey v1.1+
 ;------------------------------------------------------------------------------
 ; Acc.ahk Standard Library
 ; by Sean
