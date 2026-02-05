@@ -1,9 +1,21 @@
 {
-  "version": "2.4.64",
-  "build_date": "2026-02-03",
+  "version": "2.4.65",
+  "build_date": "2026-02-05",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Payment Calculator now stays visible when switching apps",
+  "release_notes": "Room capture button and payment progress bar with cancel option",
   "versions": [
+    {
+      "version": "2.4.65",
+      "build_date": "2026-02-05",
+      "release_notes": "Room capture button and payment progress bar with cancel option",
+      "changelog": [
+        "NEW: Camera button captures room view and saves as JPG",
+        "NEW: Auto-copies captured image path to clipboard",
+        "NEW: Progress bar shows payment entry status with cancel option",
+        "IMPROVED: Payment entry no longer leaves extra windows open",
+        "IMPROVED: Button tooltips for better discoverability"
+      ]
+    },
     {
       "version": "2.4.64",
       "build_date": "2026-02-03",

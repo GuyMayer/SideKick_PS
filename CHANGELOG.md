@@ -15,6 +15,31 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.65 (2026-02-05)
+
+### New Features
+- **Room Capture Button**: New camera icon on toolbar captures the room view and saves as JPG
+  - Automatically names file as `{albumname}-room1.jpg`, incrementing for multiple captures
+  - Auto-copies image path to clipboard
+  - Buttons to Open image or Reveal in Explorer
+  - DPI-aware capture area calculation
+  - Saves to Documents\ProSelect Room Captures folder
+
+- **Payment Entry Progress Bar**: New visual progress indicator replaces tooltip warning
+  - Shows "Payment X of Y" with percentage progress bar
+  - Cancel button to stop payment entry mid-process
+  - Yellow "HANDS OFF" warning integrated into progress window
+  - Works for both ProSelect 2025 and 2022
+
+### Improvements
+- **Payment Entry Fix**: First payment now uses the already-open Payline window
+  - Prevents extra empty window from remaining open after payment entry
+  - Increased button click delays to 2000ms for reliability
+
+- **DarkMsgBox Tooltips**: Added tooltip support to custom message box buttons
+
+---
+
 ## v2.4.64 (2026-02-03)
 
 ### Improvements
