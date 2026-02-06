@@ -229,7 +229,7 @@ global Hotkey_DevReload := "^+r"  ; Ctrl+Shift+R (dev mode only)
 
 ; License settings
 global License_Key := ""          ; LemonSqueezy license key
-global License_Status := "trial"  ; trial, active, expired, invalid
+global License_Status := "unlicensed"  ; unlicensed, active, expired, invalid
 global License_CustomerName := ""
 global License_CustomerEmail := ""
 global License_ExpiresAt := ""
@@ -3469,7 +3469,7 @@ CreateLicensePanel()
 	statusColor := GetLicenseStatusColor()
 	Gui, Settings:Font, s11 Norm c%statusColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y80 w440 BackgroundTrans vLicenseStatusText Hidden HwndHwndLicenseStatus, %statusText%
-	RegisterSettingsTooltip(HwndLicenseStatus, "LICENSE STATUS`n`nShows your current license state:`n• Licensed - Active: Full features enabled`n• Trial Mode: Limited functionality`n• Expired: Renewal required`n• Invalid: Contact support")
+	RegisterSettingsTooltip(HwndLicenseStatus, "LICENSE STATUS`n`nShows your current license state:`n• Licensed - Active: Full features enabled`n• No License: Start free trial to unlock features`n• Expired: Renewal required`n• Invalid: Contact support")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; LICENSE KEY GROUP BOX
@@ -3552,7 +3552,7 @@ GetLicenseStatusText() {
 	else if (License_Key != "")
 		return "● License Not Validated"
 	else
-		return "● Trial Mode"
+		return "● No License"
 }
 
 GetLicenseStatusColor() {
@@ -3643,24 +3643,8 @@ IsLicenseValid() {
 		return (daysRemaining > 0)
 	}
 	
-	; Trial mode - check trial days
-	if (License_Status = "trial")
-		return IsTrialValid()
-	
+	; No license = no access
 	return false
-}
-
-IsTrialValid() {
-	global License_TrialStart, License_TrialDays
-	
-	if (License_TrialStart = "")
-		return true  ; Trial not started yet
-	
-	FormatTime, today,, yyyyMMdd
-	; Calculate days used using EnvSub (AHK v1 date math)
-	daysUsed := today
-	EnvSub, daysUsed, %License_TrialStart%, Days
-	return (daysUsed < License_TrialDays)
 }
 
 CheckLicenseForGHL(featureName := "GHL Integration") {
@@ -3679,14 +3663,10 @@ CheckLicenseForGHL(featureName := "GHL Integration") {
 	}
 	
 	; License not valid - show message and offer to purchase
-	if (License_Status = "trial") {
-		DarkMsgBox("Trial Expired", "Your SideKick_PS trial has expired.`n`n" . featureName . " requires a valid license.`n`nPlease purchase a license to continue.", "warning")
-	} else {
-		DarkMsgBox("License Required", "Your SideKick_PS license has expired or is invalid.`n`n" . featureName . " requires a valid license.`n`nPlease renew your license to continue.", "warning")
-	}
+	DarkMsgBox("License Required", "SideKick_PS requires a license to use " . featureName . ".`n`nStart your 14-day free trial to unlock all features.", "warning")
 	
-	result := DarkMsgBox("Purchase License?", "Would you like to purchase a license now?", "question", {buttons: ["Yes", "No"]})
-	if (result = "Yes")
+	result := DarkMsgBox("Start Free Trial?", "Would you like to start your free trial now?", "question", {buttons: ["Start Trial", "Not Now"]})
+	if (result = "Start Trial")
 		Run, %License_PurchaseURL%
 	
 	return false
@@ -5485,7 +5465,7 @@ DeactivateLicenseBtn:
 	ToolTip
 	
 	if InStr(resultJson, """success"": true") || InStr(resultJson, """deactivated"": true") {
-		License_Status := "trial"
+		License_Status := "unlicensed"
 		License_InstanceID := ""
 		License_ActivatedAt := ""
 		License_ValidatedAt := ""
@@ -5618,7 +5598,6 @@ SaveLicenseSecure() {
 	IniWrite, %License_CustomerName%, %IniFilename%, License, CustomerName
 	IniWrite, %License_CustomerEmail%, %IniFilename%, License, CustomerEmail
 	IniWrite, %License_ActivatedAt%, %IniFilename%, License, ActivatedAt
-	IniWrite, %License_TrialStart%, %IniFilename%, License, TrialStart
 	
 	; Remove old plain-text values (migration)
 	IniDelete, %IniFilename%, License, Key
@@ -5716,88 +5695,6 @@ CheckMonthlyLicenseValidation() {
 			SaveSettings()
 			DarkMsgBox("License Issue", "Your license could not be validated.`n`nPlease check your internet connection or contact support.", "warning")
 		}
-	}
-}
-
-; Check trial status on startup (tied to Location ID)
-CheckTrialStatus() {
-	global License_Key, License_Status, GHL_LocationID, License_TrialStart, License_TrialWarningDate, License_PurchaseURL
-	
-	; Skip if licensed
-	if (License_Key != "" && License_Status = "active")
-		return
-	
-	; Need Location ID for trial
-	if (GHL_LocationID = "") {
-		; Can't check trial without Location ID - will prompt user
-		return
-	}
-	
-	tempFile := A_Temp . "\trial_result.json"
-	trialCmd := GetScriptCommand("validate_license", "trial """ . GHL_LocationID . """")
-	
-	RunWait, %ComSpec% /c "%trialCmd% > "%tempFile%"", , Hide
-	
-	FileRead, resultJson, %tempFile%
-	FileDelete, %tempFile%
-	
-	; Parse trial info
-	if InStr(resultJson, """is_expired"": true") {
-		License_Status := "expired"
-		DarkMsgBox("Trial Expired", "Your 14-day trial has expired.`n`nPlease purchase a license to continue using SideKick_PS.", "warning")
-		Run, %License_PurchaseURL%
-	} else {
-		; Extract days remaining
-		RegExMatch(resultJson, """days_remaining"":\s*(\d+)", match)
-		daysRemaining := match1
-		
-		RegExMatch(resultJson, """trial_start"":\s*""([^""]*)""", match)
-		License_TrialStart := match1
-		
-		; Show daily trial warning popup
-		ShowDailyTrialWarning(daysRemaining)
-	}
-}
-
-; Show trial warning popup once per day
-ShowDailyTrialWarning(daysRemaining) {
-	global License_TrialWarningDate, License_PurchaseURL
-	
-	; Get today's date
-	FormatTime, today,, yyyy-MM-dd
-	
-	; Skip if already shown today
-	if (License_TrialWarningDate = today)
-		return
-	
-	; Update last warning date
-	License_TrialWarningDate := today
-	IniWrite, %License_TrialWarningDate%, %IniFilename%, License, TrialWarningDate
-	
-	; Build warning message based on days remaining
-	if (daysRemaining <= 0) {
-		title := "Trial Expired"
-		msg := "Your SideKick_PS trial has expired!`n`nPurchase a license to continue using all features."
-		msgType := "warning"
-	} else if (daysRemaining = 1) {
-		title := "Trial Ending Tomorrow"
-		msg := "Your SideKick_PS trial expires TOMORROW!`n`nOnly 1 day remaining.`n`nPurchase now to avoid interruption."
-		msgType := "warning"
-	} else if (daysRemaining <= 3) {
-		title := "Trial Ending Soon"
-		msg := "Your SideKick_PS trial expires in " . daysRemaining . " days!`n`nPurchase a license to continue using all features."
-		msgType := "warning"
-	} else {
-		title := "SideKick_PS Trial"
-		msg := "You are using SideKick_PS in trial mode.`n`n" . daysRemaining . " days remaining in your free trial.`n`nEnjoy exploring all features!"
-		msgType := "info"
-	}
-	
-	; Show dialog with Buy License option
-	result := DarkMsgBox(title, msg . "`n`nWould you like to purchase a license now?", msgType, {buttons: ["Buy License", "Later"]})
-	if (result = "Buy License")
-	{
-		Run, %License_PurchaseURL%
 	}
 }
 
@@ -8069,28 +7966,16 @@ LoadSettings()
 	IniRead, License_CustomerName, %IniFilename%, License, CustomerName, %A_Space%
 	IniRead, License_CustomerEmail, %IniFilename%, License, CustomerEmail, %A_Space%
 	IniRead, License_ActivatedAt, %IniFilename%, License, ActivatedAt, %A_Space%
-	IniRead, License_TrialStart, %IniFilename%, License, TrialStart, %A_Space%
-	IniRead, License_TrialWarningDate, %IniFilename%, License, TrialWarningDate, %A_Space%
 	
 	; If license data was tampered with, force online validation
 	if (!licenseOK && License_Status = "invalid") {
 		; Will be caught by CheckMonthlyLicenseValidation
 	}
 	
-	; Start trial if not set
-	if (License_TrialStart = "" && License_Status = "trial") {
-		FormatTime, License_TrialStart,, yyyy-MM-dd
-		IniWrite, %License_TrialStart%, %IniFilename%, License, TrialStart
-	}
-	
 	; Check if monthly license validation is needed (only if licensed)
 	if (License_Status = "active" && License_Key != "") {
 		CheckMonthlyLicenseValidation()
 	}
-	; Trial check disabled - LemonSqueezy handles licensing
-	; else {
-	; 	CheckTrialStatus()
-	; }
 	
 	; Start invoice folder monitor if configured
 	if (Settings_InvoiceWatchFolder != "" && FileExist(Settings_InvoiceWatchFolder))

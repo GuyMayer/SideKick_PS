@@ -3,7 +3,6 @@ SideKick_PS License Validation
 Validates license keys against LemonSqueezy API with location ID binding.
 """
 
-import base64
 import hashlib
 import json
 import os
@@ -18,19 +17,6 @@ STORE_ID = "zoomphoto"
 PRODUCT_ID = "077d6b76-ca2a-42df-a653-86f7aa186895"
 
 
-def _get_data_dir():
-    """Get a writable directory for data files (trial data, etc.)."""
-    appdata = os.environ.get('APPDATA')
-    if appdata:
-        sidekick_dir = os.path.join(appdata, 'SideKick_PS')
-        try:
-            os.makedirs(sidekick_dir, exist_ok=True)
-            return sidekick_dir
-        except OSError:
-            pass
-    return os.environ.get('TEMP', os.path.dirname(os.path.abspath(__file__)))
-
-
 def get_instance_id(location_id: str) -> str:
     """
     Generate a unique instance identifier based on GHL Location ID.
@@ -39,69 +25,6 @@ def get_instance_id(location_id: str) -> str:
     # Hash the location ID to create a consistent instance identifier
     instance = hashlib.sha256(f"sidekick_ps_{location_id}".encode()).hexdigest()[:32]
     return instance
-
-def _get_encryption_key() -> bytes:
-    """
-    Generate encryption key from app secret.
-    Uses a fixed salt + app identifier to create consistent key.
-    """
-    # Secret salt - change this to your own unique value
-    salt = "SK_PS_2026_ZoomPhoto_Trial_Salt_v1"
-    key_material = f"sidekick_proselect_{salt}_encryption"
-    # Create 32-byte key from hash
-    return hashlib.sha256(key_material.encode()).digest()
-
-def _xor_encrypt(data: bytes, key: bytes) -> bytes:
-    """Simple XOR encryption with repeating key."""
-    key_len = len(key)
-    return bytes([data[i] ^ key[i % key_len] for i in range(len(data))])
-
-def _encrypt_trial_data(trial_data: dict, location_hash: str) -> str:
-    """
-    Encrypt trial data using location hash + app key.
-    Returns base64 encoded encrypted string.
-    """
-    # Combine app key with location hash for unique encryption per location
-    app_key = _get_encryption_key()
-    location_key = hashlib.sha256(location_hash.encode()).digest()
-    combined_key = bytes([app_key[i] ^ location_key[i] for i in range(32)])
-
-    # Add integrity check
-    json_str = json.dumps(trial_data, sort_keys=True)
-    checksum = hashlib.md5(json_str.encode()).hexdigest()[:8]
-    payload = f"{checksum}|{json_str}"
-
-    # Encrypt
-    encrypted = _xor_encrypt(payload.encode('utf-8'), combined_key)
-    return base64.b64encode(encrypted).decode('ascii')
-
-def _decrypt_trial_data(encrypted_str: str, location_hash: str) -> dict | None:
-    """
-    Decrypt trial data. Returns None if decryption fails or data is tampered.
-    """
-    try:
-        # Combine app key with location hash
-        app_key = _get_encryption_key()
-        location_key = hashlib.sha256(location_hash.encode()).digest()
-        combined_key = bytes([app_key[i] ^ location_key[i] for i in range(32)])
-
-        # Decrypt
-        encrypted = base64.b64decode(encrypted_str.encode('ascii'))
-        decrypted = _xor_encrypt(encrypted, combined_key).decode('utf-8')
-
-        # Verify integrity
-        if '|' not in decrypted:
-            return None
-        checksum, json_str = decrypted.split('|', 1)
-
-        # Verify checksum
-        expected_checksum = hashlib.md5(json_str.encode()).hexdigest()[:8]
-        if checksum != expected_checksum:
-            return None  # Data was tampered with
-
-        return json.loads(json_str)
-    except Exception:
-        return None  # Decryption failed
 
 
 def _init_validation_result(license_key: str, location_id: str) -> dict:
@@ -386,111 +309,13 @@ def check_needs_validation(last_validated: str) -> dict:
 
     return result
 
-def _load_trial_record(trial_file: str, location_hash: str) -> dict | None:
-    """Load and decrypt trial record from file.
-
-    Args:
-        trial_file: Path to trial data file.
-        location_hash: Hash to use for decryption.
-
-    Returns:
-        dict or None: Trial record if successful.
-    """
-    if not os.path.exists(trial_file):
-        return None
-    try:
-        with open(trial_file, 'r', encoding='utf-8') as f:
-            encrypted_data = f.read().strip()
-        return _decrypt_trial_data(encrypted_data, location_hash)
-    except Exception:
-        return None
-
-
-def _create_new_trial(location_hash: str, trial_file: str) -> tuple[dict | None, str]:
-    """Create and save a new trial record.
-
-    Args:
-        location_hash: Hash for encryption.
-        trial_file: Path to save trial data.
-
-    Returns:
-        tuple: (error_dict or None, trial_start date string)
-    """
-    trial_start = datetime.now().strftime("%Y-%m-%d")
-    trial_record = {
-        "start": trial_start,
-        "days": 14,
-        "location_hash": location_hash,
-        "created": datetime.now().isoformat()
-    }
-
-    try:
-        encrypted = _encrypt_trial_data(trial_record, location_hash)
-        with open(trial_file, 'w', encoding='utf-8') as f:
-            f.write(encrypted)
-        return None, trial_start
-    except Exception as e:
-        return {"success": False, "error": f"Could not save trial data: {str(e)}"}, ""
-
-
-def get_trial_info(location_id: str, trial_file: str | None = None) -> dict:
-    """
-    Get trial information for a Location ID.
-    Trial is tied to Location ID hash to prevent reset by reinstall.
-    Trial data is encrypted to prevent tampering.
-
-    Args:
-        location_id: The GHL Location ID
-        trial_file: Optional path to trial data file (defaults to script dir)
-
-    Returns:
-        dict with trial_start, days_remaining, is_expired, location_hash
-    """
-    if not location_id:
-        return {"success": False, "error": "Location ID required for trial", "message": "Please configure GHL Location ID first"}
-
-    location_hash = get_instance_id(location_id)
-
-    if not trial_file:
-        trial_file = os.path.join(_get_data_dir(), ".sidekick_trial.dat")
-
-    trial_record = _load_trial_record(trial_file, location_hash)
-
-    if trial_record and trial_record.get("location_hash") == location_hash:
-        trial_start = trial_record["start"]
-        trial_days = trial_record.get("days", 14)
-    else:
-        error, trial_start = _create_new_trial(location_hash, trial_file)
-        if error:
-            return error
-        trial_days = 14
-
-    try:
-        start_date = datetime.strptime(trial_start, "%Y-%m-%d")
-        days_used = (datetime.now() - start_date).days
-        days_remaining = max(0, trial_days - days_used)
-        is_expired = days_remaining <= 0
-    except Exception:
-        days_remaining = 0
-        is_expired = True
-
-    return {
-        "success": True,
-        "trial_start": trial_start,
-        "trial_days": trial_days,
-        "days_remaining": days_remaining,
-        "is_expired": is_expired,
-        "location_hash": location_hash,
-        "message": f"Trial: {days_remaining} days remaining" if not is_expired else "Trial expired"
-    }
-
 def _print_usage_error(message: str) -> None:
     """Print usage error and exit.
 
     Args:
         message: Error message to print.
     """
-    print(json.dumps({"error": message, "actions": ["validate", "activate", "deactivate", "check", "trial"]}))
+    print(json.dumps({"error": message, "actions": ["validate", "activate", "deactivate", "check"]}))
     sys.exit(1)
 
 
@@ -499,13 +324,6 @@ def _handle_check_action() -> dict:
     if len(sys.argv) < 3:
         _print_usage_error("Usage: validate_license.py check <last_validated_date>")
     return check_needs_validation(sys.argv[2])
-
-
-def _handle_trial_action() -> dict:
-    """Handle 'trial' CLI action."""
-    if len(sys.argv) < 3:
-        _print_usage_error("Usage: validate_license.py trial <location_id>")
-    return get_trial_info(sys.argv[2])
 
 
 def _handle_license_action(action: str) -> dict:
@@ -541,7 +359,6 @@ def main():
         python validate_license.py activate <license_key> <location_id>
         python validate_license.py deactivate <license_key> <location_id> [instance_id]
         python validate_license.py check <last_validated_date>
-        python validate_license.py trial <location_id>
     """
     if len(sys.argv) < 2:
         _print_usage_error("Usage: validate_license.py <action> [args...]")
@@ -550,8 +367,6 @@ def main():
 
     if action == "check":
         result = _handle_check_action()
-    elif action == "trial":
-        result = _handle_trial_action()
     else:
         result = _handle_license_action(action)
 
