@@ -255,6 +255,15 @@ if (Test-Path $eulaFile) {
     Write-Host "  WARNING: LICENSE.txt not found!" -ForegroundColor Yellow
 }
 
+# Copy User Manual
+$manualFile = "$ScriptDir\SideKick_PS_Manual.md"
+if (Test-Path $manualFile) {
+    Copy-Item $manualFile "$ReleaseDir\SideKick_PS_Manual.md"
+    Write-Host "  Copied SideKick_PS_Manual.md" -ForegroundColor Gray
+} else {
+    Write-Host "  WARNING: SideKick_PS_Manual.md not found!" -ForegroundColor Yellow
+}
+
 # Verify no source scripts in release (EXE ONLY!)
 Write-Host "`n[7/9] Verifying no source scripts..." -ForegroundColor Yellow
 $sourceFiles = Get-ChildItem $ReleaseDir -Include "*.py","*.ahk" -Recurse -ErrorAction SilentlyContinue
