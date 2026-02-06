@@ -11,8 +11,12 @@ AI INSTRUCTIONS - When publishing a new version:
    NOTE: version.json changelog should be USER-FRIENDLY (no file names, 
    function names, or technical details - users don't care about 
    "sync_ps_invoice.py" or "cyclomatic complexity")
-3. Commit and push both files to Git
-4. ask developer to Run the build script to compile and create installer
+3. Update SideKick_PS_Manual.md with any new user-facing features or changes
+   - Keep it user-friendly (no code, file names, or technical jargon)
+   - Add new features to the relevant section
+   - Update screenshots/descriptions if UI has changed
+4. Commit and push all files to Git
+5. Ask developer to run the build script to compile and create installer
 -->
 
 ## v2.4.70 (2026-02-05)
