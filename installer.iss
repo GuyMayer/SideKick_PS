@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.4.70"
+#define MyAppVersion "2.4.72"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -79,7 +79,6 @@ Source: "Release\create_ghl_contactsheet.exe"; DestDir: "{app}"; Flags: ignoreve
 ; License and version info
 Source: "Release\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Release\version.json"; DestDir: "{app}"; Flags: ignoreversion
-Source: "Release\SideKick_PS_Manual.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Media files (icons, sounds)
 Source: "Release\media\*"; DestDir: "{app}\media"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist

@@ -1,6 +1,6 @@
 # SideKick PS — User Manual
 
-**Version 2.4.70** | February 2026 | © Zoom Photography
+**Version 2.4.72** | February 2026 | © Zoom Photography
 
 ---
 
@@ -12,16 +12,19 @@
 4. [The Toolbar](#the-toolbar)
 5. [GHL Client Lookup](#ghl-client-lookup)
 6. [Invoice Sync](#invoice-sync)
-7. [Payment Plan Calculator](#payment-plan-calculator)
-8. [Room Capture](#room-capture)
-9. [Open GHL Contact](#open-ghl-contact)
-10. [SD Card Download](#sd-card-download)
-11. [Settings](#settings)
-12. [Keyboard Shortcuts](#keyboard-shortcuts)
-13. [System Tray](#system-tray)
-14. [Licensing & Activation](#licensing--activation)
-15. [Troubleshooting](#troubleshooting)
-16. [Support](#support)
+7. [Invoice Deletion](#invoice-deletion)
+8. [Payment Plan Calculator](#payment-plan-calculator)
+9. [Room Capture](#room-capture)
+10. [Room Capture Email](#room-capture-email)
+11. [Open GHL Contact](#open-ghl-contact)
+12. [Quick Print](#quick-print)
+13. [SD Card Download](#sd-card-download)
+14. [Settings](#settings)
+15. [Keyboard Shortcuts](#keyboard-shortcuts)
+16. [System Tray](#system-tray)
+17. [Licensing & Activation](#licensing--activation)
+18. [Troubleshooting](#troubleshooting)
+19. [Support](#support)
 
 ---
 
@@ -72,14 +75,18 @@ On first launch you'll be prompted to:
 
 ## The Toolbar
 
-When ProSelect is open, a floating toolbar appears docked to the ProSelect title bar. It contains up to 6 buttons:
+When ProSelect is open, a floating toolbar appears docked to the ProSelect title bar. It contains up to 9 buttons (configurable in Settings → Shortcuts):
 
 | Button | Icon | What it Does |
 |---|---|---|
 | **Get Client** | 👤 (blue) | Import client details from GHL into ProSelect |
-| **Sync Invoice** | 📋 (green) | Export the current order and sync it to GHL as an invoice |
+| **Sync Invoice** | 📋 (green) | Export the current order and sync it to GHL as an invoice. **Ctrl+Click** to delete the last synced invoice |
 | **Open GHL** | 🌐 (teal) | Open this client's GHL contact page in your browser |
-| **Room Capture** | 📷 (maroon) | Screenshot the ProSelect room view |
+| **Room Capture** | 📷 (maroon) | Screenshot the ProSelect room view, with option to email |
+| **Sort Order** | 🔀 (yellow) | Toggle between random and filename sort order |
+| **Photoshop** | PS (pink) | Send selected image to Photoshop (Ctrl+T) |
+| **Refresh** | 🔄 (cyan) | Update album (Ctrl+U) |
+| **Quick Print** | 🖨 (orange) | Auto-print with configured template |
 | **SD Download** | 📥 (orange) | Download photos from SD card *(only shown if enabled)* |
 | **Settings** | ⚙ (purple) | Open SideKick PS settings |
 
@@ -130,7 +137,7 @@ In **Settings → GHL Integration**, there's an **"Autoload client data"** toggl
 
 ## Invoice Sync
 
-**Toolbar button:** 📋 Sync Invoice
+**Toolbar button:** 📋 Sync Invoice | **Ctrl+Click:** Delete last synced invoice
 
 Create a professional invoice in GHL from the current ProSelect order.
 
@@ -190,6 +197,34 @@ When payment amounts don't divide evenly, there's a small rounding difference (e
 - **Add to 1st Payment** — the first scheduled payment is adjusted
 
 This is set in the **Payment Calculator** and also in **Settings → GHL Integration**.
+
+---
+
+## Invoice Deletion
+
+**Trigger:** Ctrl+Click the **Sync Invoice** button
+
+Delete the last synced invoice from GHL.
+
+### How it Works
+
+1. Hold **Ctrl** and click the **Sync Invoice** (📋) button on the toolbar
+2. SideKick PS finds the last synced invoice for the current client
+3. A confirmation dialog appears showing the invoice details
+4. Click **Yes** to delete, or **No** to cancel
+5. The invoice is removed from GHL and any associated payment schedules are cancelled
+
+### When to Use
+
+- You synced incorrect order data and need to start fresh
+- The client's order has changed and you need to re-sync
+- Testing and need to clean up test invoices
+
+### Tips
+
+- Only the most recent invoice for the current client can be deleted
+- The client must have a Client ID in the album name
+- Payment schedules associated with the invoice are also cancelled
 
 ---
 
@@ -267,10 +302,11 @@ Capture a screenshot of the ProSelect room view and save it as a high-quality JP
 2. SideKick PS captures the central room area (excluding sidebars and toolbars)
 3. The image is saved to your **Documents\ProSelect Room Captures** folder
 4. The file path is **copied to your clipboard**
-5. A dialog appears with three options:
+5. A dialog appears with four options:
    - **OK** — close the dialog
    - **Open** — open the image in your default viewer
    - **Reveal** — open the folder in Windows Explorer
+   - **Email** — send the room capture to the client via GHL
 
 ### File Naming
 
@@ -288,6 +324,43 @@ The number auto-increments so you can capture multiple room views per album.
 - Great for sharing room design previews with clients
 - The capture is DPI-aware — works correctly on high-resolution displays
 - Captured at JPEG quality 95 for high fidelity
+
+---
+
+## Room Capture Email
+
+**Trigger:** Click **Email** button after capturing a room view
+
+Email the room capture image directly to the client via GHL.
+
+### How it Works
+
+1. After capturing a room view, click the **Email** button in the dialog
+2. A template picker appears showing available GHL email templates
+3. The default template (configured in Settings) is pre-selected
+4. Select a different template if desired, or use "(none - use default)"
+5. Click **Send** to email the image to the client
+6. The room image is embedded in the email body
+
+### Setting Up Email Templates
+
+1. Open **Settings → Shortcuts**
+2. In the **Room Capture Email** section, click the **🔄** button
+3. Your GHL email templates are loaded into the dropdown
+4. Select a default template
+5. Click **Apply** to save
+
+### Requirements
+
+- The album must contain a valid GHL Client ID
+- An email template must exist in your GHL account
+- The contact must have an email address in GHL
+
+### Tips
+
+- Create a dedicated "Room View" email template in GHL with your branding
+- The room image is appended to the template body automatically
+- Great for same-day room previews to clients
 
 ---
 
@@ -395,6 +468,20 @@ Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+
 | **Open PayPlan** | Shortcut to open calculator (default: Ctrl+Shift+P) |
 | **Open Settings** | Shortcut to settings (default: Ctrl+Shift+W) |
 | **Icon Color** | Toolbar icon colour: White, Black, Yellow, or Custom |
+
+### Shortcuts Tab
+
+Configure toolbar buttons and quick print templates.
+
+| Setting | Description |
+|---|---|
+| **Toolbar Buttons** | Enable/disable individual toolbar buttons. Each button has a checkbox to show/hide it on the toolbar. |
+| **Quick Print Templates** | |
+| — Payment Plan | Template name to match in Print dialog when order has a payment plan |
+| — Standard | Template name for standard orders without payment plans |
+| **Room Capture Email** | |
+| — Template | Select a GHL email template for room capture emails |
+| — 🔄 Refresh | Fetch available email templates from GHL |
 
 ### File Management Tab
 
@@ -555,4 +642,4 @@ Debug logging automatically disables after 24 hours.
 
 ---
 
-*SideKick PS v2.4.70 — Built for photographers, by a photographer.*
+*SideKick PS v2.4.72 — Built for photographers, by a photographer.*

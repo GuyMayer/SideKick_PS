@@ -21,7 +21,7 @@ $ErrorActionPreference = "Stop"
 
 # Paths
 $ScriptDir = $PSScriptRoot
-$SourceDir = "C:\Stash"
+$SourceDir = $ScriptDir
 $ReleaseDir = "$ScriptDir\Release"
 $ArchiveDir = "$ScriptDir\Releases\latest"
 $CacheDir = "$ScriptDir\.build_cache"
@@ -253,15 +253,6 @@ if (Test-Path $eulaFile) {
     Write-Host "  Copied LICENSE.txt" -ForegroundColor Gray
 } else {
     Write-Host "  WARNING: LICENSE.txt not found!" -ForegroundColor Yellow
-}
-
-# Copy User Manual
-$manualFile = "$ScriptDir\SideKick_PS_Manual.md"
-if (Test-Path $manualFile) {
-    Copy-Item $manualFile "$ReleaseDir\SideKick_PS_Manual.md"
-    Write-Host "  Copied SideKick_PS_Manual.md" -ForegroundColor Gray
-} else {
-    Write-Host "  WARNING: SideKick_PS_Manual.md not found!" -ForegroundColor Yellow
 }
 
 # Verify no source scripts in release (EXE ONLY!)
