@@ -1684,9 +1684,9 @@ Toolbar_PrintToPDF:
 	origPrinter := Trim(origPrinter, " `t`r`n")
 	FileDelete, %A_Temp%\sidekick_orig_printer.txt
 	
-	; Step 3: Set Microsoft Print to PDF as default
-	RunWait, powershell -NoProfile -Command "Set-Printer -Name 'Microsoft Print to PDF' -Default",, Hide
-	Sleep, 200
+	; Step 3: Set Microsoft Print to PDF as default (faster via RUNDLL32)
+	RunWait, RUNDLL32 PRINTUI.DLL`,PrintUIEntry /y /n "Microsoft Print to PDF",, Hide
+	Sleep, 500
 	
 	; Step 4: Activate ProSelect and send Ctrl+P
 	WinActivate, ahk_exe ProSelect.exe
@@ -1747,43 +1747,51 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 1000
 	
-	; Select "Microsoft Print to PDF" in the printer dropdown via PowerShell UI Automation
-	; This works universally regardless of the user's default printer
+	; Select "Microsoft Print to PDF" in the printer dropdown
+	; The modern Win11 print dialog has the printer combo as the first focusable element
 	WinActivate, ProSelect - Print
 	Sleep, 300
 	
-	; Use PowerShell to select the PDF printer in the modern print dialog
-	psScript := "$ErrorActionPreference='SilentlyContinue'; "
-	psScript .= "Add-Type -AssemblyName UIAutomationClient; "
-	psScript .= "Add-Type -AssemblyName UIAutomationTypes; "
-	psScript .= "$auto = [System.Windows.Automation.AutomationElement]; "
-	psScript .= "$root = $auto::RootElement; "
-	psScript .= "$cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'ProSelect - Print'); "
-	psScript .= "$dlg = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond); "
-	psScript .= "if ($dlg) { "
-	psScript .= "  $combo = $dlg.FindFirst([System.Windows.Automation.TreeScope]::Descendants, "
-	psScript .= "    (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'PrinterComboBox'))); "
-	psScript .= "  if ($combo) { "
-	psScript .= "    $expand = $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern); "
-	psScript .= "    $expand.Expand(); Start-Sleep -Milliseconds 500; "
-	psScript .= "    $items = $combo.FindAll([System.Windows.Automation.TreeScope]::Descendants, "
-	psScript .= "      (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem))); "
-	psScript .= "    foreach ($item in $items) { "
-	psScript .= "      if ($item.Current.Name -like '*PDF*') { "
-	psScript .= "        $sel = $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern); "
-	psScript .= "        $sel.Select(); break "
-	psScript .= "      } "
-	psScript .= "    } "
-	psScript .= "    $expand.Collapse(); "
-	psScript .= "  } "
-	psScript .= "}"
-	RunWait, powershell -NoProfile -Command "%psScript%",, Hide
+	; Tab to printer dropdown (should be first control), open it, go to top, search for PDF
+	Send, {Tab}{Space}
 	Sleep, 500
+	; Go to top of printer list and search down for PDF
+	Send, {Home}
+	Sleep, 200
+	
+	; Read current selection - loop through list items looking for PDF
+	pdfFound := false
+	Loop, 20 {
+		Sleep, 150
+		; Copy current item text via clipboard
+		ClipSaved := ClipboardAll
+		Clipboard := ""
+		Send, ^c
+		ClipWait, 0.5
+		currentItem := Clipboard
+		Clipboard := ClipSaved
+		ClipSaved := ""
+		if (InStr(currentItem, "PDF")) {
+			pdfFound := true
+			break
+		}
+		Send, {Down}
+	}
+	
+	; Confirm selection
+	Send, {Enter}
+	Sleep, 500
+	
+	if (!pdfFound) {
+		ToolTip, Could not find PDF printer in list
+		SetTimer, RemoveToolTip, -3000
+	}
 	
 	; Click Print button in the Windows print dialog
 	WinActivate, ProSelect - Print
-	Sleep, 200
-	Send, {Enter}
+	Sleep, 300
+	; 6 tabs from the printer selection to reach the Print button, then Enter
+	Send, {Tab}{Tab}{Tab}{Tab}{Tab}{Tab}{Enter}
 	
 	; Step 9: Wait for Save As dialog
 	WinWait, Save Print Output As, , 15
@@ -5745,7 +5753,7 @@ RefreshPrintEmailTemplates:
 	
 	; Build command using GetScriptCommand (handles .exe vs .py automatically)
 	tempFile := A_Temp . "\ghl_email_templates.json"
-	scriptCmd := GetScriptCommand("sync_ps_invoice", "--get-email-templates")
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
 	
 	if (scriptCmd = "") {
 		ToolTip

@@ -12,6 +12,27 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.75 (2026-02-07)
+
+### New Features
+- **Print to PDF**: Toolbar print button can save PDF to album folder with optional copy to secondary folder
+- **Print Settings Tab**: Dedicated settings tab for print templates, room capture email, and PDF output configuration
+- **Enable PDF Toggle**: Persistent toggle to switch toolbar print button between normal print and PDF mode
+- **PDF Copy Folder**: Configure a secondary folder where generated PDFs are automatically copied
+
+### Improvements
+- **DPI-Scaled Toolbar**: All button dimensions, spacing, and offsets now scale with display DPI
+- **Room Captured Dialog**: Shows image preview thumbnail using GDI+
+- **Toolbar Auto-Hide**: Toolbar hides during Save Album As, Save As, and Print dialogs
+- **Email Template Refresh**: Uses GetScriptCommand for .exe/.py compatibility on installed machines
+
+### Bug Fixes
+- Contact sheet JPG now saves to album/XML directory instead of Program Files (Permission denied fix)
+- Email template refresh works on installed builds (.exe) not just dev (.py)
+- Fixed GetPythonExe() → GetPythonPath() call in RefreshPrintEmailTemplates
+
+---
+
 ## v2.4.72 (2026-02-07)
 
 ### New Features
