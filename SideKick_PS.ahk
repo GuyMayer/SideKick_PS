@@ -234,6 +234,8 @@ global Settings_AutoRenameImages := false ; Auto-rename by date
 global Settings_AutoDriveDetect := true   ; Detect SD card insertion
 global Settings_SDCardEnabled := true    ; Enable SD Card Download feature (show toolbar icon)
 global Settings_RoomCaptureFolder := ""  ; Folder for room capture JPGs (default: Documents\ProSelect Room Captures)
+global Settings_EnablePDF := false           ; Enable Print to PDF mode (toolbar print button uses PDF)
+global Settings_PDFOutputFolder := ""       ; Secondary folder to copy PDF output to
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow
 global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
 
@@ -1407,7 +1409,7 @@ if (psTitle = "" || psTitle = "ProSelect")
 ; Skip dialog windows (Review Orders, Add Payment, etc.) - only attach to main album window
 ; Main window titles contain album name and end with " - ProSelect" or similar patterns
 ; Dialog windows have titles like "Review Orders", "Add Payment", "Print", etc.
-dialogTitles := ["Review Orders", "Add Payment", "Print", "Export", "Preferences", "About", "License", "Settings", "Order Summary", "Client Setup"]
+dialogTitles := ["Review Orders", "Add Payment", "Print", "Export", "Preferences", "About", "License", "Settings", "Order Summary", "Client Setup", "Save Album As", "Save As", "Save Print Output As"]
 for index, dialogTitle in dialogTitles {
 	if (psTitle = dialogTitle || InStr(psTitle, dialogTitle) = 1) {
 		; This is a dialog, don't move toolbar - just hide it or keep position
@@ -1603,7 +1605,12 @@ Send, ^u
 Return
 
 Toolbar_QuickPrint:
-; Quick Print - opens ProSelect print dialog, sets template based on payment plan, prints
+; Quick Print - if PDF mode enabled, route to PrintToPDF; otherwise normal print
+if (Settings_EnablePDF) {
+	Gosub, Toolbar_PrintToPDF
+	Return
+}
+; Normal Quick Print - opens ProSelect print dialog, sets template based on payment plan, prints
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
 if ErrorLevel
@@ -1649,6 +1656,234 @@ Sleep, 100
 ; Click Print (Button32)
 ControlClick, Button32, ahk_class #32770
 Return
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; PRINT TO PDF - Sets Microsoft Print to PDF as default, triggers print,
+; handles the Save As dialog, saves to album folder + optional copy folder
+; ═══════════════════════════════════════════════════════════════════════════════
+Toolbar_PrintToPDF:
+	global Settings_PDFOutputFolder
+	
+	; Check ProSelect is running
+	if !WinExist("ahk_exe ProSelect.exe") {
+		DarkMsgBox("Print to PDF", "ProSelect is not running.", "error")
+		Return
+	}
+	
+	; Step 1: Get the album folder from ProSelect via Save Album As dialog
+	albumFolder := GetAlbumFolder()
+	if (albumFolder = "") {
+		DarkMsgBox("Print to PDF", "Could not determine album folder.`n`nMake sure an album is open in ProSelect.", "error")
+		Return
+	}
+	
+	; Step 2: Save original default printer
+	origPrinter := ""
+	RunWait, powershell -NoProfile -Command "(Get-CimInstance Win32_Printer -Filter 'Default=True').Name | Set-Content '%A_Temp%\sidekick_orig_printer.txt'",, Hide
+	FileRead, origPrinter, %A_Temp%\sidekick_orig_printer.txt
+	origPrinter := Trim(origPrinter, " `t`r`n")
+	FileDelete, %A_Temp%\sidekick_orig_printer.txt
+	
+	; Step 3: Set Microsoft Print to PDF as default
+	RunWait, powershell -NoProfile -Command "Set-Printer -Name 'Microsoft Print to PDF' -Default",, Hide
+	Sleep, 200
+	
+	; Step 4: Activate ProSelect and send Ctrl+P
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	if ErrorLevel {
+		; Restore printer before bailing
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	Send, ^p
+	
+	; Step 5: Wait for the ProSelect Print Order/Invoice Report dialog
+	WinWait, Print Order/Invoice Report, , 5
+	if ErrorLevel {
+		ToolTip, Print dialog did not open
+		SetTimer, RemoveToolTip, -2000
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	Sleep, 1000
+	
+	; Step 6: Auto-select template (same logic as QuickPrint)
+	resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+	hasPayPlan := false
+	if FileExist(resultFile) {
+		FileRead, rJson, %resultFile%
+		if InStr(rJson, """schedule_created"": true")
+			hasPayPlan := true
+	}
+	Control, Check,, Button20, Print Order/Invoice Report
+	Sleep, 100
+	searchTerm := hasPayPlan ? Settings_PrintTemplate_PayPlan : Settings_PrintTemplate_Standard
+	ControlGet, cbList, List,, ComboBox5, Print Order/Invoice Report
+	Loop, Parse, cbList, `n
+	{
+		if InStr(A_LoopField, searchTerm) {
+			Control, ChooseString, %A_LoopField%, ComboBox5, Print Order/Invoice Report
+			break
+		}
+	}
+	Sleep, 100
+	
+	; Step 7: Click Print in ProSelect dialog — this opens the Windows Print dialog
+	ControlFocus, Button32, Print Order/Invoice Report
+	Sleep, 200
+	Send, {Enter}
+	
+	; Step 8: Wait for the Windows "ProSelect - Print" dialog
+	WinWait, ProSelect - Print, , 10
+	if ErrorLevel {
+		ToolTip, Windows Print dialog did not appear
+		SetTimer, RemoveToolTip, -3000
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	Sleep, 1000
+	
+	; Select "Microsoft Print to PDF" in the printer dropdown via PowerShell UI Automation
+	; This works universally regardless of the user's default printer
+	WinActivate, ProSelect - Print
+	Sleep, 300
+	
+	; Use PowerShell to select the PDF printer in the modern print dialog
+	psScript := "$ErrorActionPreference='SilentlyContinue'; "
+	psScript .= "Add-Type -AssemblyName UIAutomationClient; "
+	psScript .= "Add-Type -AssemblyName UIAutomationTypes; "
+	psScript .= "$auto = [System.Windows.Automation.AutomationElement]; "
+	psScript .= "$root = $auto::RootElement; "
+	psScript .= "$cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'ProSelect - Print'); "
+	psScript .= "$dlg = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond); "
+	psScript .= "if ($dlg) { "
+	psScript .= "  $combo = $dlg.FindFirst([System.Windows.Automation.TreeScope]::Descendants, "
+	psScript .= "    (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'PrinterComboBox'))); "
+	psScript .= "  if ($combo) { "
+	psScript .= "    $expand = $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern); "
+	psScript .= "    $expand.Expand(); Start-Sleep -Milliseconds 500; "
+	psScript .= "    $items = $combo.FindAll([System.Windows.Automation.TreeScope]::Descendants, "
+	psScript .= "      (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem))); "
+	psScript .= "    foreach ($item in $items) { "
+	psScript .= "      if ($item.Current.Name -like '*PDF*') { "
+	psScript .= "        $sel = $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern); "
+	psScript .= "        $sel.Select(); break "
+	psScript .= "      } "
+	psScript .= "    } "
+	psScript .= "    $expand.Collapse(); "
+	psScript .= "  } "
+	psScript .= "}"
+	RunWait, powershell -NoProfile -Command "%psScript%",, Hide
+	Sleep, 500
+	
+	; Click Print button in the Windows print dialog
+	WinActivate, ProSelect - Print
+	Sleep, 200
+	Send, {Enter}
+	
+	; Step 9: Wait for Save As dialog
+	WinWait, Save Print Output As, , 15
+	if ErrorLevel {
+		ToolTip, PDF Save dialog did not appear
+		SetTimer, RemoveToolTip, -3000
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	Sleep, 300
+	
+	; Step 10: Build filename from album folder name
+	SplitPath, albumFolder, albumName
+	pdfName := albumName . ".pdf"
+	pdfFullPath := albumFolder . "\" . pdfName
+	
+	; Set the filename in the Save As dialog
+	ControlSetText, Edit1, %pdfFullPath%, Save Print Output As
+	Sleep, 200
+	
+	; Click Save
+	ControlClick, Button1, Save Print Output As
+	
+	; Wait for Save to complete
+	WinWaitClose, Save Print Output As, , 15
+	Sleep, 500
+	
+	; Step 10: Copy to secondary folder if configured
+	if (Settings_PDFOutputFolder != "" && FileExist(Settings_PDFOutputFolder)) {
+		if FileExist(pdfFullPath) {
+			copyDest := Settings_PDFOutputFolder . "\" . pdfName
+			FileCopy, %pdfFullPath%, %copyDest%, 1
+			if ErrorLevel
+				ToolTip, ⚠ PDF saved to album but copy to %Settings_PDFOutputFolder% failed
+			else
+				ToolTip, ✅ PDF saved to album folder + copied to %Settings_PDFOutputFolder%
+		} else {
+			ToolTip, ⚠ PDF file not found at %pdfFullPath%
+		}
+	} else {
+		ToolTip, ✅ PDF saved to %albumFolder%
+	}
+	SetTimer, RemoveToolTip, -4000
+	
+	; Step 11: Restore original default printer
+	if (origPrinter != "")
+		RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+Return
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; GetAlbumFolder() - Gets the current album's folder path from ProSelect
+; Uses Ctrl+Shift+S (Save Album As) to open Save dialog, reads the path from
+; the ToolbarWindow324 breadcrumb bar, then cancels.
+; ═══════════════════════════════════════════════════════════════════════════════
+GetAlbumFolder() {
+	; Activate ProSelect
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	if ErrorLevel
+		return ""
+	
+	; Send Ctrl+Shift+S to open Save Album As dialog
+	Send, ^+s
+	
+	; Wait for the Save As dialog
+	WinWait, Save, , 5
+	if ErrorLevel
+		return ""
+	Sleep, 500
+	
+	; Read the current folder path from the breadcrumb/address bar
+	; ToolbarWindow324 is the standard breadcrumb bar control in Win10/11 Save dialogs
+	albumPath := ""
+	
+	; Try ToolbarWindow324 (breadcrumb bar in modern dialogs)
+	ControlGetText, albumPath, ToolbarWindow324, Save
+	
+	; If that returned something like "Address: C:\Users\...\Albums\ClientName"
+	; strip the "Address: " prefix
+	if (InStr(albumPath, "Address: ") = 1)
+		albumPath := SubStr(albumPath, 10)
+	
+	; Fallback: try reading the Edit1 control which may have the folder
+	if (albumPath = "" || albumPath = "Address") {
+		ControlGetText, editPath, Edit1, Save
+		SplitPath, editPath,, editDir
+		if (editDir != "")
+			albumPath := editDir
+	}
+	
+	; Cancel the Save dialog without saving
+	Send, {Escape}
+	WinWaitClose, Save, , 3
+	
+	; Clean up trailing backslash
+	albumPath := RTrim(albumPath, "\")
+	
+	return albumPath
+}
 
 ; Debug keystroke progress indicator - shows what key is being sent when debug logging enabled
 ; Press Right Ctrl to skip waiting and proceed immediately
@@ -2704,8 +2939,8 @@ Gui, Settings:Add, Text, x15 y20 w150 BackgroundTrans Center, SideKick Hub
 Gui, Settings:Font, s11 c%textColor%, Segoe UI
 
 ; Tab buttons with highlight indicator
-global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts
-global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg
+global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts, TabPrint
+global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg, TabPrintBg
 
 ; General tab
 Gui, Settings:Add, Progress, x0 y60 w4 h35 Background0078D4 vTabGeneralBg Hidden
@@ -2735,9 +2970,13 @@ Gui, Settings:Add, Text, x15 y265 w160 h25 BackgroundTrans gSettingsTabAbout vTa
 Gui, Settings:Add, Progress, x0 y300 w4 h35 Background0078D4 vTabShortcutsBg Hidden
 Gui, Settings:Add, Text, x15 y305 w160 h25 BackgroundTrans gSettingsTabShortcuts vTabShortcuts, 🎛  Shortcuts
 
+; Print tab
+Gui, Settings:Add, Progress, x0 y340 w4 h35 Background0078D4 vTabPrintBg Hidden
+Gui, Settings:Add, Text, x15 y345 w160 h25 BackgroundTrans gSettingsTabPrint vTabPrint, 🖨  Print
+
 ; Developer tab (only for dev location)
-Gui, Settings:Add, Progress, x0 y340 w4 h35 Background0078D4 vTabDeveloperBg Hidden
-Gui, Settings:Add, Text, x15 y345 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
+Gui, Settings:Add, Progress, x0 y380 w4 h35 Background0078D4 vTabDeveloperBg Hidden
+Gui, Settings:Add, Text, x15 y385 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
 
 ; SideKick Logo at bottom of sidebar - transparent PNG, use appropriate version for theme
 logoPathDark := A_ScriptDir . "\SideKick_Logo_2025_Dark.png"
@@ -2770,6 +3009,7 @@ CreateFilesPanel()
 CreateLicensePanel()
 CreateAboutPanel()
 CreateShortcutsPanel()
+CreatePrintPanel()
 CreateDeveloperPanel()
 
 ; Show Developer tab only for dev location
@@ -3071,6 +3311,11 @@ Return
 ToggleClick_ShowBtn_Print:
 Toggle_ShowBtn_Print_State := !Toggle_ShowBtn_Print_State
 UpdateToggleSlider("Settings", "ShowBtn_Print", Toggle_ShowBtn_Print_State, 590)
+Return
+
+ToggleClick_EnablePDF:
+Toggle_EnablePDF_State := !Toggle_EnablePDF_State
+UpdateToggleSlider("Settings", "EnablePDF", Toggle_EnablePDF_State, 590)
 Return
 
 ; Function to enable/disable File Management controls based on SD Card enabled state
@@ -5367,31 +5612,63 @@ CreateShortcutsPanel()
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y440 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
 	
+	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
+}
+
+CreatePrintPanel()
+{
+	global
+	
+	; Theme-aware colors
+	if (Settings_DarkMode) {
+		headerColor := "4FC3F7"
+		textColor := "FFFFFF"
+		labelColor := "CCCCCC"
+		mutedColor := "888888"
+		groupColor := "666666"
+	} else {
+		headerColor := "0078D4"
+		textColor := "1E1E1E"
+		labelColor := "444444"
+		mutedColor := "666666"
+		groupColor := "999999"
+	}
+	
+	; Print panel container
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelPrint
+	
+	; Section header
+	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
+	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vPrintHeader, 🖨 Print Settings
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; QUICK PRINT TEMPLATES GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y470 w480 h110 vSCPrintGroup, Quick Print Templates
+	Gui, Settings:Add, GroupBox, x195 y60 w480 h150 vPrintTemplatesGroup, Quick Print Templates
 	
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y493 w440 BackgroundTrans vSCPrintDesc, Template name to match in the Print dialog dropdown.
+	Gui, Settings:Add, Text, x210 y85 w440 BackgroundTrans vPrintTemplatesDesc, Template name to match in ProSelect's Print dialog dropdown.
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y520 w95 h22 BackgroundTrans vSCPrintPayLabel, Payment Plan:
-	Gui, Settings:Add, Edit, x310 y518 w345 h22 cBlack vSCPrintPayPlanEdit, %Settings_PrintTemplate_PayPlan%
+	Gui, Settings:Add, Text, x210 y115 w95 h22 BackgroundTrans vPrintPayPlanLabel, Payment Plan:
+	Gui, Settings:Add, Edit, x310 y113 w345 h22 cBlack vPrintPayPlanEdit, %Settings_PrintTemplate_PayPlan%
 	
-	Gui, Settings:Add, Text, x210 y550 w95 h22 BackgroundTrans vSCPrintStdLabel, Standard:
-	Gui, Settings:Add, Edit, x310 y548 w345 h22 cBlack vSCPrintStandardEdit, %Settings_PrintTemplate_Standard%
+	Gui, Settings:Add, Text, x210 y145 w95 h22 BackgroundTrans vPrintStandardLabel, Standard:
+	Gui, Settings:Add, Edit, x310 y143 w345 h22 cBlack vPrintStandardEdit, %Settings_PrintTemplate_Standard%
+	
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y175 w440 BackgroundTrans vPrintTemplatesHint, The template matching this name will be auto-selected when using Quick Print.
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; ROOM CAPTURE EMAIL GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y590 w480 h80 vSCEmailGroup, Room Capture Email
+	Gui, Settings:Add, GroupBox, x195 y220 w480 h120 vPrintEmailGroup, Room Capture Email
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y615 w95 h22 BackgroundTrans vSCEmailTplLabel HwndHwndEmailTpl, Template:
-	RegisterSettingsTooltip(HwndEmailTpl, "EMAIL TEMPLATE`n`nSelect a GHL email template for room capture emails.`nThe room image will be appended to the template body.`n`nClick 🔄 to fetch templates from GHL.")
+	Gui, Settings:Add, Text, x210 y245 w95 h22 BackgroundTrans vPrintEmailTplLabel HwndHwndPrintEmailTpl, Template:
+	RegisterSettingsTooltip(HwndPrintEmailTpl, "EMAIL TEMPLATE`n`nSelect a GHL email template for room capture emails.`nThe room image will be appended to the template body.`n`nClick 🔄 to fetch templates from GHL.")
 	
 	; Build template list for ComboBox (saved value first, then cached)
 	tplList := Settings_EmailTemplateName
@@ -5413,15 +5690,114 @@ CreateShortcutsPanel()
 			}
 		}
 	}
-	Gui, Settings:Add, ComboBox, x310 y612 w200 r10 vSCEmailTplCombo, %tplList%
-	Gui, Settings:Add, Button, x515 y611 w40 h27 gRefreshEmailTemplates vSCEmailTplRefresh HwndHwndEmailRefresh, 🔄
-	RegisterSettingsTooltip(HwndEmailRefresh, "REFRESH EMAIL TEMPLATES`n`nFetch available email templates from GHL.")
+	Gui, Settings:Add, ComboBox, x310 y243 w200 r10 vPrintEmailTplCombo, %tplList%
+	Gui, Settings:Add, Button, x515 y242 w40 h27 gRefreshPrintEmailTemplates vPrintEmailTplRefresh HwndHwndPrintEmailRefresh, 🔄
+	RegisterSettingsTooltip(HwndPrintEmailRefresh, "REFRESH EMAIL TEMPLATES`n`nFetch available email templates from GHL.")
 	
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y643 w440 BackgroundTrans vSCEmailTplHint, GHL email template used when emailing room captures to client.
+	Gui, Settings:Add, Text, x210 y275 w440 BackgroundTrans vPrintEmailTplHint, GHL email template used when emailing room captures to client.
 	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y300 w95 h22 BackgroundTrans vPrintRoomFolderLabel, Save Folder:
+	Gui, Settings:Add, Edit, x310 y298 w280 h22 cBlack vPrintRoomFolderEdit ReadOnly, %Settings_RoomCaptureFolder%
+	Gui, Settings:Add, Button, x595 y297 w60 h24 gBrowseRoomCaptureFolder vPrintRoomFolderBrowse, Browse
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; PDF OUTPUT GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y350 w480 h180 vPrintPDFGroup, PDF Output
+
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y378 w300 h22 BackgroundTrans vPrintEnablePDFLabel, Enable Print to PDF
+	CreateToggleSlider("Settings", "EnablePDF", 590, 375, Settings_EnablePDF)
+
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y400 w440 BackgroundTrans vPrintPDFDesc, When enabled, the print button saves a PDF to album folder + optional copy folder.
+
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y425 w95 h22 BackgroundTrans vPrintPDFCopyLabel, Copy Folder:
+	Gui, Settings:Add, Edit, x310 y423 w280 h22 cBlack vPrintPDFCopyEdit, %Settings_PDFOutputFolder%
+	Gui, Settings:Add, Button, x595 y422 w60 h24 gBrowsePDFOutputFolder vPrintPDFCopyBrowse, Browse
+
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y453 w440 BackgroundTrans vPrintPDFHint, PDF is always saved to the album folder. Leave blank to skip copying.
+
+	Gui, Settings:Add, Button, x210 y480 w200 h30 gToolbar_PrintToPDF vPrintPDFBtn, 📄 Print to PDF Now
+
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
+
+BrowsePDFOutputFolder:
+	FileSelectFolder, selectedFolder, *%Settings_PDFOutputFolder%, 3, Select PDF Copy Folder
+	if (selectedFolder != "") {
+		Settings_PDFOutputFolder := selectedFolder
+		GuiControl, Settings:, PrintPDFCopyEdit, %selectedFolder%
+	}
+return
+
+RefreshPrintEmailTemplates:
+	; Same as RefreshEmailTemplates but updates Print tab controls
+	ToolTip, Fetching email templates from GHL...
+	
+	; Build command using GetScriptCommand (handles .exe vs .py automatically)
+	tempFile := A_Temp . "\ghl_email_templates.json"
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--get-email-templates")
+	
+	if (scriptCmd = "") {
+		ToolTip
+		DarkMsgBox("Error", "Script not found: sync_ps_invoice", "error")
+		return
+	}
+	
+	; Delete any existing temp file
+	FileDelete, %tempFile%
+	
+	; Build and run the command
+	RunWait, %ComSpec% /c %scriptCmd% > "%tempFile%" 2>&1, , Hide
+	
+	; Read and parse the result
+	FileRead, result, %tempFile%
+	FileDelete, %tempFile%
+	
+	ToolTip
+	
+	if (InStr(result, "ERROR") || result = "") {
+		DarkMsgBox("Error", "Failed to fetch email templates.`n`n" . result, "error")
+		return
+	}
+	
+	; Cache the templates (format: id|name per line)
+	GHL_CachedEmailTemplates := result
+	
+	; Rebuild the dropdown
+	newList := ""
+	Loop, Parse, result, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2) {
+			if (newList != "")
+				newList .= "|"
+			newList .= parts[2]
+		}
+	}
+	
+	GuiControl, Settings:, PrintEmailTplCombo, |%newList%
+	if (Settings_EmailTemplateName != "")
+		GuiControl, Settings:ChooseString, PrintEmailTplCombo, %Settings_EmailTemplateName%
+	
+	DarkMsgBox("Templates Loaded", "Loaded " . StrSplit(result, "`n").MaxIndex() . " email templates from GHL.", "success", {timeout: 2})
+return
+
+BrowseRoomCaptureFolder:
+	FileSelectFolder, selectedFolder, *%Settings_RoomCaptureFolder%, 3, Select Room Capture Folder
+	if (selectedFolder != "") {
+		Settings_RoomCaptureFolder := selectedFolder
+		GuiControl, Settings:, PrintRoomFolderEdit, %selectedFolder%
+	}
+return
 
 CreateDeveloperPanel()
 {
@@ -5528,6 +5904,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, TabFilesBg
 	GuiControl, Settings:Hide, TabAboutBg
 	GuiControl, Settings:Hide, TabShortcutsBg
+	GuiControl, Settings:Hide, TabPrintBg
 	GuiControl, Settings:Hide, TabDeveloperBg
 	
 	; Hide all panels - General
@@ -5760,17 +6137,35 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, SCIcon_Download
 	GuiControl, Settings:Hide, SCLabel_Download
 	GuiControl, Settings:Hide, SCInfoNote
-	GuiControl, Settings:Hide, SCPrintGroup
-	GuiControl, Settings:Hide, SCPrintDesc
-	GuiControl, Settings:Hide, SCPrintPayLabel
-	GuiControl, Settings:Hide, SCPrintPayPlanEdit
-	GuiControl, Settings:Hide, SCPrintStdLabel
-	GuiControl, Settings:Hide, SCPrintStandardEdit
-	GuiControl, Settings:Hide, SCEmailGroup
-	GuiControl, Settings:Hide, SCEmailTplLabel
-	GuiControl, Settings:Hide, SCEmailTplCombo
-	GuiControl, Settings:Hide, SCEmailTplRefresh
-	GuiControl, Settings:Hide, SCEmailTplHint
+	
+	; Hide all panels - Print
+	GuiControl, Settings:Hide, TabPrintBg
+	GuiControl, Settings:Hide, PanelPrint
+	GuiControl, Settings:Hide, PrintHeader
+	GuiControl, Settings:Hide, PrintTemplatesGroup
+	GuiControl, Settings:Hide, PrintTemplatesDesc
+	GuiControl, Settings:Hide, PrintPayPlanLabel
+	GuiControl, Settings:Hide, PrintPayPlanEdit
+	GuiControl, Settings:Hide, PrintStandardLabel
+	GuiControl, Settings:Hide, PrintStandardEdit
+	GuiControl, Settings:Hide, PrintTemplatesHint
+	GuiControl, Settings:Hide, PrintEmailGroup
+	GuiControl, Settings:Hide, PrintEmailTplLabel
+	GuiControl, Settings:Hide, PrintEmailTplCombo
+	GuiControl, Settings:Hide, PrintEmailTplRefresh
+	GuiControl, Settings:Hide, PrintEmailTplHint
+	GuiControl, Settings:Hide, PrintRoomFolderLabel
+	GuiControl, Settings:Hide, PrintRoomFolderEdit
+	GuiControl, Settings:Hide, PrintRoomFolderBrowse
+	GuiControl, Settings:Hide, PrintPDFGroup
+	GuiControl, Settings:Hide, PrintEnablePDFLabel
+	GuiControl, Settings:Hide, Toggle_EnablePDF
+	GuiControl, Settings:Hide, PrintPDFDesc
+	GuiControl, Settings:Hide, PrintPDFCopyLabel
+	GuiControl, Settings:Hide, PrintPDFCopyEdit
+	GuiControl, Settings:Hide, PrintPDFCopyBrowse
+	GuiControl, Settings:Hide, PrintPDFHint
+	GuiControl, Settings:Hide, PrintPDFBtn
 	
 	; Hide all panels - Developer
 	GuiControl, Settings:Hide, PanelDeveloper
@@ -6074,17 +6469,36 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, SCIcon_Download
 		GuiControl, Settings:Show, SCLabel_Download
 		GuiControl, Settings:Show, SCInfoNote
-		GuiControl, Settings:Show, SCPrintGroup
-		GuiControl, Settings:Show, SCPrintDesc
-		GuiControl, Settings:Show, SCPrintPayLabel
-		GuiControl, Settings:Show, SCPrintPayPlanEdit
-		GuiControl, Settings:Show, SCPrintStdLabel
-		GuiControl, Settings:Show, SCPrintStandardEdit
-		GuiControl, Settings:Show, SCEmailGroup
-		GuiControl, Settings:Show, SCEmailTplLabel
-		GuiControl, Settings:Show, SCEmailTplCombo
-		GuiControl, Settings:Show, SCEmailTplRefresh
-		GuiControl, Settings:Show, SCEmailTplHint
+	}
+	else if (tabName = "Print")
+	{
+		GuiControl, Settings:Show, TabPrintBg
+		GuiControl, Settings:Show, PanelPrint
+		GuiControl, Settings:Show, PrintHeader
+		GuiControl, Settings:Show, PrintTemplatesGroup
+		GuiControl, Settings:Show, PrintTemplatesDesc
+		GuiControl, Settings:Show, PrintPayPlanLabel
+		GuiControl, Settings:Show, PrintPayPlanEdit
+		GuiControl, Settings:Show, PrintStandardLabel
+		GuiControl, Settings:Show, PrintStandardEdit
+		GuiControl, Settings:Show, PrintTemplatesHint
+		GuiControl, Settings:Show, PrintEmailGroup
+		GuiControl, Settings:Show, PrintEmailTplLabel
+		GuiControl, Settings:Show, PrintEmailTplCombo
+		GuiControl, Settings:Show, PrintEmailTplRefresh
+		GuiControl, Settings:Show, PrintEmailTplHint
+		GuiControl, Settings:Show, PrintRoomFolderLabel
+		GuiControl, Settings:Show, PrintRoomFolderEdit
+		GuiControl, Settings:Show, PrintRoomFolderBrowse
+		GuiControl, Settings:Show, PrintPDFGroup
+		GuiControl, Settings:Show, PrintEnablePDFLabel
+		GuiControl, Settings:Show, Toggle_EnablePDF
+		GuiControl, Settings:Show, PrintPDFDesc
+		GuiControl, Settings:Show, PrintPDFCopyLabel
+		GuiControl, Settings:Show, PrintPDFCopyEdit
+		GuiControl, Settings:Show, PrintPDFCopyBrowse
+		GuiControl, Settings:Show, PrintPDFHint
+		GuiControl, Settings:Show, PrintPDFBtn
 	}
 	else if (tabName = "Developer")
 	{
@@ -6145,6 +6559,10 @@ Return
 
 SettingsTabShortcuts:
 ShowSettingsTab("Shortcuts")
+Return
+
+SettingsTabPrint:
+ShowSettingsTab("Print")
 Return
 
 SettingsTabDeveloper:
@@ -7167,12 +7585,12 @@ Settings_ShowBtn_Sort := Toggle_ShowBtn_Sort_State
 Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
 Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
 Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
-; Quick Print template strings from edit controls
-Settings_PrintTemplate_PayPlan := SCPrintPayPlanEdit
-Settings_PrintTemplate_Standard := SCPrintStandardEdit
-; Email template from combo box - look up ID from cached templates
-if (SCEmailTplCombo != "" && SCEmailTplCombo != "(none selected)") {
-	Settings_EmailTemplateName := SCEmailTplCombo
+; Quick Print template strings from Print tab edit controls
+Settings_PrintTemplate_PayPlan := PrintPayPlanEdit
+Settings_PrintTemplate_Standard := PrintStandardEdit
+; Email template from Print tab combo box - look up ID from cached templates
+if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)") {
+	Settings_EmailTemplateName := PrintEmailTplCombo
 	; Find ID for this template name
 	Settings_EmailTemplateID := ""
 	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
@@ -7180,7 +7598,7 @@ if (SCEmailTplCombo != "" && SCEmailTplCombo != "(none selected)") {
 		if (A_LoopField = "")
 			continue
 		parts := StrSplit(A_LoopField, "|")
-		if (parts.Length() >= 2 && parts[2] = SCEmailTplCombo) {
+		if (parts.Length() >= 2 && parts[2] = PrintEmailTplCombo) {
 			Settings_EmailTemplateID := parts[1]
 			break
 		}
@@ -7189,6 +7607,9 @@ if (SCEmailTplCombo != "" && SCEmailTplCombo != "(none selected)") {
 	Settings_EmailTemplateName := "(none selected)"
 	Settings_EmailTemplateID := ""
 }
+; PDF settings from Print tab
+Settings_EnablePDF := Toggle_EnablePDF_State
+Settings_PDFOutputFolder := PrintPDFCopyEdit
 ; GHL settings from edit controls
 Settings_GHLTags := GHLTagsEdit
 Settings_GHLOppTags := GHLOppTagsEdit
@@ -7243,12 +7664,12 @@ Settings_ShowBtn_Sort := Toggle_ShowBtn_Sort_State
 Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
 Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
 Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
-; Quick Print template strings from edit controls
-Settings_PrintTemplate_PayPlan := SCPrintPayPlanEdit
-Settings_PrintTemplate_Standard := SCPrintStandardEdit
-; Email template from combo box - look up ID from cached templates
-if (SCEmailTplCombo != "" && SCEmailTplCombo != "(none selected)") {
-	Settings_EmailTemplateName := SCEmailTplCombo
+; Quick Print template strings from Print tab edit controls
+Settings_PrintTemplate_PayPlan := PrintPayPlanEdit
+Settings_PrintTemplate_Standard := PrintStandardEdit
+; Email template from Print tab combo box - look up ID from cached templates
+if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)") {
+	Settings_EmailTemplateName := PrintEmailTplCombo
 	; Find ID for this template name
 	Settings_EmailTemplateID := ""
 	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
@@ -7256,7 +7677,7 @@ if (SCEmailTplCombo != "" && SCEmailTplCombo != "(none selected)") {
 		if (A_LoopField = "")
 			continue
 		parts := StrSplit(A_LoopField, "|")
-		if (parts.Length() >= 2 && parts[2] = SCEmailTplCombo) {
+		if (parts.Length() >= 2 && parts[2] = PrintEmailTplCombo) {
 			Settings_EmailTemplateID := parts[1]
 			break
 		}
@@ -7265,6 +7686,9 @@ if (SCEmailTplCombo != "" && SCEmailTplCombo != "(none selected)") {
 	Settings_EmailTemplateName := "(none selected)"
 	Settings_EmailTemplateID := ""
 }
+; PDF settings from Print tab
+Settings_EnablePDF := Toggle_EnablePDF_State
+Settings_PDFOutputFolder := PrintPDFCopyEdit
 ; GHL settings from edit controls
 Settings_GHLTags := GHLTagsEdit
 Settings_GHLOppTags := GHLOppTagsEdit
@@ -7783,11 +8207,11 @@ RefreshEmailTemplates:
 			newList .= "|"
 		newList .= tplName
 	}
-	GuiControl, Settings:, SCEmailTplCombo, |%newList%
+	GuiControl, Settings:, PrintEmailTplCombo, |%newList%
 	
 	; Select current value if it exists
 	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)")
-		GuiControl, Settings:ChooseString, SCEmailTplCombo, %Settings_EmailTemplateName%
+		GuiControl, Settings:ChooseString, PrintEmailTplCombo, %Settings_EmailTemplateName%
 	
 	tplCount := templateNames.MaxIndex() ? templateNames.MaxIndex() : 0
 	if (tplCount > 0)
@@ -9724,6 +10148,8 @@ LoadSettings()
 	IniRead, Settings_PrintTemplate_Standard, %IniFilename%, Toolbar, PrintTemplate_Standard, Terms of Sale
 	IniRead, Settings_EmailTemplateID, %IniFilename%, Toolbar, EmailTemplateID, %A_Space%
 	IniRead, Settings_EmailTemplateName, %IniFilename%, Toolbar, EmailTemplateName, (none selected)
+	IniRead, Settings_EnablePDF, %IniFilename%, Toolbar, EnablePDF, 0
+	IniRead, Settings_PDFOutputFolder, %IniFilename%, Toolbar, PDFOutputFolder, %A_Space%
 	
 	; Build GHL payment settings URL from location ID
 	if (GHL_LocationID != "")
@@ -9839,6 +10265,8 @@ SaveSettings()
 	IniWrite, %Settings_PrintTemplate_Standard%, %IniFilename%, Toolbar, PrintTemplate_Standard
 	IniWrite, %Settings_EmailTemplateID%, %IniFilename%, Toolbar, EmailTemplateID
 	IniWrite, %Settings_EmailTemplateName%, %IniFilename%, Toolbar, EmailTemplateName
+	IniWrite, %Settings_EnablePDF%, %IniFilename%, Toolbar, EnablePDF
+	IniWrite, %Settings_PDFOutputFolder%, %IniFilename%, Toolbar, PDFOutputFolder
 	
 	; Update invoice folder monitor
 	if (Settings_InvoiceWatchFolder != "" && FileExist(Settings_InvoiceWatchFolder))
