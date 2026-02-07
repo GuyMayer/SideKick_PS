@@ -4883,29 +4883,48 @@ $downloadUrl = '%downloadUrl%'
 $downloadPath = '%Download_Path%'
 
 try {
-    # Remove any stale BITS jobs
-    Get-BitsTransfer -Name "SideKickUpdate" -ErrorAction SilentlyContinue | Remove-BitsTransfer
+    # First try BITS transfer
+    try {
+        # Remove any stale BITS jobs
+        Get-BitsTransfer -Name "SideKickUpdate" -ErrorAction SilentlyContinue | Remove-BitsTransfer -ErrorAction SilentlyContinue
 
-    # Start BITS transfer
-    $job = Start-BitsTransfer -Source $downloadUrl -Destination $downloadPath -Asynchronous -DisplayName "SideKickUpdate"
-    
-    # Monitor progress
-    while ($job.JobState -eq "Transferring" -or $job.JobState -eq "Connecting") {
-        if ($job.BytesTotal -gt 0) {
-            $percent = [int](($job.BytesTransferred / $job.BytesTotal) * 100)
-            $percent | Out-File -FilePath $progressFile -Force
+        # Start BITS transfer
+        $job = Start-BitsTransfer -Source $downloadUrl -Destination $downloadPath -Asynchronous -DisplayName "SideKickUpdate"
+        
+        # Monitor progress with timeout
+        $timeout = [DateTime]::Now.AddMinutes(5)
+        while (($job.JobState -eq "Transferring" -or $job.JobState -eq "Connecting") -and [DateTime]::Now -lt $timeout) {
+            if ($job.BytesTotal -gt 0) {
+                $percent = [int](($job.BytesTransferred / $job.BytesTotal) * 100)
+                $percent | Out-File -FilePath $progressFile -Force
+            }
+            Start-Sleep -Milliseconds 100
         }
-        Start-Sleep -Milliseconds 100
-    }
-    
-    if ($job.JobState -eq "Transferred") {
-        Complete-BitsTransfer -BitsJob $job
-        "100" | Out-File -FilePath $progressFile -Force
-        "OK" | Out-File -FilePath $completeFile -Force
-        Unblock-File -Path $downloadPath -ErrorAction SilentlyContinue
-    } else {
-        "FAILED: $($job.JobState)" | Out-File -FilePath $completeFile -Force
-        $job | Remove-BitsTransfer -ErrorAction SilentlyContinue
+        
+        if ($job.JobState -eq "Transferred") {
+            Complete-BitsTransfer -BitsJob $job
+            "100" | Out-File -FilePath $progressFile -Force
+            "OK" | Out-File -FilePath $completeFile -Force
+            Unblock-File -Path $downloadPath -ErrorAction SilentlyContinue
+        } else {
+            throw "BITS failed: $($job.JobState)"
+        }
+    } catch {
+        # BITS failed - fallback to Invoke-WebRequest
+        "50" | Out-File -FilePath $progressFile -Force
+        
+        # Use TLS 1.2
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath -UseBasicParsing
+        
+        if (Test-Path $downloadPath) {
+            "100" | Out-File -FilePath $progressFile -Force
+            "OK" | Out-File -FilePath $completeFile -Force
+            Unblock-File -Path $downloadPath -ErrorAction SilentlyContinue
+        } else {
+            throw "Download file not created"
+        }
     }
 } catch {
     "FAILED: $($_.Exception.Message)" | Out-File -FilePath $completeFile -Force
