@@ -236,11 +236,81 @@ def debug_log(message, data=None):
     except Exception as e:
         print(f"DEBUG LOG ERROR: {e}")
 
+# Helper function to get monitor info
+def get_monitor_info():
+    """Get information about all connected monitors including resolution and DPI scaling."""
+    monitors = []
+    try:
+        import ctypes
+        from ctypes import wintypes
+        
+        # Enable DPI awareness to get accurate scaling info
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
+        
+        # EnumDisplayMonitors callback
+        MONITORENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(wintypes.RECT), ctypes.c_void_p)
+        
+        def callback(hMonitor, hdcMonitor, lprcMonitor, dwData):
+            try:
+                # Get monitor info
+                class MONITORINFOEX(ctypes.Structure):
+                    _fields_ = [
+                        ("cbSize", wintypes.DWORD),
+                        ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT),
+                        ("dwFlags", wintypes.DWORD),
+                        ("szDevice", wintypes.WCHAR * 32)
+                    ]
+                
+                mi = MONITORINFOEX()
+                mi.cbSize = ctypes.sizeof(MONITORINFOEX)
+                ctypes.windll.user32.GetMonitorInfoW(hMonitor, ctypes.byref(mi))
+                
+                # Calculate resolution
+                width = mi.rcMonitor.right - mi.rcMonitor.left
+                height = mi.rcMonitor.bottom - mi.rcMonitor.top
+                
+                # Get DPI scaling
+                dpi_x = ctypes.c_uint()
+                dpi_y = ctypes.c_uint()
+                try:
+                    ctypes.windll.shcore.GetDpiForMonitor(hMonitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
+                    scale = int(dpi_x.value / 96 * 100)
+                except Exception:
+                    scale = 100
+                
+                is_primary = (mi.dwFlags & 1) != 0
+                monitors.append({
+                    'device': mi.szDevice.strip('\x00'),
+                    'width': width,
+                    'height': height,
+                    'left': mi.rcMonitor.left,
+                    'top': mi.rcMonitor.top,
+                    'work_left': mi.rcWork.left,
+                    'work_top': mi.rcWork.top,
+                    'work_right': mi.rcWork.right,
+                    'work_bottom': mi.rcWork.bottom,
+                    'scale': scale,
+                    'primary': is_primary
+                })
+            except Exception:
+                pass
+            return True
+        
+        ctypes.windll.user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(callback), 0)
+    except Exception:
+        pass
+    return monitors
+
 # Initialize debug log with header
 if DEBUG_MODE:
     try:
         computer_name = os.environ.get('COMPUTERNAME', 'Unknown')
         username = os.environ.get('USERNAME', 'Unknown')
+        monitors = get_monitor_info()
         with open(DEBUG_LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(f"\n{'='*70}\n")
             f.write(f"SIDEKICK DEBUG LOG - VERBOSE MODE\n")
@@ -254,6 +324,13 @@ if DEBUG_MODE:
             f.write(f"Script Path:    {script_path}\n")
             f.write(f"Working Dir:    {os.getcwd()}\n")
             f.write(f"Command Args:   {sys.argv}\n")
+            f.write(f"{'-'*70}\n")
+            f.write(f"DISPLAY INFO ({len(monitors)} monitor{'s' if len(monitors) != 1 else ''}):\n")
+            for i, mon in enumerate(monitors, 1):
+                primary_str = " [PRIMARY]" if mon.get('primary') else ""
+                f.write(f"  Monitor {i}{primary_str}: {mon['width']}x{mon['height']} @ {mon['scale']}% scaling\n")
+                f.write(f"    Position: ({mon['left']}, {mon['top']})\n")
+                f.write(f"    Work Area: ({mon['work_left']}, {mon['work_top']}) to ({mon['work_right']}, {mon['work_bottom']})\n")
             f.write(f"{'='*70}\n\n")
     except Exception:
         pass

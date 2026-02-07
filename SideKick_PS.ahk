@@ -149,6 +149,23 @@ DllCall("SetThreadDpiAwarenessContext", "ptr", -2, "ptr")  ; DPI_AWARENESS_CONTE
 global DPI_Scale := A_ScreenDPI / 96
 FileAppend, % A_Now . " - DPI Scale: " . DPI_Scale . "`n", %DebugLogFile%
 
+; Log monitor information
+SysGet, MonitorCount, MonitorCount
+SysGet, MonitorPrimary, MonitorPrimary
+FileAppend, % A_Now . " - Monitor Count: " . MonitorCount . ", Primary: " . MonitorPrimary . "`n", %DebugLogFile%
+Loop, %MonitorCount%
+{
+    SysGet, Mon, Monitor, %A_Index%
+    SysGet, MonWork, MonitorWorkArea, %A_Index%
+    SysGet, MonName, MonitorName, %A_Index%
+    monWidth := MonRight - MonLeft
+    monHeight := MonBottom - MonTop
+    isPrimary := (A_Index = MonitorPrimary) ? " [PRIMARY]" : ""
+    FileAppend, % "    Monitor " . A_Index . isPrimary . ": " . monWidth . "x" . monHeight . " at (" . MonLeft . ", " . MonTop . ")`n", %DebugLogFile%
+    FileAppend, % "      Work Area: (" . MonWorkLeft . ", " . MonWorkTop . ") to (" . MonWorkRight . ", " . MonWorkBottom . ")`n", %DebugLogFile%
+}
+FileAppend, % "`n", %DebugLogFile%
+
 FileAppend, % A_Now . " - Loading Acc.ahk...`n", %DebugLogFile%
 #Include %A_ScriptDir%\Lib\Acc.ahk
 FileAppend, % A_Now . " - Loading Chrome.ahk...`n", %DebugLogFile%
@@ -1274,81 +1291,91 @@ CreateFloatingToolbar()
 		btnCount++
 	btnCount++  ; Settings button (always visible)
 	
-	toolbarWidth := 2 + (btnCount * 51)
-	toolbarHeight := 43
+	; Scale button dimensions for DPI
+	btnW := Round(44 * DPI_Scale)
+	btnH := Round(38 * DPI_Scale)
+	btnSpacing := Round(51 * DPI_Scale)
+	btnMargin := Round(2 * DPI_Scale)
+	btnY := Round(3 * DPI_Scale)
+	btnY1 := Round(1 * DPI_Scale)  ; For camera button
+	fontSize := Round(16 * DPI_Scale)
+	fontSizeSmall := Round(14 * DPI_Scale)
+	
+	toolbarWidth := btnMargin + (btnCount * btnSpacing)
+	toolbarHeight := Round(43 * DPI_Scale)
 	
 	; Transparent background with colored buttons
 	Gui, Toolbar:New, +AlwaysOnTop +ToolWindow -Caption +HwndToolbarHwnd
 	Gui, Toolbar:Color, 1E1E1E
-	Gui, Toolbar:Font, s16, Segoe UI
+	Gui, Toolbar:Font, s%fontSize%, Segoe UI
 	
 	; Get icon color from settings
 	iconColor := Settings_ToolbarIconColor ? Settings_ToolbarIconColor : "White"
 	
-	; Dynamic x position - each visible button advances by 51px
-	nextX := 2
+	; Dynamic x position - each visible button advances by btnSpacing
+	nextX := btnMargin
 	
 	; Client button (👤)
 	if (Settings_ShowBtn_Client) {
-		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client, 👤
-		nextX += 51
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client, 👤
+		nextX += btnSpacing
 	}
 	
 	; Invoice button (📋)
 	if (Settings_ShowBtn_Invoice) {
-		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice, 📋
-		nextX += 51
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice, 📋
+		nextX += btnSpacing
 	}
 	
 	; Open GHL button (🌐)
 	if (Settings_ShowBtn_OpenGHL) {
-		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL, 🌐
-		nextX += 51
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL, 🌐
+		nextX += btnSpacing
 	}
 	
 	; Camera button - two versions for state indication (only one visible at a time)
 	if (Settings_ShowBtn_Camera) {
-		Gui, Toolbar:Add, Text, x%nextX% y1 w44 h38 Center 0x200 BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_CameraOn, 📷
-		Gui, Toolbar:Add, Text, x%nextX% y1 w44 h38 Center 0x200 BackgroundGray c%iconColor% gToolbar_CaptureRoom vTB_CameraOff Hidden, 📷
-		Gui, Toolbar:Add, Text, x%nextX% y1 w44 h38 Center 0x200 BackgroundYellow cBlack gToolbar_CaptureRoom vTB_CameraCalib Hidden, 📷
-		nextX += 51
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_CameraOn, 📷
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_CaptureRoom vTB_CameraOff Hidden, 📷
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundYellow cBlack gToolbar_CaptureRoom vTB_CameraCalib Hidden, 📷
+		nextX += btnSpacing
 	}
 	
 	; Sort button (🔀/🔤)
 	if (Settings_ShowBtn_Sort) {
 		SortMode_IsRandom := false
-		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundGray c%iconColor% gToolbar_ToggleSort vTB_Sort, 🔀
-		nextX += 51
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_ToggleSort vTB_Sort, 🔀
+		nextX += btnSpacing
 	}
 	
 	; Photoshop button (Ps)
 	if (Settings_ShowBtn_Photoshop) {
-		Gui, Toolbar:Font, s14 Bold, Segoe UI
-		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 Background001E36 c33A1FD gToolbar_Photoshop vTB_Photoshop, Ps
-		Gui, Toolbar:Font, s16 Norm, Segoe UI
-		nextX += 51
+		Gui, Toolbar:Font, s%fontSizeSmall% Bold, Segoe UI
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background001E36 c33A1FD gToolbar_Photoshop vTB_Photoshop, Ps
+		Gui, Toolbar:Font, s%fontSize% Norm, Segoe UI
+		nextX += btnSpacing
 	}
 	
 	; Refresh button (🔄)
 	if (Settings_ShowBtn_Refresh) {
-		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh, 🔄
-		nextX += 51
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh, 🔄
+		nextX += btnSpacing
 	}
 	
 	; Quick Print button (🖨)
 	if (Settings_ShowBtn_Print) {
-		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 Background444444 c%iconColor% gToolbar_QuickPrint vTB_Print, 🖨
-		nextX += 51
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background444444 c%iconColor% gToolbar_QuickPrint vTB_Print, 🖨
+		nextX += btnSpacing
 	}
 	
 	; SD Card Download button
 	if (Settings_SDCardEnabled) {
-		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download, 📥
-		nextX += 51
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download, 📥
+		nextX += btnSpacing
 	}
 	
 	; Settings button (always visible)
-	Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings, ⚙
+	Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings, ⚙
 	
 	; Make background transparent
 	WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
@@ -1458,9 +1485,11 @@ if (!TB_CalibShowing) {
 */
 
 ; Position inline with window close X button - adjust for toolbar width
+; Scale the offset for high-DPI displays (147 is the base offset at 100% scaling)
 tbWidth := toolbarWidth
-newX := psX + psW - (tbWidth + 147)
-newY := psY + 6
+closeButtonOffset := Round(147 * DPI_Scale)
+newX := psX + psW - (tbWidth + closeButtonOffset)
+newY := psY + Round(6 * DPI_Scale)
 
 ; Ensure toolbar stays within screen bounds
 SysGet, monitorCount, MonitorCount
@@ -1474,6 +1503,7 @@ psCenterY := psY + (psH // 2)
 foundMonitor := false
 
 ; Check each monitor to find which one contains the ProSelect window
+tbHeight := Round(43 * DPI_Scale)
 Loop, %monitorCount% {
 	SysGet, mon, MonitorWorkArea, %A_Index%
 	if (psCenterX >= monLeft && psCenterX <= monRight && psCenterY >= monTop && psCenterY <= monBottom) {
@@ -1485,8 +1515,8 @@ Loop, %monitorCount% {
 			newX := monRight - tbWidth
 		if (newY < monTop)
 			newY := monTop
-		if (newY + 43 > monBottom)
-			newY := monBottom - 43
+		if (newY + tbHeight > monBottom)
+			newY := monBottom - tbHeight
 		break
 	}
 }
@@ -1499,8 +1529,8 @@ if (!foundMonitor) {
 		newX := primaryMonRight - tbWidth
 	if (newY < primaryMonTop)
 		newY := primaryMonTop
-	if (newY + 43 > primaryMonBottom)
-		newY := primaryMonBottom - 43
+	if (newY + tbHeight > primaryMonBottom)
+		newY := primaryMonBottom - tbHeight
 }
 
 ; Final safety check - ensure at least X >= 0 and Y >= 0
@@ -2002,9 +2032,8 @@ Toolbar_CaptureRoom:
 		; Auto-copy path to clipboard
 		Clipboard := outputFile
 		
-		; Show confirmation with Open, Reveal and Email buttons - path already copied
-		btnTips := {"OK": "Close this dialog", "Open": "Open image in default viewer", "Reveal": "Show file in Explorer", "Email": "Email this image to the client via GHL"}
-		captureResult := DarkMsgBox("Room Captured", "Saved: " . albumName . "-room" . roomNum . ".jpg`n`nFolder: " . Settings_RoomCaptureFolder . "`n`n📋 Image path copied to clipboard", "info", {buttons: ["OK", "Open", "Reveal", "Email"], tooltips: btnTips})
+		; Show confirmation dialog with image preview
+		captureResult := ShowRoomCapturedDialog(outputFile, albumName, roomNum)
 		if (captureResult = "Open")
 		{
 			; Open the image file with default viewer
@@ -7768,6 +7797,157 @@ RefreshEmailTemplates:
 }
 
 ; ============================================================================
+; Room Captured Dialog - Show image preview with action buttons
+; ============================================================================
+ShowRoomCapturedDialog(imagePath, albumName, roomNum)
+{
+	global Settings_RoomCaptureFolder, DPI_Scale, RoomCapturedResult, RoomCaptured_ImageHwnd
+	
+	; Initialize GDI+ for thumbnail
+	pToken := Gdip_Startup()
+	if (!pToken)
+		return "OK"
+	
+	; Load the captured image
+	pBitmap := Gdip_CreateBitmapFromFile(imagePath)
+	if (!pBitmap) {
+		Gdip_Shutdown(pToken)
+		return "OK"
+	}
+	
+	; Get original dimensions
+	origW := Gdip_GetImageWidth(pBitmap)
+	origH := Gdip_GetImageHeight(pBitmap)
+	
+	; Calculate thumbnail size (max 300x200 at 100% DPI)
+	thumbMaxW := Round(300 * DPI_Scale)
+	thumbMaxH := Round(200 * DPI_Scale)
+	
+	if (origW / origH > thumbMaxW / thumbMaxH) {
+		thumbW := thumbMaxW
+		thumbH := Round(origH * (thumbMaxW / origW))
+	} else {
+		thumbH := thumbMaxH
+		thumbW := Round(origW * (thumbMaxH / origH))
+	}
+	
+	; Create resized bitmap for thumbnail
+	pThumb := Gdip_CreateBitmap(thumbW, thumbH)
+	G := Gdip_GraphicsFromImage(pThumb)
+	Gdip_SetInterpolationMode(G, 7)  ; High quality bicubic
+	Gdip_DrawImage(G, pBitmap, 0, 0, thumbW, thumbH, 0, 0, origW, origH)
+	Gdip_DeleteGraphics(G)
+	Gdip_DisposeImage(pBitmap)
+	
+	; Create HBITMAP for GUI
+	hBitmap := Gdip_CreateHBITMAPFromBitmap(pThumb)
+	Gdip_DisposeImage(pThumb)
+	Gdip_Shutdown(pToken)
+	
+	; Calculate dialog dimensions
+	dlgPadding := Round(20 * DPI_Scale)
+	btnH := Round(35 * DPI_Scale)
+	btnW := Round(80 * DPI_Scale)
+	fontSize := Round(11 * DPI_Scale)
+	titleSize := Round(14 * DPI_Scale)
+	
+	dlgW := thumbW + (dlgPadding * 2)
+	if (dlgW < Round(400 * DPI_Scale))
+		dlgW := Round(400 * DPI_Scale)
+	
+	; Build the dialog
+	RoomCapturedResult := "OK"
+	
+	Gui, RoomCaptured:New, +AlwaysOnTop +HwndRoomCapturedHwnd -MinimizeBox
+	Gui, RoomCaptured:Color, 1E1E1E
+	Gui, RoomCaptured:Font, s%titleSize% c00BFFF, Segoe UI
+	
+	; Title with icon
+	yPos := dlgPadding
+	Gui, RoomCaptured:Add, Text, x%dlgPadding% y%yPos% w%dlgW% cWhite, 🖼 Room Captured
+	
+	; Image preview
+	yPos += Round(30 * DPI_Scale)
+	imgX := (dlgW - thumbW) / 2
+	Gui, RoomCaptured:Add, Picture, x%imgX% y%yPos% w%thumbW% h%thumbH% vRoomCaptured_ImageHwnd +0xE
+	
+	; Set the bitmap to the picture control
+	GuiControl, RoomCaptured:, RoomCaptured_ImageHwnd, HBITMAP:*%hBitmap%
+	
+	; Filename info
+	yPos += thumbH + Round(15 * DPI_Scale)
+	Gui, RoomCaptured:Font, s%fontSize% cWhite, Segoe UI
+	fileName := albumName . "-room" . roomNum . ".jpg"
+	Gui, RoomCaptured:Add, Text, x%dlgPadding% y%yPos% w%dlgW%, Saved: %fileName%
+	
+	; Folder info
+	yPos += Round(22 * DPI_Scale)
+	Gui, RoomCaptured:Font, s%fontSize% cGray, Segoe UI
+	folderDisplay := Settings_RoomCaptureFolder
+	if (StrLen(folderDisplay) > 50)
+		folderDisplay := "..." . SubStr(folderDisplay, -47)
+	Gui, RoomCaptured:Add, Text, x%dlgPadding% y%yPos% w%dlgW%, Folder: %folderDisplay%
+	
+	; Clipboard notice
+	yPos += Round(22 * DPI_Scale)
+	Gui, RoomCaptured:Font, s%fontSize% c00FF00, Segoe UI
+	Gui, RoomCaptured:Add, Text, x%dlgPadding% y%yPos% w%dlgW%, 📋 Image path copied to clipboard
+	
+	; Buttons
+	yPos += Round(40 * DPI_Scale)
+	btnSpacing := Round(10 * DPI_Scale)
+	totalBtnW := (btnW * 4) + (btnSpacing * 3)
+	btnX := (dlgW - totalBtnW) / 2
+	
+	Gui, RoomCaptured:Font, s%fontSize% cWhite, Segoe UI
+	Gui, RoomCaptured:Add, Button, x%btnX% y%yPos% w%btnW% h%btnH% gRoomCapturedOK Default, OK
+	btnX += btnW + btnSpacing
+	Gui, RoomCaptured:Add, Button, x%btnX% y%yPos% w%btnW% h%btnH% gRoomCapturedOpen, Open
+	btnX += btnW + btnSpacing
+	Gui, RoomCaptured:Add, Button, x%btnX% y%yPos% w%btnW% h%btnH% gRoomCapturedReveal, Reveal
+	btnX += btnW + btnSpacing
+	Gui, RoomCaptured:Add, Button, x%btnX% y%yPos% w%btnW% h%btnH% gRoomCapturedEmail, Email
+	
+	; Show dialog
+	dlgH := yPos + btnH + dlgPadding
+	Gui, RoomCaptured:Show, w%dlgW% h%dlgH%, Room Captured
+	
+	; Wait for user action
+	WinWaitClose, ahk_id %RoomCapturedHwnd%
+	
+	; Cleanup
+	DllCall("DeleteObject", "Ptr", hBitmap)
+	
+	return RoomCapturedResult
+}
+
+RoomCapturedOK:
+RoomCapturedResult := "OK"
+Gui, RoomCaptured:Destroy
+return
+
+RoomCapturedOpen:
+RoomCapturedResult := "Open"
+Gui, RoomCaptured:Destroy
+return
+
+RoomCapturedReveal:
+RoomCapturedResult := "Reveal"
+Gui, RoomCaptured:Destroy
+return
+
+RoomCapturedEmail:
+RoomCapturedResult := "Email"
+Gui, RoomCaptured:Destroy
+return
+
+RoomCapturedGuiClose:
+RoomCapturedGuiEscape:
+RoomCapturedResult := "OK"
+Gui, RoomCaptured:Destroy
+return
+
+; ============================================================================
 ; Room Email Dialog - Show template picker before sending room capture email
 ; ============================================================================
 ShowRoomEmailDialog()
@@ -7801,7 +7981,8 @@ ShowRoomEmailDialog()
 	Gui, RoomEmail:Font, s10 c888888, Segoe UI
 	Gui, RoomEmail:Add, Text, x20 y45 w360, Select an email template:
 	Gui, RoomEmail:Font, s10 cWhite, Segoe UI
-	Gui, RoomEmail:Add, DropDownList, x20 y70 w360 vRoomEmail_SelectedTplName, %tplDropdown%
+	Gui, RoomEmail:Add, DropDownList, x20 y70 w320 vRoomEmail_SelectedTplName, %tplDropdown%
+	Gui, RoomEmail:Add, Button, x345 y69 w35 h24 gRoomEmailRefresh, 🔄
 	
 	; Pre-select the default template if configured
 	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)")
@@ -7874,6 +8055,75 @@ RoomEmailGuiClose:
 RoomEmailGuiEscape:
 Gui, RoomEmail:Destroy
 return
+
+RoomEmailRefresh:
+{
+	global GHL_CachedEmailTemplates, IniFilename, RoomEmail_TplIDs, RoomEmail_TplNames
+	global Settings_EmailTemplateName
+	
+	ToolTip, Fetching email templates from GHL...
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
+	
+	tempOutput := A_Temp . "\ghl_templates_" . A_TickCount . ".txt"
+	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempOutput . """ 2>&1"""
+	RunWait, %fullCmd%, , Hide
+	ToolTip
+	
+	FileRead, tplOutput, %tempOutput%
+	FileDelete, %tempOutput%
+	
+	; Check for errors
+	if (InStr(tplOutput, "API_ERROR") || InStr(tplOutput, "ERROR|"))
+	{
+		DarkMsgBox("API Error", "Could not load email templates from GHL.`nCheck API connection.", "warning")
+		return
+	}
+	
+	if (InStr(tplOutput, "NO_TEMPLATES") || tplOutput = "")
+	{
+		DarkMsgBox("No Templates", "No email templates found in GHL.`n`nCreate an email template in GHL first.", "info")
+		return
+	}
+	
+	; Cache the raw output (id|name per line)
+	GHL_CachedEmailTemplates := tplOutput
+	
+	; Save to INI for persistence
+	iniValue := StrReplace(tplOutput, "`n", "§§")
+	iniValue := StrReplace(iniValue, "`r", "")
+	IniWrite, %iniValue%, %IniFilename%, GHL, CachedEmailTemplates
+	
+	; Rebuild template list arrays and dropdown
+	RoomEmail_TplIDs := []
+	RoomEmail_TplNames := []
+	tplDropdown := "(none - use default)|"
+	
+	Loop, Parse, tplOutput, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2)
+		{
+			RoomEmail_TplIDs.Push(parts[1])
+			RoomEmail_TplNames.Push(parts[2])
+			tplDropdown .= parts[2] . "|"
+		}
+	}
+	
+	; Update the dropdown
+	GuiControl, RoomEmail:, RoomEmail_SelectedTplName, |%tplDropdown%
+	
+	; Re-select the default template if configured
+	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)")
+		GuiControl, RoomEmail:ChooseString, RoomEmail_SelectedTplName, %Settings_EmailTemplateName%
+	else
+		GuiControl, RoomEmail:Choose, RoomEmail_SelectedTplName, 1
+	
+	tplCount := RoomEmail_TplNames.Length()
+	DarkMsgBox("Templates Refreshed", "Loaded " . tplCount . " email templates.", "success", {timeout: 2})
+	return
+}
 
 ; ============================================================================
 ; Refresh GHL Tags - Fetch CONTACT tags from GHL API
