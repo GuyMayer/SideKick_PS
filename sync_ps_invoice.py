@@ -3083,11 +3083,15 @@ def _list_snippets_fallback(headers: dict, location_id: str):
         print(f"ERROR|{str(e)}")
 
 
-def _generate_contact_sheet_path(cs_data: dict) -> str:
+def _generate_contact_sheet_path(cs_data: dict, xml_path: str = '') -> str:
     """Generate JPG path for contact sheet.
+
+    Saves to the same directory as the XML file for easy access and to avoid
+    permission issues with Program Files or other restricted directories.
 
     Args:
         cs_data: Contact sheet data dictionary.
+        xml_path: Path to the source XML file (JPG saved alongside it).
 
     Returns:
         str: Full path to JPG file.
@@ -3103,7 +3107,13 @@ def _generate_contact_sheet_path(cs_data: dict) -> str:
 
     date_str = cs_data['order_datetime'].strftime(date_format)
     jpg_filename = f"{cs_data['shoot_no']}-{cs_data['last_name']}-{date_str}.jpg"
-    return os.path.join(_get_output_dir(), jpg_filename)
+
+    # Use XML directory if provided, otherwise fall back to writable output dir
+    if xml_path:
+        output_dir = os.path.dirname(os.path.abspath(xml_path))
+    else:
+        output_dir = _get_output_dir()
+    return os.path.join(output_dir, jpg_filename)
 
 
 def _add_contact_sheet_note(contact_id: str, cs_data: dict, thumb_folder: str, jpg_url: str) -> None:
@@ -3165,7 +3175,7 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
 
         debug_log("CONTACT SHEET - Thumbnail folder found", {"thumb_folder": thumb_folder})
 
-        jpg_path = _generate_contact_sheet_path(cs_data)
+        jpg_path = _generate_contact_sheet_path(cs_data, xml_path)
         title = f"Product Gallery - {cs_data['shoot_no']}"
         subtitle = f"{cs_data['first_name']} {cs_data['last_name']} - {cs_data.get('order_date', '')}"
 
