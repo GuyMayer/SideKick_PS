@@ -19,9 +19,39 @@ from datetime import datetime
 # =============================================================================
 # DEBUG MODE - Read from INI file (Settings > DebugLogging)
 # =============================================================================
+def _sanitize_ini_file(ini_path: str) -> bool:
+    """Fix corrupted INI files with multi-line values that break configparser.
+    
+    Args:
+        ini_path: Path to the INI file.
+        
+    Returns:
+        bool: True if file was fixed, False if no fix needed or failed.
+    """
+    try:
+        import re
+        with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        
+        # Pattern: PaymentTypes= followed by lines that aren't key=value or [section]
+        # These are orphan lines that break configparser
+        fixed = re.sub(
+            r'(PaymentTypes=[^\r\n]*)\r?\n((?:(?![\[\w]+=)[^\r\n]+\r?\n)+)',
+            lambda m: m.group(1) + '|' + '|'.join(line.strip() for line in m.group(2).strip().split('\n') if line.strip()) + '\n',
+            content
+        )
+        
+        if fixed != content:
+            with open(ini_path, 'w', encoding='utf-8') as f:
+                f.write(fixed)
+            return True
+    except Exception:
+        pass
+    return False
+
 def get_debug_mode_setting() -> bool:
     """Read DebugLogging setting from INI file.
-    
+
     Defaults to OFF. Auto-disables after 24 hours.
 
     Returns:
@@ -39,7 +69,14 @@ def get_debug_mode_setting() -> bool:
         for ini_path in possible_paths:
             if os.path.exists(ini_path):
                 config = configparser.ConfigParser()
-                config.read(ini_path)
+                try:
+                    config.read(ini_path)
+                except configparser.ParsingError:
+                    # Try to fix corrupted INI and retry
+                    if _sanitize_ini_file(ini_path):
+                        config.read(ini_path)
+                    else:
+                        continue
                 enabled = config.get('Settings', 'DebugLogging', fallback='0') == '1'
                 if not enabled:
                     return False
@@ -116,7 +153,13 @@ def get_auto_send_logs_setting() -> bool:
             if os.path.exists(ini_path):
                 import configparser
                 config = configparser.ConfigParser()
-                config.read(ini_path)
+                try:
+                    config.read(ini_path)
+                except configparser.ParsingError:
+                    if _sanitize_ini_file(ini_path):
+                        config.read(ini_path)
+                    else:
+                        continue
                 return config.get('Settings', 'AutoSendLogs', fallback='0') == '1'
         return False
     except Exception:
@@ -318,6 +361,9 @@ def _parse_ini_file(ini_path: str) -> dict:
     Returns:
         dict: Nested dictionary with sections as keys.
     """
+    # Auto-fix corrupted INI files (e.g., multi-line PaymentTypes)
+    _sanitize_ini_file(ini_path)
+    
     config = {}
     current_section = None
 
@@ -389,6 +435,10 @@ def load_config() -> dict:
     ghl = config['GHL']
     api_key = _decode_api_key(ghl)
     location_id = ghl.get('LocationID', '')
+    
+    # Tag settings (configurable)
+    sync_tag = ghl.get('SyncTag', 'PS Invoice')  # Tag added when invoice synced
+    opportunity_tags = ghl.get('OpportunityTags', 'ProSelect,Invoice Synced')  # Tags for opportunities
 
     # DEBUG: Override location ID if debug mode is on
     if DEBUG_MODE and DEBUG_LOCATION_ID:
@@ -398,6 +448,8 @@ def load_config() -> dict:
     return {
         'API_KEY': api_key,
         'LOCATION_ID': location_id,
+        'SYNC_TAG': sync_tag,
+        'OPPORTUNITY_TAGS': [t.strip() for t in opportunity_tags.split(',') if t.strip()],
     }
 
 # Load config
@@ -424,7 +476,7 @@ def get_business_details() -> dict:
         return _BUSINESS_DETAILS_CACHE
 
     default_details = {"name": "Business"}
-    
+
     try:
         location_id = CONFIG.get('LOCATION_ID', '')
         url = f"https://services.leadconnectorhq.com/locations/{location_id}"
@@ -437,48 +489,52 @@ def get_business_details() -> dict:
         if response.status_code == 200:
             data = response.json().get('location', {})
             business = data.get('business', {})
-            
+
             # Build business details dict
             details = {
                 "name": data.get('name') or business.get('name') or 'Business'
             }
-            
-            # Add address if available
+
+            # Add address if available - must be object for invoice API
             address = data.get('address') or data.get('businessAddress') or business.get('address')
             if address:
-                details["address"] = address
-            
+                # If address is a string, convert to object format required by invoice API
+                if isinstance(address, str):
+                    details["address"] = {"addressLine1": address}
+                else:
+                    details["address"] = address
+
             # Add phone if available
             phone = data.get('phone') or business.get('phone')
             if phone:
                 details["phoneNo"] = phone
-            
+
             # Add email if available
             email = data.get('email') or business.get('email')
             if email:
                 details["email"] = email
-            
+
             # Add logo if available
             logo = data.get('logoUrl') or business.get('logoUrl')
             if logo:
                 details["logoUrl"] = logo
-            
+
             # Add website if available
             website = data.get('website') or business.get('website')
             if website:
                 details["website"] = website
-            
+
             # Add VAT/Tax ID if available
             vat = data.get('vatNumber') or data.get('taxId') or business.get('vatNumber') or business.get('taxId')
             if vat:
                 details["customValues"] = [{"Tax ID/VAT Number": vat}]
-            
+
             _BUSINESS_DETAILS_CACHE = details
             debug_log("BUSINESS DETAILS FETCHED", details)
             return details
     except Exception as e:
         debug_log(f"ERROR fetching business details: {e}")
-    
+
     return default_details
 
 def get_business_name() -> str:
@@ -538,14 +594,41 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
         debug_log(f"XML parsed successfully, root tag: {root.tag}")
 
         # Extract client info - Client_ID is the GHL contact ID
+        client_id_raw = get_text(root, 'Client_ID')
+        album_name = get_text(root, 'Album_Name')
+        
+        # Determine GHL contact ID - try Client_ID first, then extract from Album_Name
+        ghl_contact_id = client_id_raw
+        
+        # GHL contact IDs are typically 20+ alphanumeric chars
+        # If Client_ID looks like a shoot number (e.g., P26014P), try Album_Name
+        if client_id_raw and len(client_id_raw) < 15:
+            # Try to extract GHL contact ID from album name (format: ShootNo_Name_GHLContactID)
+            if album_name and '_' in album_name:
+                parts = album_name.split('_')
+                # Last part should be the GHL contact ID (20+ alphanumeric chars)
+                if len(parts) >= 3 and len(parts[-1]) >= 15:
+                    ghl_contact_id = parts[-1]
+                    debug_log(f"Extracted GHL contact ID from Album_Name", {
+                        "album_name": album_name,
+                        "extracted_id": ghl_contact_id
+                    })
+        
         data: dict = {
-            'ghl_contact_id': get_text(root, 'Client_ID'),  # GHL contact ID from ProSelect
+            'ghl_contact_id': ghl_contact_id,  # GHL contact ID from ProSelect
             'email': get_text(root, 'Email_Address'),
             'first_name': get_text(root, 'First_Name'),
             'last_name': get_text(root, 'Last_Name'),
-            'phone': get_text(root, 'Cell_Phone'),
-            'album_name': get_text(root, 'Album_Name'),
+            'phone': get_text(root, 'Cell_Phone') or get_text(root, 'Home_Phone') or get_text(root, 'Work_Phone'),
+            'album_name': album_name,
             'album_path': get_text(root, 'Album_Path'),
+            # Address fields
+            'street': get_text(root, 'Street'),
+            'street2': get_text(root, 'Street2'),
+            'city': get_text(root, 'City'),
+            'state': get_text(root, 'State'),
+            'zip_code': get_text(root, 'Zip_Code'),
+            'country': get_text(root, 'Country'),
         }
 
         debug_log("CLIENT INFO EXTRACTED", data)
@@ -652,6 +735,201 @@ def _get_ghl_headers() -> dict:
         "Content-Type": "application/json",
         "Version": "2021-07-28"
     }
+
+
+def fetch_ghl_contact(contact_id: str) -> dict | None:
+    """Fetch contact details from GHL.
+
+    Args:
+        contact_id: The GHL contact ID.
+
+    Returns:
+        dict: Contact data with email, phone, name, address, or None if failed.
+    """
+    if not contact_id:
+        return None
+
+    url = f"https://services.leadconnectorhq.com/contacts/{contact_id}"
+    debug_log(f"FETCHING GHL CONTACT: {contact_id}")
+
+    try:
+        response = requests.get(url, headers=_get_ghl_headers(), timeout=30)
+        debug_log(f"FETCH CONTACT RESPONSE: Status={response.status_code}")
+
+        if response.status_code == 200:
+            data = response.json()
+            contact = data.get('contact', {})
+            result = {
+                'id': contact.get('id', ''),
+                'email': contact.get('email', ''),
+                'phone': contact.get('phone', ''),
+                'firstName': contact.get('firstName', ''),
+                'lastName': contact.get('lastName', ''),
+                'name': contact.get('contactName', '') or f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+                # Address fields
+                'street': contact.get('address1', ''),
+                'street2': contact.get('address2', ''),
+                'city': contact.get('city', ''),
+                'state': contact.get('state', ''),
+                'zip_code': contact.get('postalCode', ''),
+                'country': contact.get('country', ''),
+            }
+            debug_log("FETCHED CONTACT DATA", result)
+            return result
+        else:
+            debug_log(f"FETCH CONTACT FAILED: {response.status_code}", {"body": response.text[:500]})
+            return None
+    except Exception as e:
+        debug_log(f"FETCH CONTACT EXCEPTION: {e}")
+        return None
+
+
+def add_tags_to_contact(contact_id: str, tags: list[str]) -> bool:
+    """Add tags to a GHL contact using v2 API.
+
+    Args:
+        contact_id: The GHL contact ID.
+        tags: List of tag names to add.
+
+    Returns:
+        bool: True if tags were added successfully, False otherwise.
+    """
+    if not tags:
+        return True  # Nothing to add
+
+    url = f"https://services.leadconnectorhq.com/contacts/{contact_id}/tags"
+    payload = {"tags": tags}
+
+    debug_log(f"ADDING TAGS TO CONTACT: {contact_id}", {"tags": tags})
+
+    try:
+        response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
+        debug_log(f"ADD TAGS RESPONSE: Status={response.status_code}", {
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+        if response.status_code in [200, 201]:
+            print(f"   🏷️ Added tags: {', '.join(tags)}")
+            return True
+        else:
+            print(f"   ⚠️ Failed to add tags: {response.status_code}")
+            return False
+    except Exception as e:
+        debug_log(f"ADD TAGS FAILED: {e}")
+        print(f"   ⚠️ Failed to add tags: {e}")
+        return False
+
+
+def get_contact_opportunities(contact_id: str) -> list[dict]:
+    """Get all opportunities for a contact.
+
+    Args:
+        contact_id: The GHL contact ID.
+
+    Returns:
+        list[dict]: List of opportunities for the contact.
+    """
+    url = f"https://services.leadconnectorhq.com/opportunities/search"
+    payload = {
+        "locationId": CONFIG.get('LOCATION_ID', ''),
+        "contactId": contact_id
+    }
+
+    debug_log(f"SEARCHING OPPORTUNITIES FOR CONTACT: {contact_id}")
+
+    try:
+        response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
+        debug_log(f"OPPORTUNITIES RESPONSE: Status={response.status_code}", {
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+        if response.status_code == 200:
+            return response.json().get('opportunities', [])
+    except Exception as e:
+        debug_log(f"GET OPPORTUNITIES FAILED: {e}")
+
+    return []
+
+
+def add_tags_to_opportunity(opportunity_id: str, tags: list[str]) -> bool:
+    """Add tags to a GHL opportunity.
+
+    Note: GHL v2 API updates opportunity via PUT with tags array.
+
+    Args:
+        opportunity_id: The GHL opportunity ID.
+        tags: List of tag names to add.
+
+    Returns:
+        bool: True if tags were added successfully, False otherwise.
+    """
+    if not tags:
+        return True
+
+    # First get current opportunity to preserve existing tags
+    url = f"https://services.leadconnectorhq.com/opportunities/{opportunity_id}"
+    
+    try:
+        response = requests.get(url, headers=_get_ghl_headers(), timeout=30)
+        if response.status_code != 200:
+            debug_log(f"GET OPPORTUNITY FAILED: {response.status_code}")
+            return False
+        
+        opportunity = response.json().get('opportunity', {})
+        existing_tags = opportunity.get('tags', [])
+        
+        # Merge tags (avoid duplicates)
+        all_tags = list(set(existing_tags + tags))
+        
+        # Update opportunity with merged tags
+        update_payload = {"tags": all_tags}
+        response = requests.put(url, headers=_get_ghl_headers(), json=update_payload, timeout=30)
+        
+        debug_log(f"UPDATE OPPORTUNITY TAGS RESPONSE: Status={response.status_code}", {
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+        
+        if response.status_code == 200:
+            new_tags = [t for t in tags if t not in existing_tags]
+            if new_tags:
+                print(f"   🏷️ Added opportunity tags: {', '.join(new_tags)}")
+            return True
+        else:
+            print(f"   ⚠️ Failed to update opportunity tags: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        debug_log(f"ADD OPPORTUNITY TAGS FAILED: {e}")
+        print(f"   ⚠️ Failed to add opportunity tags: {e}")
+        return False
+
+
+def tag_contact_opportunities(contact_id: str, tags: list[str]) -> int:
+    """Add tags to all opportunities for a contact.
+
+    Args:
+        contact_id: The GHL contact ID.
+        tags: List of tag names to add.
+
+    Returns:
+        int: Number of opportunities tagged.
+    """
+    if not tags:
+        return 0
+
+    opportunities = get_contact_opportunities(contact_id)
+    if not opportunities:
+        debug_log(f"No opportunities found for contact {contact_id}")
+        return 0
+
+    tagged_count = 0
+    for opp in opportunities:
+        opp_id = opp.get('id')
+        if opp_id and add_tags_to_opportunity(opp_id, tags):
+            tagged_count += 1
+
+    if tagged_count > 0:
+        debug_log(f"Tagged {tagged_count} opportunities for contact {contact_id}")
+
+    return tagged_count
 
 
 def _search_ghl_contacts(filters: list, search_type: str) -> str | None:
@@ -908,7 +1186,7 @@ def create_recurring_invoice_schedule(
         "altId": CONFIG.get('LOCATION_ID', ''),
         "altType": "location",
         "name": invoice_name,
-        "liveMode": False,  # Draft mode - needs manual activation
+        "liveMode": True,  # Active mode - auto-generates invoices
         "contactDetails": {
             "id": contact_id,
             "name": contact_name,
@@ -1240,6 +1518,8 @@ def _build_invoice_payload(
     due_date: str,
     client_name: str,
     email: str,
+    phone: str,
+    address: dict,
     total_discounts_credits: float,
     payments: list = None
 ) -> dict:
@@ -1253,12 +1533,41 @@ def _build_invoice_payload(
         due_date: Invoice due date.
         client_name: Client full name.
         email: Client email.
+        phone: Client phone (E.164 format).
+        address: Client address dict with street, city, state, zip_code, country.
         total_discounts_credits: Total discounts to apply.
         payments: List of payment installments with dates and amounts.
 
     Returns:
         dict: Complete payload for GHL API.
     """
+    contact_details = {
+        "id": contact_id,
+        "name": client_name,
+        "email": email
+    }
+    # Only include phone if provided (GHL requires E.164 format)
+    if phone:
+        contact_details["phoneNo"] = phone
+    
+    # Build address object if we have address data
+    if address:
+        addr_obj = {}
+        if address.get('street'):
+            addr_obj["addressLine1"] = address['street']
+        if address.get('street2'):
+            addr_obj["addressLine2"] = address['street2']
+        if address.get('city'):
+            addr_obj["city"] = address['city']
+        if address.get('state'):
+            addr_obj["state"] = address['state']
+        if address.get('zip_code'):
+            addr_obj["postalCode"] = address['zip_code']
+        if address.get('country'):
+            addr_obj["countryCode"] = address['country']
+        if addr_obj:
+            contact_details["address"] = addr_obj
+
     payload = {
         "altId": CONFIG.get('LOCATION_ID', ''),
         "altType": "location",
@@ -1268,11 +1577,7 @@ def _build_invoice_payload(
         "issueDate": issue_date,
         "dueDate": due_date,
         "businessDetails": get_business_details(),  # Full details from GHL location
-        "contactDetails": {
-            "id": contact_id,
-            "name": client_name,
-            "email": email
-        }
+        "contactDetails": contact_details
     }
 
     if total_discounts_credits > 0:
@@ -1330,8 +1635,8 @@ def _process_invoice_payments(invoice_id: str, payments: list) -> int:
         print(f"  ✓ Recorded {payments_recorded}/{total_payments} past payments")
 
     if future_payments:
-        # Future payments are already in invoice's paymentSchedule (installments)
-        print(f"  📅 {len(future_payments)} future installment(s) added to invoice payment schedule")
+        # Future payments will be handled by recurring invoice schedule
+        print(f"  📅 {len(future_payments)} future installment(s) pending (recurring schedule)")
 
     return payments_recorded
 
@@ -1348,6 +1653,48 @@ def _open_invoice_in_browser(invoice_id: str) -> None:
     print(f"  URL: {invoice_url}")
     time.sleep(5)
     os.startfile(invoice_url)
+
+
+def _send_invoice(invoice_id: str) -> bool:
+    """Send/publish the invoice so it appears in GHL invoice list.
+
+    GHL invoices are created as 'draft' by default and don't appear
+    in the main invoice list until sent/published.
+
+    Args:
+        invoice_id: GHL invoice ID.
+
+    Returns:
+        bool: True if successfully sent, False otherwise.
+    """
+    url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/send"
+    headers = _get_ghl_headers()
+    
+    payload = {
+        "altId": CONFIG.get('LOCATION_ID', ''),
+        "altType": "location",
+        "liveMode": True
+    }
+    
+    debug_log(f"SEND INVOICE REQUEST: {url}", payload)
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        debug_log(f"SEND INVOICE RESPONSE: Status={response.status_code}", {
+            "body": response.text[:1000] if response.text else "EMPTY"
+        })
+        
+        if response.status_code in [200, 201]:
+            print(f"  ✓ Invoice published - now visible in GHL")
+            return True
+        else:
+            print(f"  ⚠ Could not publish invoice: {response.status_code}")
+            debug_log(f"SEND INVOICE ERROR: {response.text}")
+            return False
+    except Exception as e:
+        print(f"  ⚠ Error publishing invoice: {e}")
+        debug_log(f"SEND INVOICE EXCEPTION: {e}")
+        return False
 
 
 def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total: float) -> None:
@@ -1374,7 +1721,16 @@ def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total:
     print(f"  ✓ Totals adjusted (rounding fix: £{adjustment:.2f} on Payment 1)")
 
 
-def _handle_invoice_success(response, payments: list, balance_due: float, order: dict, ps_data: dict = None, contact_id: str = None) -> dict:
+def _handle_invoice_success(
+    response,
+    payments: list,
+    balance_due: float,
+    order: dict,
+    ps_data: dict = None,
+    contact_id: str = None,
+    rounding_in_deposit: bool = True,
+    open_browser: bool = True
+) -> dict:
     """Handle successful invoice creation response.
 
     Args:
@@ -1384,6 +1740,8 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
         order: Order dictionary.
         ps_data: ProSelect data for contact info.
         contact_id: GHL contact ID.
+        rounding_in_deposit: If True, add rounding to deposit; else create separate first invoice.
+        open_browser: If True, open the invoice URL in browser.
 
     Returns:
         dict: Success result dictionary.
@@ -1397,6 +1755,9 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
     print(f"  Invoice #: {invoice_number}")
     print(f"  Total: £{order.get('total_amount', 0):.2f}")
 
+    # Publish the invoice so it's visible in GHL
+    _send_invoice(invoice_id)
+
     payments_recorded = _process_invoice_payments(invoice_id, payments) if payments else 0
     print(f"  Balance Due: £{balance_due:.2f}")
 
@@ -1405,60 +1766,81 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
     if payments and ps_data and contact_id:
         today = datetime.now().strftime('%Y-%m-%d')
         future_payments = [p for p in payments if p.get('date', '') > today]
-        
+
         if future_payments:
             # Calculate schedule details
             num_payments = len(future_payments)
             total_future = sum(p.get('amount', 0) for p in future_payments)
-            
+
             # Calculate base amount (rounded down to avoid over-billing)
             base_amount = round(total_future / num_payments, 2)
-            
+
             # Check for rounding difference
             calculated_total = round(base_amount * num_payments, 2)
             rounding_diff = round(total_future - calculated_total, 2)
-            
+
             first_date = future_payments[0].get('date', today)
-            
+
             client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
             email = ps_data.get('email', '')
             
+            # Extract shoot number from album name for invoice naming
+            album_name = ps_data.get('album_name', '')
+            shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+            payment_plan_name = f"{client_name} - {shoot_no} Payment Plan" if shoot_no else f"{client_name} Payment Plan"
+            payment_1_name = f"{client_name} - {shoot_no} Payment 1" if shoot_no else f"{client_name} Payment 1"
+
             print(f"\n📅 Creating recurring payment schedule...")
             if rounding_diff != 0:
                 print(f"  ⚠ Rounding adjustment: £{rounding_diff:.2f} applied to first payment")
-            
+
             # First payment amount includes rounding adjustment
             first_payment_amount = round(base_amount + rounding_diff, 2)
-            
-            # If there's a rounding difference, create first invoice separately with adjusted amount
+
+            # Handle rounding difference based on setting
             if rounding_diff != 0 and num_payments > 1:
-                # Create first invoice with adjusted amount
-                print(f"  Creating first payment: £{first_payment_amount:.2f}")
-                first_schedule = create_recurring_invoice_schedule(
-                    contact_id=contact_id,
-                    contact_name=client_name,
-                    email=email,
-                    amount=first_payment_amount,
-                    num_payments=1,
-                    start_date=first_date,
-                    invoice_name=f"ProSelect Payment 1 - {client_name}"
-                )
-                
-                # Create remaining payments with base amount
-                if num_payments > 1:
-                    # Get second payment date
-                    second_date = future_payments[1].get('date', first_date) if len(future_payments) > 1 else first_date
-                    print(f"  Creating remaining {num_payments - 1} payments: £{base_amount:.2f} each")
+                if rounding_in_deposit:
+                    # Rounding goes to deposit - create single schedule with equal payments
+                    print(f"  Rounding of £{rounding_diff:.2f} added to deposit")
+                    print(f"  Creating {num_payments} equal payments: £{base_amount:.2f} each")
                     schedule = create_recurring_invoice_schedule(
                         contact_id=contact_id,
                         contact_name=client_name,
                         email=email,
                         amount=base_amount,
-                        num_payments=num_payments - 1,
-                        start_date=second_date,
-                        invoice_name=f"ProSelect Payment Plan - {client_name}"
+                        num_payments=num_payments,
+                        start_date=first_date,
+                        invoice_name=payment_plan_name
                     )
-                schedule_created = first_schedule is not None
+                    schedule_created = schedule is not None
+                else:
+                    # Create first invoice with adjusted amount (old behavior)
+                    print(f"  Creating first payment: £{first_payment_amount:.2f}")
+                    first_schedule = create_recurring_invoice_schedule(
+                        contact_id=contact_id,
+                        contact_name=client_name,
+                        email=email,
+                        amount=first_payment_amount,
+                        num_payments=1,
+                        start_date=first_date,
+                        invoice_name=payment_1_name
+                    )
+
+                    # Create remaining payments with base amount
+                    if num_payments > 1:
+                        # Get second payment date
+                        second_date = future_payments[1].get('date', first_date) if len(future_payments) > 1 else first_date
+                        print(f"  Creating remaining {num_payments - 1} payments: £{base_amount:.2f} each")
+                        schedule = create_recurring_invoice_schedule(
+                            contact_id=contact_id,
+                            contact_name=client_name,
+                            email=email,
+                            amount=base_amount,
+                            num_payments=num_payments - 1,
+                            start_date=second_date,
+                            invoice_name=payment_plan_name
+                        )
+                    schedule_created = first_schedule is not None
             else:
                 # No rounding difference, create single recurring schedule
                 schedule = create_recurring_invoice_schedule(
@@ -1468,11 +1850,12 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
                     amount=base_amount,
                     num_payments=num_payments,
                     start_date=first_date,
-                    invoice_name=f"ProSelect Payment Plan - {client_name}"
+                    invoice_name=payment_plan_name
                 )
                 schedule_created = schedule is not None
 
-    _open_invoice_in_browser(invoice_id)
+    if open_browser:
+        _open_invoice_in_browser(invoice_id)
 
     return {
         'success': True, 'invoice_id': invoice_id, 'invoice_number': invoice_number,
@@ -1481,9 +1864,9 @@ def _handle_invoice_success(response, payments: list, balance_due: float, order:
     }
 
 
-def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False) -> dict | None:
+def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False, rounding_in_deposit: bool = True, open_browser: bool = True) -> dict | None:
     """Create an actual invoice in GHL Payments → Invoices using V2 API."""
-    debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only})
+    debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only, "rounding_in_deposit": rounding_in_deposit, "open_browser": open_browser})
 
     order = ps_data.get('order', {})
     items = order.get('items', [])
@@ -1506,7 +1889,19 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     balance_due = ps_order_total
 
     client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
-    invoice_name = f"ProSelect - {client_name}"
+    
+    # Build invoice name: "Client Name - ShootNo" (if shoot number available)
+    album_name = ps_data.get('album_name', '')
+    shoot_no = ''
+    if album_name and '_' in album_name:
+        # Album format: ShootNo_Name_GHLContactID - extract first part
+        shoot_no = album_name.split('_')[0]
+    
+    if shoot_no:
+        invoice_name = f"{client_name} - {shoot_no}"
+    else:
+        invoice_name = client_name
+    
     issue_date = _normalize_date(order.get('date', ''))
     today = datetime.now().strftime('%Y-%m-%d')
     due_date = today if issue_date < today else issue_date
@@ -1517,9 +1912,52 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     if total_discounts_credits == 0:
         _adjust_invoice_totals(invoice_items, ghl_items, ps_order_total)
 
+    # Get email and phone - fetch from GHL if not in ProSelect data
+    email = ps_data.get('email', '')
+    phone = ps_data.get('phone', '')
+    
+    # Build address from ProSelect data
+    address = {
+        'street': ps_data.get('street', ''),
+        'street2': ps_data.get('street2', ''),
+        'city': ps_data.get('city', ''),
+        'state': ps_data.get('state', ''),
+        'zip_code': ps_data.get('zip_code', ''),
+        'country': ps_data.get('country', ''),
+    }
+
+    if not email:
+        print("  Fetching contact details from GHL...")
+        ghl_contact = fetch_ghl_contact(contact_id)
+        if ghl_contact:
+            email = ghl_contact.get('email', '')
+            phone = phone or ghl_contact.get('phone', '')
+            if not client_name:
+                client_name = ghl_contact.get('name', '')
+            # Fill in missing address fields from GHL
+            if not address.get('street'):
+                address['street'] = ghl_contact.get('street', '')
+            if not address.get('street2'):
+                address['street2'] = ghl_contact.get('street2', '')
+            if not address.get('city'):
+                address['city'] = ghl_contact.get('city', '')
+            if not address.get('state'):
+                address['state'] = ghl_contact.get('state', '')
+            if not address.get('zip_code'):
+                address['zip_code'] = ghl_contact.get('zip_code', '')
+            if not address.get('country'):
+                address['country'] = ghl_contact.get('country', '')
+            debug_log("USING GHL CONTACT DETAILS", {"email": email, "phone": phone, "address": address})
+        else:
+            print("  ⚠ Could not fetch contact from GHL")
+
+    if not email:
+        print("✗ Contact has no email - required for invoice")
+        return {'success': False, 'error': 'Contact has no email address'}
+
     payload = _build_invoice_payload(
         contact_id, invoice_name, ghl_items, issue_date, due_date,
-        client_name, ps_data.get('email', ''), total_discounts_credits, payments
+        client_name, email, phone, address, total_discounts_credits, payments
     )
 
     # Count future payments for display
@@ -1542,7 +1980,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
         debug_log(f"CREATE INVOICE RESPONSE: Status={response.status_code}", {"body": response_body})
 
         if response.status_code in [200, 201]:
-            return _handle_invoice_success(response, payments, balance_due, order, ps_data, contact_id)
+            return _handle_invoice_success(response, payments, balance_due, order, ps_data, contact_id, rounding_in_deposit, open_browser)
         else:
             error_msg = f"Invoice creation failed (HTTP {response.status_code})"
             if response.status_code == 400:
@@ -1908,12 +2346,24 @@ def _parse_cli_args():
                         help='Skip contact sheet creation')
     parser.add_argument('--collect-folder', type=str, default='',
                         help='Folder to save local copy of contact sheet (named by album)')
+    parser.add_argument('--rounding-in-deposit', action='store_true',
+                        help='Add rounding errors to deposit instead of separate invoice')
+    parser.add_argument('--no-open-browser', action='store_true',
+                        help='Do not open the invoice URL in browser after sync')
     parser.add_argument('--list-folders', action='store_true',
                         help='List all folders in GHL Media and exit')
     return parser.parse_args()
 
 
-def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, create_contact_sheet: bool, collect_folder: str = '') -> dict:
+def _process_sync(
+    xml_path: str,
+    financials_only: bool,
+    create_invoice: bool,
+    create_contact_sheet: bool,
+    collect_folder: str = '',
+    rounding_in_deposit: bool = True,
+    open_browser: bool = True
+) -> dict:
     """Process the sync operation.
 
     Args:
@@ -1922,16 +2372,18 @@ def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, cr
         create_invoice: Whether invoice creation is enabled.
         create_contact_sheet: Whether contact sheet creation is enabled.
         collect_folder: Optional folder to save local copy of contact sheet.
+        rounding_in_deposit: If True, add rounding to deposit; else create separate first invoice.
+        open_browser: If True, open the invoice URL in browser after sync.
 
     Returns:
         dict: Result dictionary.
     """
     # Clear any old progress file first
     clear_progress_file()
-    
+
     # Write initial progress immediately so GUI knows we started
     write_progress(0, 5, "Starting sync process...")
-    
+
     # Calculate total steps for progress
     total_steps = 3  # Parse, Update Contact, Done
     if create_contact_sheet:
@@ -1982,11 +2434,25 @@ def _process_sync(xml_path: str, financials_only: bool, create_invoice: bool, cr
         current_step += 1
         write_progress(current_step, total_steps, f"Creating invoice & recording payments...")
         print(f"\n📄 Creating GHL invoice...")
-        invoice_result = create_ghl_invoice(contact_id, ps_data, financials_only)
+        invoice_result = create_ghl_invoice(contact_id, ps_data, financials_only, rounding_in_deposit, open_browser)
         if invoice_result:
             result['invoice'] = invoice_result
     elif not create_invoice:
         print("\n⏭ Skipping invoice creation (--no-invoice flag)")
+
+    # Step 5: Add tags to contact and opportunities on successful sync
+    if result.get('success'):
+        # Add sync tag to contact (configurable via INI: SyncTag)
+        sync_tag = CONFIG.get('SYNC_TAG', 'PS Invoice')
+        if sync_tag:
+            add_tags_to_contact(contact_id, [sync_tag])
+        
+        # Add tags to any opportunities for this contact (configurable via INI: OpportunityTags)
+        opp_tags = CONFIG.get('OPPORTUNITY_TAGS', [])
+        if opp_tags:
+            tagged = tag_contact_opportunities(contact_id, opp_tags)
+            if tagged > 0:
+                result['opportunities_tagged'] = tagged
 
     # Final step: Done
     current_step = total_steps
@@ -2018,9 +2484,11 @@ def main() -> None:
     create_invoice = not args.no_invoice
     create_contact_sheet = not args.no_contact_sheet
     collect_folder = args.collect_folder if args.collect_folder else ''
+    rounding_in_deposit = args.rounding_in_deposit
+    open_browser = not args.no_open_browser
 
     _print_sync_header(args.xml_path, financials_only, create_invoice, create_contact_sheet)
-    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder)
+    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit, open_browser)
     _save_and_log_result(result)
     sys.exit(0 if result.get('success') else 1)
 

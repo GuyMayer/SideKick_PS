@@ -227,8 +227,7 @@ def debug_log(message, data=None):
         else:
             log_line += f"\n{data}"
 
-    # Print to console
-    print(f"DEBUG: {message}")
+    # Don't print to console - it breaks stdout parsing for commands like --list-email-templates
 
     # Write to file
     try:
@@ -596,23 +595,67 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
         # Extract client info - Client_ID is the GHL contact ID
         client_id_raw = get_text(root, 'Client_ID')
         album_name = get_text(root, 'Album_Name')
+        email = get_text(root, 'Email_Address')
         
-        # Determine GHL contact ID - try Client_ID first, then extract from Album_Name
-        ghl_contact_id = client_id_raw
+        # Determine GHL contact ID with multiple fallback strategies
+        # GHL contact IDs are 20+ alphanumeric chars (e.g., UWge6H1hK1raUtu1nrAo)
+        ghl_contact_id = None
         
-        # GHL contact IDs are typically 20+ alphanumeric chars
-        # If Client_ID looks like a shoot number (e.g., P26014P), try Album_Name
-        if client_id_raw and len(client_id_raw) < 15:
-            # Try to extract GHL contact ID from album name (format: ShootNo_Name_GHLContactID)
-            if album_name and '_' in album_name:
+        # Strategy 1: If Client_ID looks like a GHL ID (20+ chars), use it directly
+        if client_id_raw and len(client_id_raw) >= 15 and client_id_raw.isalnum():
+            ghl_contact_id = client_id_raw
+            debug_log(f"Using Client_ID as GHL contact ID", {"id": ghl_contact_id})
+        
+        # Strategy 2: Extract GHL contact ID from Album_Name
+        # Formats: "ShootNo_Name_GHLContactID" or just containing a 15+ char alphanumeric segment
+        if not ghl_contact_id and album_name:
+            # Try splitting by underscore first
+            if '_' in album_name:
                 parts = album_name.split('_')
-                # Last part should be the GHL contact ID (20+ alphanumeric chars)
-                if len(parts) >= 3 and len(parts[-1]) >= 15:
-                    ghl_contact_id = parts[-1]
-                    debug_log(f"Extracted GHL contact ID from Album_Name", {
+                # Check each part for a GHL-like ID (15+ chars, alphanumeric)
+                for part in reversed(parts):  # Check from end first
+                    clean_part = part.strip()
+                    if len(clean_part) >= 15 and clean_part.isalnum():
+                        ghl_contact_id = clean_part
+                        debug_log(f"Extracted GHL contact ID from Album_Name (underscore split)", {
+                            "album_name": album_name,
+                            "extracted_id": ghl_contact_id
+                        })
+                        break
+            
+            # If still not found, look for any 20+ char alphanumeric sequence
+            if not ghl_contact_id:
+                import re
+                matches = re.findall(r'[A-Za-z0-9]{20,}', album_name)
+                if matches:
+                    ghl_contact_id = matches[-1]  # Use last match (usually the ID)
+                    debug_log(f"Extracted GHL contact ID from Album_Name (regex)", {
                         "album_name": album_name,
                         "extracted_id": ghl_contact_id
                     })
+        
+        # Strategy 3: If no valid ID found yet, search GHL by email
+        if not ghl_contact_id and email:
+            debug_log(f"No GHL ID found in Client_ID or Album_Name, searching by email", {"email": email})
+            found_id = find_ghl_contact(email, None)
+            if found_id:
+                ghl_contact_id = found_id
+                debug_log(f"Found GHL contact ID by email search", {"id": ghl_contact_id})
+        
+        # Log final result
+        if ghl_contact_id:
+            debug_log(f"Final GHL contact ID determined", {
+                "ghl_contact_id": ghl_contact_id,
+                "source": "Client_ID" if client_id_raw == ghl_contact_id else ("Album_Name" if client_id_raw != ghl_contact_id else "email_search"),
+                "client_id_raw": client_id_raw,
+                "album_name": album_name
+            })
+        else:
+            debug_log(f"WARNING: Could not determine GHL contact ID", {
+                "client_id_raw": client_id_raw,
+                "album_name": album_name,
+                "email": email
+            })
         
         data: dict = {
             'ghl_contact_id': ghl_contact_id,  # GHL contact ID from ProSelect
@@ -1061,6 +1104,547 @@ def create_order_summary(items: list) -> str:
 
     return "\n".join(summary_lines)
 
+
+def get_ghl_invoice(invoice_id: str) -> dict | None:
+    """Fetch invoice details from GHL.
+
+    Args:
+        invoice_id: GHL invoice ID.
+
+    Returns:
+        dict or None: Invoice data if found, None otherwise.
+    """
+    url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}"
+    debug_log(f"GET INVOICE REQUEST: {url}")
+
+    try:
+        response = requests.get(url, headers=_get_ghl_headers(), timeout=30)
+        debug_log(f"GET INVOICE RESPONSE: Status={response.status_code}", {
+            "body": response.text[:2000] if response.text else "EMPTY"
+        })
+
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except requests.exceptions.RequestException as e:
+        debug_log(f"GET INVOICE ERROR: {e}")
+        return None
+
+
+def list_contact_invoices(contact_id: str) -> list:
+    """List all invoices for a GHL contact.
+
+    Args:
+        contact_id: GHL contact ID.
+
+    Returns:
+        list: List of invoice dicts, or empty list.
+    """
+    url = "https://services.leadconnectorhq.com/invoices/"
+    params = {
+        "altId": CONFIG.get('LOCATION_ID', ''),
+        "altType": "location",
+        "contactId": contact_id,
+        "limit": 50,
+    }
+    debug_log(f"LIST CONTACT INVOICES: {url}", params)
+
+    try:
+        response = requests.get(url, headers=_get_ghl_headers(), params=params, timeout=30)
+        debug_log(f"LIST INVOICES RESPONSE: Status={response.status_code}", {
+            "body": response.text[:3000] if response.text else "EMPTY"
+        })
+
+        if response.status_code == 200:
+            data = response.json()
+            invoices = data.get('invoices', data.get('data', []))
+            debug_log(f"Found {len(invoices)} invoices for contact {contact_id}")
+            return invoices
+        return []
+    except requests.exceptions.RequestException as e:
+        debug_log(f"LIST INVOICES ERROR: {e}")
+        return []
+
+
+def list_contact_schedules(contact_id: str) -> list:
+    """List all recurring invoice schedules for a GHL contact.
+
+    Args:
+        contact_id: GHL contact ID.
+
+    Returns:
+        list: List of schedule dicts, or empty list.
+    """
+    url = "https://services.leadconnectorhq.com/invoices/schedule/"
+    params = {
+        "altId": CONFIG.get('LOCATION_ID', ''),
+        "altType": "location",
+        "contactId": contact_id,
+        "limit": 50,
+    }
+    debug_log(f"LIST CONTACT SCHEDULES: {url}", params)
+
+    try:
+        response = requests.get(url, headers=_get_ghl_headers(), params=params, timeout=30)
+        debug_log(f"LIST SCHEDULES RESPONSE: Status={response.status_code}", {
+            "body": response.text[:3000] if response.text else "EMPTY"
+        })
+
+        if response.status_code == 200:
+            data = response.json()
+            schedules = data.get('schedules', data.get('data', []))
+            debug_log(f"Found {len(schedules)} schedules for contact {contact_id}")
+            return schedules
+        return []
+    except requests.exceptions.RequestException as e:
+        debug_log(f"LIST SCHEDULES ERROR: {e}")
+        return []
+
+
+def delete_client_invoices(xml_path: str) -> dict:
+    """Delete all invoices and schedules for the client in the given XML file.
+
+    Parses the XML to get the contact ID, lists all their invoices and schedules
+    in GHL, and deletes/voids them all.
+
+    Args:
+        xml_path: Path to ProSelect XML export file.
+
+    Returns:
+        dict: Result with success status, counts of deleted items, client info.
+    """
+    debug_log("DELETE CLIENT INVOICES CALLED", {"xml_path": xml_path})
+
+    # Parse XML to get contact info
+    ps_data = parse_proselect_xml(xml_path)
+    if not ps_data:
+        return {'success': False, 'error': 'Failed to parse XML file'}
+
+    contact_id = ps_data.get('ghl_contact_id')
+    client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
+    album_name = ps_data.get('album_name', '')
+    shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+
+    debug_log("DELETE CLIENT INFO", {
+        "client_name": client_name, "shoot_no": shoot_no,
+        "contact_id": contact_id, "album_name": album_name
+    })
+    print(f"\n🗑️ Delete invoices for: {client_name} ({shoot_no})")
+    print(f"  Contact ID: {contact_id}")
+
+    if not contact_id:
+        debug_log("DELETE ABORTED - No contact ID found")
+        return {'success': False, 'error': 'No GHL Contact ID found in XML', 'client_name': client_name}
+
+    # List all invoices for this contact
+    print(f"  Searching for invoices...")
+    invoices = list_contact_invoices(contact_id)
+    debug_log(f"INVOICES FOUND: {len(invoices)}", [inv.get('_id', inv.get('id', '')) for inv in invoices])
+    print(f"  Found {len(invoices)} invoice(s)")
+
+    # List all schedules for this contact
+    print(f"  Searching for recurring schedules...")
+    schedules = list_contact_schedules(contact_id)
+    debug_log(f"SCHEDULES FOUND: {len(schedules)}", [s.get('_id', s.get('id', '')) for s in schedules])
+    print(f"  Found {len(schedules)} schedule(s)")
+
+    if not invoices and not schedules:
+        debug_log("NO INVOICES OR SCHEDULES FOUND FOR CLIENT")
+        print(f"  No invoices or schedules found for this client.")
+        return {
+            'success': True, 'client_name': client_name, 'shoot_no': shoot_no,
+            'invoices_deleted': 0, 'schedules_cancelled': 0,
+            'message': 'No invoices or schedules found'
+        }
+
+    # Delete/void all invoices
+    invoices_deleted = 0
+    invoices_voided = 0
+    for inv in invoices:
+        inv_id = inv.get('_id', inv.get('id', ''))
+        inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
+        inv_status = inv.get('status', 'unknown')
+        inv_total = inv.get('total', inv.get('amount', 0))
+
+        if not inv_id:
+            continue
+
+        debug_log(f"PROCESSING INVOICE FOR DELETION", {
+            "invoice_id": inv_id, "invoice_number": inv_number,
+            "status": inv_status, "total": inv_total
+        })
+        print(f"\n  Processing invoice #{inv_number} (£{inv_total:.2f}, status: {inv_status})...")
+
+        # Use the existing delete function (handles payments, void, etc.)
+        result = delete_ghl_invoice(inv_id)
+        debug_log(f"INVOICE DELETE RESULT: #{inv_number}", result)
+        if result.get('deleted'):
+            invoices_deleted += 1
+        elif result.get('voided'):
+            invoices_voided += 1
+
+    # Cancel all schedules
+    schedules_cancelled = 0
+    for sched in schedules:
+        sched_id = sched.get('_id', sched.get('id', ''))
+        sched_name = sched.get('name', 'N/A')
+
+        if not sched_id:
+            continue
+
+        debug_log(f"PROCESSING SCHEDULE FOR CANCELLATION", {"schedule_id": sched_id, "name": sched_name})
+        print(f"\n  Cancelling schedule: {sched_name}...")
+        cancel_result = cancel_ghl_schedule(sched_id)
+        debug_log(f"SCHEDULE CANCEL RESULT: {sched_name}", cancel_result)
+        if cancel_result.get('success'):
+            schedules_cancelled += 1
+
+    total_removed = invoices_deleted + invoices_voided
+    debug_log("DELETE CLIENT INVOICES COMPLETE", {
+        "client_name": client_name, "shoot_no": shoot_no,
+        "invoices_deleted": invoices_deleted, "invoices_voided": invoices_voided,
+        "schedules_cancelled": schedules_cancelled
+    })
+    print(f"\n✓ Done: {invoices_deleted} deleted, {invoices_voided} voided, {schedules_cancelled} schedules cancelled")
+
+    return {
+        'success': True,
+        'client_name': client_name,
+        'shoot_no': shoot_no,
+        'contact_id': contact_id,
+        'invoices_found': len(invoices),
+        'invoices_deleted': invoices_deleted,
+        'invoices_voided': invoices_voided,
+        'schedules_found': len(schedules),
+        'schedules_cancelled': schedules_cancelled,
+    }
+
+
+def void_ghl_invoice(invoice_id: str) -> dict:
+    """Void an invoice in GHL (sets status to void without deleting).
+
+    Args:
+        invoice_id: GHL invoice ID to void.
+
+    Returns:
+        dict: Result with success status.
+    """
+    url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/void"
+    debug_log(f"VOID INVOICE REQUEST: {url}")
+
+    try:
+        response = requests.post(url, headers=_get_ghl_headers(), timeout=30)
+        debug_log(f"VOID INVOICE RESPONSE: Status={response.status_code}", {
+            "body": response.text[:1000] if response.text else "EMPTY"
+        })
+
+        if response.status_code in [200, 201, 204]:
+            return {'success': True, 'voided': True}
+        else:
+            return {'success': False, 'error': f"Void failed (HTTP {response.status_code})", 'response': response.text}
+    except requests.exceptions.RequestException as e:
+        return {'success': False, 'error': str(e)}
+
+
+def cancel_ghl_schedule(schedule_id: str) -> dict:
+    """Cancel a recurring invoice schedule in GHL.
+
+    Args:
+        schedule_id: GHL schedule ID to cancel.
+
+    Returns:
+        dict: Result with success status.
+    """
+    debug_log("CANCEL GHL SCHEDULE CALLED", {"schedule_id": schedule_id})
+    print(f"  Cancelling recurring schedule: {schedule_id}...")
+
+    # Try DELETE first
+    url = f"https://services.leadconnectorhq.com/invoices/schedule/{schedule_id}"
+    debug_log(f"DELETE SCHEDULE REQUEST: {url}")
+
+    try:
+        response = requests.delete(url, headers=_get_ghl_headers(), timeout=30)
+        debug_log(f"DELETE SCHEDULE RESPONSE: Status={response.status_code}", {
+            "body": response.text[:1000] if response.text else "EMPTY"
+        })
+
+        if response.status_code in [200, 204]:
+            debug_log(f"SCHEDULE CANCELLED SUCCESSFULLY: {schedule_id}")
+            print(f"    ✓ Schedule cancelled")
+            return {'success': True, 'schedule_id': schedule_id}
+        elif response.status_code == 404:
+            debug_log(f"SCHEDULE NOT FOUND (may already be cancelled): {schedule_id}")
+            print(f"    ⚠ Schedule not found (may already be cancelled)")
+            return {'success': True, 'schedule_id': schedule_id, 'message': 'Not found'}
+        else:
+            # Try disabling by updating liveMode to false
+            debug_log("DELETE SCHEDULE FAILED, trying to disable via PATCH")
+            patch_url = f"https://services.leadconnectorhq.com/invoices/schedule/{schedule_id}"
+            patch_response = requests.patch(
+                patch_url, 
+                headers=_get_ghl_headers(), 
+                json={"liveMode": False},
+                timeout=30
+            )
+            debug_log(f"PATCH SCHEDULE RESPONSE: Status={patch_response.status_code}", {
+                "body": patch_response.text[:1000] if patch_response.text else "EMPTY"
+            })
+            
+            if patch_response.status_code in [200, 204]:
+                debug_log(f"SCHEDULE DISABLED VIA PATCH: {schedule_id}")
+                print(f"    ✓ Schedule disabled")
+                return {'success': True, 'schedule_id': schedule_id, 'disabled': True}
+            else:
+                error_msg = f"Cancel failed (HTTP {response.status_code})"
+                debug_log(f"SCHEDULE CANCEL FAILED: {schedule_id}", {"delete_status": response.status_code, "patch_status": patch_response.status_code})
+                print(f"    ✗ {error_msg}")
+                return {'success': False, 'error': error_msg, 'schedule_id': schedule_id}
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error: {str(e)}"
+        debug_log(f"SCHEDULE CANCEL NETWORK ERROR: {schedule_id}", {"error": str(e)})
+        print(f"    ✗ {error_msg}")
+        return {'success': False, 'error': error_msg, 'schedule_id': schedule_id}
+
+
+def void_recorded_payments(invoice_id: str, invoice: dict) -> int:
+    """Void/refund all recorded payments on an invoice.
+
+    Attempts multiple strategies:
+    1. DELETE each individual payment record
+    2. If that fails, record a negative (refund) payment to zero the balance
+
+    Args:
+        invoice_id: GHL invoice ID.
+        invoice: Invoice data dict (from get_ghl_invoice).
+
+    Returns:
+        int: Number of payments successfully voided/refunded.
+    """
+    # Try to get payment records from invoice data
+    # GHL invoice responses may include 'recordPayment' or 'payments' array
+    payments = invoice.get('recordPayment', [])
+    if not payments:
+        payments = invoice.get('payments', [])
+    
+    total_paid = invoice.get('amountPaid', 0)
+    voided_count = 0
+    
+    debug_log("VOID RECORDED PAYMENTS", {
+        "invoice_id": invoice_id,
+        "total_paid": total_paid,
+        "payment_records": len(payments)
+    })
+
+    # Strategy 1: Try to delete individual payment records by ID
+    for payment in payments:
+        pay_id = payment.get('_id', payment.get('id', ''))
+        if not pay_id:
+            continue
+            
+        url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/record-payment/{pay_id}"
+        debug_log(f"DELETE PAYMENT RECORD: {url}")
+        
+        try:
+            response = requests.delete(url, headers=_get_ghl_headers(), timeout=30)
+            debug_log(f"DELETE PAYMENT RESPONSE: Status={response.status_code}", {
+                "body": response.text[:500] if response.text else "EMPTY"
+            })
+            
+            if response.status_code in [200, 204]:
+                debug_log(f"PAYMENT RECORD REMOVED: {pay_id}")
+                print(f"    ✓ Payment record {pay_id} removed")
+                voided_count += 1
+            else:
+                debug_log(f"DELETE PAYMENT FAILED for {pay_id}: {response.status_code}")
+        except Exception as e:
+            debug_log(f"DELETE PAYMENT EXCEPTION for {pay_id}: {e}")
+
+    # If we deleted all payments, we're done
+    if voided_count > 0 and voided_count >= len(payments):
+        return voided_count
+
+    # Strategy 2: If individual deletes didn't work (or no payment IDs found),
+    # record a negative refund payment to zero out the balance
+    if total_paid > 0 and voided_count == 0:
+        debug_log(f"FALLBACK: Recording negative refund payment of £{total_paid:.2f}")
+        print(f"    Recording refund of £{total_paid:.2f}...")
+        url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/record-payment"
+        payload = {
+            "altId": CONFIG.get('LOCATION_ID', ''),
+            "altType": "location",
+            "amount": -float(total_paid),
+            "mode": "other",
+            "notes": "Refund - Invoice deletion",
+        }
+        debug_log(f"RECORD REFUND PAYMENT: {url}", payload)
+        
+        try:
+            response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
+            debug_log(f"RECORD REFUND RESPONSE: Status={response.status_code}", {
+                "body": response.text[:500] if response.text else "EMPTY"
+            })
+            
+            if response.status_code in [200, 201]:
+                debug_log(f"REFUND RECORDED SUCCESSFULLY: £{total_paid:.2f}")
+                print(f"    ✓ Refund of £{total_paid:.2f} recorded")
+                return 1
+            else:
+                debug_log(f"RECORD REFUND FAILED: {response.status_code}")
+        except Exception as e:
+            debug_log(f"RECORD REFUND EXCEPTION: {e}")
+
+    return voided_count
+
+
+def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
+    """Delete/void an invoice from GHL.
+
+    This will:
+    1. Cancel any recurring payment schedules
+    2. Fetch the invoice to check its status and payments
+    3. Void the invoice (GHL doesn't allow true deletion of invoices with payments)
+    4. Optionally delete if no payments exist
+
+    Args:
+        invoice_id: GHL invoice ID to delete.
+        schedule_ids: Optional list of recurring schedule IDs to cancel.
+
+    Returns:
+        dict: Result with success status and any error message.
+    """
+    debug_log("DELETE GHL INVOICE CALLED", {"invoice_id": invoice_id, "schedule_ids": schedule_ids})
+    print(f"\n🗑️ Processing invoice deletion: {invoice_id}")
+
+    # Step 0: Cancel any recurring schedules first
+    schedules_cancelled = 0
+    if schedule_ids:
+        debug_log(f"CANCELLING {len(schedule_ids)} SCHEDULE(S) BEFORE DELETION")
+        for sid in schedule_ids:
+            if sid:
+                cancel_result = cancel_ghl_schedule(sid)
+                if cancel_result.get('success'):
+                    schedules_cancelled += 1
+    
+    # Step 1: Get invoice details
+    print("  Fetching invoice details...")
+    invoice_data = get_ghl_invoice(invoice_id)
+    
+    if not invoice_data:
+        debug_log(f"INVOICE NOT FOUND: {invoice_id} (may already be deleted)")
+        print(f"  ⚠ Invoice not found (may already be deleted)")
+        return {'success': True, 'invoice_id': invoice_id, 'deleted': False, 'schedules_cancelled': schedules_cancelled, 'message': 'Invoice not found'}
+
+    invoice = invoice_data.get('invoice', invoice_data)
+    status = invoice.get('status', 'unknown')
+    total_paid = invoice.get('amountPaid', 0)
+    
+    debug_log(f"INVOICE DETAILS", {"invoice_id": invoice_id, "status": status, "amountPaid": total_paid})
+    print(f"  Invoice status: {status}")
+    print(f"  Amount paid: £{total_paid:.2f}")
+
+    # Step 2: If invoice has payments, void them first then delete
+    if total_paid > 0:
+        debug_log(f"INVOICE HAS PAYMENTS - voiding before deletion", {"invoice_id": invoice_id, "total_paid": total_paid})
+        print(f"  Invoice has £{total_paid:.2f} in recorded payments")
+        print(f"  Voiding payments before deletion...")
+        
+        payments_voided = void_recorded_payments(invoice_id, invoice)
+        debug_log(f"PAYMENTS VOIDED: {payments_voided}")
+        
+        if payments_voided > 0:
+            print(f"  ✓ {payments_voided} payment(s) voided/refunded")
+            # Re-fetch invoice to check updated status
+            invoice_data = get_ghl_invoice(invoice_id)
+            if invoice_data:
+                invoice = invoice_data.get('invoice', invoice_data)
+                remaining_paid = invoice.get('amountPaid', 0)
+                if remaining_paid > 0:
+                    # Still has payments - try void as fallback
+                    debug_log(f"REMAINING PAYMENTS AFTER VOID: £{remaining_paid:.2f} - falling back to void invoice")
+                    print(f"  ⚠ £{remaining_paid:.2f} still recorded - voiding invoice")
+                    void_result = void_ghl_invoice(invoice_id)
+                    if void_result.get('success'):
+                        debug_log(f"INVOICE VOIDED SUCCESSFULLY (with remaining payments)", {"invoice_id": invoice_id})
+                        print(f"  ✓ Invoice voided")
+                        return {
+                            'success': True, 
+                            'invoice_id': invoice_id, 
+                            'voided': True,
+                            'deleted': False,
+                            'payments_voided': payments_voided,
+                            'schedules_cancelled': schedules_cancelled,
+                            'message': f'Invoice voided, {payments_voided} payment(s) refunded'
+                        }
+        else:
+            # Couldn't void payments - try voiding the whole invoice
+            debug_log(f"INDIVIDUAL PAYMENT VOID FAILED - trying full invoice void")
+            print(f"  ⚠ Could not void individual payments - voiding invoice...")
+            void_result = void_ghl_invoice(invoice_id)
+            if void_result.get('success'):
+                debug_log(f"INVOICE VOIDED SUCCESSFULLY (individual payments not voidable)", {"invoice_id": invoice_id})
+                print(f"  ✓ Invoice voided")
+                return {
+                    'success': True, 
+                    'invoice_id': invoice_id, 
+                    'voided': True,
+                    'deleted': False,
+                    'schedules_cancelled': schedules_cancelled,
+                    'message': 'Invoice voided (payments could not be individually refunded)'
+                }
+            else:
+                debug_log("VOID ALSO FAILED", void_result)
+
+    # Step 3: Try to delete the invoice
+    url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}"
+    debug_log(f"DELETE INVOICE REQUEST: {url}")
+
+    try:
+        response = requests.delete(url, headers=_get_ghl_headers(), timeout=30)
+        debug_log(f"DELETE INVOICE RESPONSE: Status={response.status_code}", {
+            "body": response.text[:1000] if response.text else "EMPTY"
+        })
+
+        if response.status_code in [200, 204]:
+            debug_log(f"INVOICE DELETED SUCCESSFULLY: {invoice_id}")
+            print(f"  ✓ Invoice deleted successfully")
+            return {'success': True, 'invoice_id': invoice_id, 'deleted': True, 'schedules_cancelled': schedules_cancelled}
+        elif response.status_code == 400:
+            # May need to void payments first
+            error_text = response.text.lower()
+            if 'payment' in error_text or 'refund' in error_text:
+                debug_log(f"DELETE BLOCKED BY PAYMENTS - manual refund needed", {"invoice_id": invoice_id, "response": response.text[:500]})
+                print(f"  ✗ Cannot delete - payments must be refunded first")
+                print(f"    Go to GHL Payments → Invoices → Refund all payments, then try again")
+                return {
+                    'success': False, 
+                    'error': 'Payments must be refunded in GHL before invoice can be deleted',
+                    'invoice_id': invoice_id,
+                    'needs_refund': True
+                }
+            else:
+                error_msg = f"Delete failed: {response.text}"
+                debug_log(f"DELETE INVOICE 400 ERROR (non-payment)", {"invoice_id": invoice_id, "response": response.text[:500]})
+                print(f"  ✗ {error_msg}")
+                return {'success': False, 'error': error_msg, 'invoice_id': invoice_id}
+        elif response.status_code == 404:
+            debug_log(f"DELETE INVOICE 404 - NOT FOUND: {invoice_id}")
+            print(f"  ⚠ Invoice not found")
+            return {'success': True, 'invoice_id': invoice_id, 'deleted': False, 'message': 'Invoice not found'}
+        else:
+            error_msg = f"Delete failed (HTTP {response.status_code})"
+            debug_log(f"DELETE INVOICE UNEXPECTED STATUS", {"invoice_id": invoice_id, "status": response.status_code, "response": response.text[:500]})
+            print(f"  ✗ {error_msg}")
+            print(f"    Response: {response.text}")
+            return {'success': False, 'error': error_msg, 'invoice_id': invoice_id}
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error: {str(e)}"
+        debug_log(f"DELETE INVOICE NETWORK ERROR", {"invoice_id": invoice_id, "error": str(e)})
+        print(f"  ✗ Error deleting invoice: {error_msg}")
+        return {'success': False, 'error': error_msg, 'invoice_id': invoice_id}
+
+
 def record_ghl_payment(invoice_id: str, payment: dict, max_retries: int = 5) -> tuple[bool, bool]:
     """Record a payment transaction against a GHL invoice.
 
@@ -1362,6 +1946,178 @@ def upload_to_ghl_media(file_path: str) -> str | None:
         debug_log("MEDIA UPLOAD EXCEPTION", {"error": str(e)})
         print(f"    ✗ Upload error: {e}")
         return None
+
+
+def _fetch_snippet_html(snippet_id: str) -> str | None:
+    """Fetch the HTML body of a GHL snippet/template by ID.
+
+    Args:
+        snippet_id: The snippet/email template ID.
+
+    Returns:
+        str: The HTML body of the snippet, or None if not found.
+    """
+    if not snippet_id:
+        return None
+
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Version": "2021-07-28",
+        "Accept": "application/json"
+    }
+
+    # Try templates endpoint first
+    url = f"https://services.leadconnectorhq.com/emails/templates/{snippet_id}"
+    debug_log("FETCH SNIPPET", {"url": url, "id": snippet_id})
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            body = data.get('html') or data.get('body') or data.get('template', {}).get('html', '')
+            if body:
+                debug_log("SNIPPET FETCHED (templates)", {"length": len(body)})
+                return body
+    except Exception as e:
+        debug_log(f"FETCH SNIPPET TEMPLATES ERROR: {e}")
+
+    # Fallback: try snippets endpoint
+    url2 = f"https://services.leadconnectorhq.com/snippets/{snippet_id}"
+    debug_log("FETCH SNIPPET FALLBACK", {"url": url2})
+    try:
+        response = requests.get(url2, headers=headers, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            snippet = data.get('snippet', data)
+            body = snippet.get('html') or snippet.get('body') or snippet.get('text', '')
+            if body:
+                debug_log("SNIPPET FETCHED (snippets)", {"length": len(body)})
+                return body
+    except Exception as e:
+        debug_log(f"FETCH SNIPPET SNIPPETS ERROR: {e}")
+
+    debug_log("SNIPPET NOT FOUND", {"id": snippet_id})
+    return None
+
+
+def send_room_capture_email(contact_id: str, image_path: str, subject: str = '', message_html: str = '', template_id: str = '') -> dict:
+    """Upload a room capture image to GHL media and send it as an email to the contact.
+
+    Args:
+        contact_id: GHL contact ID to send the email to.
+        image_path: Local path to the JPG image file.
+        subject: Email subject line (default: auto-generated from filename).
+        message_html: HTML body of the email (default: auto-generated).
+        template_id: Optional GHL email template/snippet ID. If provided, the snippet HTML
+                     is fetched and used as the email body with the image appended.
+
+    Returns:
+        dict: Result with success status and details.
+    """
+    debug_log("SEND ROOM CAPTURE EMAIL", {"contact_id": contact_id, "image_path": image_path, "template_id": template_id})
+
+    # Validate inputs
+    if not contact_id:
+        return {'success': False, 'error': 'No contact ID provided'}
+    if not os.path.exists(image_path):
+        return {'success': False, 'error': f'Image file not found: {image_path}'}
+
+    # Step 1: Fetch contact details to get email
+    contact = fetch_ghl_contact(contact_id)
+    if not contact or not contact.get('email'):
+        return {'success': False, 'error': 'Could not fetch contact email from GHL'}
+
+    contact_email = contact['email']
+    contact_name = contact.get('firstName') or contact.get('name') or 'there'
+    debug_log("CONTACT FOR EMAIL", {"email": contact_email, "name": contact_name})
+
+    # Step 2: Upload image to GHL media
+    print(f"  Uploading image to GHL media...")
+    image_url = upload_to_ghl_media(image_path)
+    if not image_url:
+        return {'success': False, 'error': 'Failed to upload image to GHL media'}
+    debug_log("IMAGE UPLOADED", {"url": image_url})
+
+    # Step 3: Get business details for the from line
+    business = get_business_details()
+    business_name = business.get('name', 'Studio')
+    business_email = business.get('email', '')
+
+    # Step 4: Build email content
+    file_basename = os.path.basename(image_path)
+    if not subject:
+        subject = f"Your Room View - {business_name}"
+
+    # If a template/snippet ID is provided, fetch its HTML and append the image
+    if template_id and not message_html:
+        print(f"  Fetching email template...")
+        snippet_html = _fetch_snippet_html(template_id)
+        if snippet_html:
+            # Append the room capture image to the snippet body
+            image_tag = (
+                f'<p><img src="{image_url}" alt="{file_basename}" '
+                f'style="max-width:100%;height:auto;border-radius:8px;"/></p>'
+            )
+            message_html = snippet_html + image_tag
+            debug_log("USING TEMPLATE HTML", {"template_id": template_id, "total_length": len(message_html)})
+        else:
+            debug_log("TEMPLATE NOT FOUND, using default", {"template_id": template_id})
+
+    if not message_html:
+        message_html = (
+            f"<p>Hi {contact_name},</p>"
+            f"<p>Here is your room view image from your session.</p>"
+            f"<p><img src=\"{image_url}\" alt=\"{file_basename}\" "
+            f"style=\"max-width:100%;height:auto;border-radius:8px;\"/></p>"
+            f"<p>Kind regards,<br/>{business_name}</p>"
+        )
+
+    # Step 5: Send email via GHL Conversations API
+    print(f"  Sending email to {contact_email}...")
+    url = "https://services.leadconnectorhq.com/conversations/messages"
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+        "Version": "2021-07-28"
+    }
+    payload = {
+        "type": "Email",
+        "contactId": contact_id,
+        "subject": subject,
+        "message": message_html,
+        "html": message_html,
+        "attachments": [image_url],
+        "emailFrom": business_email if business_email else None
+    }
+    # Remove None values
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    debug_log("SEND EMAIL REQUEST", {"url": url, "payload_keys": list(payload.keys()), "to": contact_email})
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        debug_log("SEND EMAIL RESPONSE", {
+            "status_code": response.status_code,
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+
+        if response.status_code in [200, 201]:
+            result_data = response.json()
+            msg_id = result_data.get('messageId') or result_data.get('id', '')
+            print(f"  ✓ Email sent to {contact_email}")
+            return {
+                'success': True,
+                'message_id': msg_id,
+                'contact_email': contact_email,
+                'image_url': image_url
+            }
+        else:
+            error_text = response.text[:200] if response.text else 'Unknown error'
+            print(f"  ✗ Email send failed ({response.status_code}): {error_text}")
+            return {'success': False, 'error': f'API error {response.status_code}: {error_text}'}
+    except Exception as e:
+        debug_log("SEND EMAIL EXCEPTION", {"error": str(e)})
+        print(f"  ✗ Email error: {e}")
+        return {'success': False, 'error': str(e)}
 
 
 # =============================================================================
@@ -1763,6 +2519,7 @@ def _handle_invoice_success(
 
     # Create recurring schedule for future payments if we have them
     schedule_created = False
+    schedule_ids = []
     if payments and ps_data and contact_id:
         today = datetime.now().strftime('%Y-%m-%d')
         future_payments = [p for p in payments if p.get('date', '') > today]
@@ -1813,6 +2570,10 @@ def _handle_invoice_success(
                         invoice_name=payment_plan_name
                     )
                     schedule_created = schedule is not None
+                    if schedule:
+                        sid = schedule.get('_id', schedule.get('id', ''))
+                        if sid:
+                            schedule_ids.append(sid)
                 else:
                     # Create first invoice with adjusted amount (old behavior)
                     print(f"  Creating first payment: £{first_payment_amount:.2f}")
@@ -1825,6 +2586,10 @@ def _handle_invoice_success(
                         start_date=first_date,
                         invoice_name=payment_1_name
                     )
+                    if first_schedule:
+                        sid = first_schedule.get('_id', first_schedule.get('id', ''))
+                        if sid:
+                            schedule_ids.append(sid)
 
                     # Create remaining payments with base amount
                     if num_payments > 1:
@@ -1840,6 +2605,10 @@ def _handle_invoice_success(
                             start_date=second_date,
                             invoice_name=payment_plan_name
                         )
+                        if schedule:
+                            sid = schedule.get('_id', schedule.get('id', ''))
+                            if sid:
+                                schedule_ids.append(sid)
                     schedule_created = first_schedule is not None
             else:
                 # No rounding difference, create single recurring schedule
@@ -1853,15 +2622,22 @@ def _handle_invoice_success(
                     invoice_name=payment_plan_name
                 )
                 schedule_created = schedule is not None
+                if schedule:
+                    sid = schedule.get('_id', schedule.get('id', ''))
+                    if sid:
+                        schedule_ids.append(sid)
 
     if open_browser:
         _open_invoice_in_browser(invoice_id)
 
-    return {
+    result = {
         'success': True, 'invoice_id': invoice_id, 'invoice_number': invoice_number,
         'amount': order.get('total_amount', 0), 'paid': 0, 'balance': balance_due,
         'payments_recorded': payments_recorded, 'schedule_created': schedule_created
     }
+    if schedule_ids:
+        result['schedule_ids'] = schedule_ids
+    return result
 
 
 def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False, rounding_in_deposit: bool = True, open_browser: bool = True) -> dict | None:
@@ -2148,6 +2924,88 @@ def list_ghl_folders():
         print(f"ERROR|{str(e)}")
 
 
+def list_email_templates():
+    """List all email templates from GHL - outputs ID|Name format for AHK parsing."""
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Version": "2021-07-28",
+        "Accept": "application/json"
+    }
+
+    try:
+        config = load_config()
+        location_id = config.get('LOCATION_ID', '')
+
+        url = f"https://services.leadconnectorhq.com/locations/{location_id}/templates"
+        params = {
+            'type': 'email',
+            'limit': 100
+        }
+
+        debug_log("LIST EMAIL TEMPLATES REQUEST", {"url": url, "params": params})
+
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        debug_log("LIST EMAIL TEMPLATES RESPONSE", {
+            "status_code": response.status_code,
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+
+        if response.status_code == 200:
+            data = response.json()
+            templates = data.get('templates', [])
+
+            if not templates:
+                print("NO_TEMPLATES")
+            else:
+                for t in templates:
+                    t_id = t.get('id', '') or t.get('_id', '')
+                    t_name = t.get('name', 'Unnamed')
+                    print(f"{t_id}|{t_name}")
+        elif response.status_code == 404 or response.status_code == 422:
+            # Try alternate endpoint for snippets
+            debug_log("Templates endpoint failed, trying snippets", {"status": response.status_code})
+            _list_snippets_fallback(headers, location_id)
+        else:
+            print(f"API_ERROR|{response.status_code}")
+    except Exception as e:
+        debug_log("LIST EMAIL TEMPLATES EXCEPTION", {"error": str(e)})
+        print(f"ERROR|{str(e)}")
+
+
+def _list_snippets_fallback(headers: dict, location_id: str):
+    """Fallback to snippets API if templates endpoint not available."""
+    try:
+        url = "https://services.leadconnectorhq.com/snippets/"
+        params = {
+            'locationId': location_id,
+            'limit': 100
+        }
+
+        debug_log("LIST SNIPPETS FALLBACK REQUEST", {"url": url, "params": params})
+
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        debug_log("LIST SNIPPETS FALLBACK RESPONSE", {
+            "status_code": response.status_code,
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+
+        if response.status_code == 200:
+            data = response.json()
+            snippets = data.get('snippets', [])
+
+            if not snippets:
+                print("NO_TEMPLATES")
+            else:
+                for s in snippets:
+                    s_id = s.get('id', '') or s.get('_id', '')
+                    s_name = s.get('name', 'Unnamed')
+                    print(f"{s_id}|{s_name}")
+        else:
+            print(f"API_ERROR|{response.status_code}")
+    except Exception as e:
+        print(f"ERROR|{str(e)}")
+
+
 def _generate_contact_sheet_path(cs_data: dict) -> str:
     """Generate JPG path for contact sheet.
 
@@ -2315,8 +3173,16 @@ def _save_and_log_result(result: dict) -> None:
     print(f"\nResult saved to: {OUTPUT_FILE}")
     print(f"{'='*70}\n")
 
+    # Determine operation type for log message
+    if result.get('invoices_deleted') is not None or result.get('invoices_voided') is not None:
+        op_type = "DELETE"
+    elif result.get('deleted') or result.get('voided'):
+        op_type = "DELETE"
+    else:
+        op_type = "SYNC"
+
     debug_log("=" * 60)
-    debug_log(f"SYNC COMPLETED - Success: {result.get('success', False)}")
+    debug_log(f"{op_type} COMPLETED - Success: {result.get('success', False)}")
     debug_log("=" * 60)
 
     if DEBUG_MODE and GIST_ENABLED:
@@ -2352,6 +3218,20 @@ def _parse_cli_args():
                         help='Do not open the invoice URL in browser after sync')
     parser.add_argument('--list-folders', action='store_true',
                         help='List all folders in GHL Media and exit')
+    parser.add_argument('--delete-invoice', type=str, default='',
+                        help='Delete a GHL invoice by ID')
+    parser.add_argument('--schedule-ids', type=str, default='',
+                        help='Comma-separated recurring schedule IDs to cancel (used with --delete-invoice)')
+    parser.add_argument('--delete-for-client', type=str, default='',
+                        help='Delete all invoices/schedules for the client in the given XML file')
+    parser.add_argument('--send-room-email', nargs=2, metavar=('CONTACT_ID', 'IMAGE_PATH'),
+                        help='Send a room capture image via email to a GHL contact')
+    parser.add_argument('--email-subject', type=str, default='',
+                        help='Custom email subject (used with --send-room-email)')
+    parser.add_argument('--email-template', type=str, default='',
+                        help='GHL email template/snippet ID to use (used with --send-room-email)')
+    parser.add_argument('--list-email-templates', action='store_true',
+                        help='List available email templates/snippets from GHL and exit')
     return parser.parse_args()
 
 
@@ -2461,6 +3341,10 @@ def _process_sync(
     else:
         write_progress(current_step, total_steps, f"Sync failed: {result.get('error', 'Unknown error')}", 'error')
 
+    # Add client identification to result for future reference (e.g., delete confirmation)
+    result['client_name'] = client_name
+    result['shoot_no'] = shoot_no
+
     return result
 
 
@@ -2471,6 +3355,34 @@ def main() -> None:
     if args.list_folders:
         list_ghl_folders()
         sys.exit(0)
+
+    if args.list_email_templates:
+        list_email_templates()
+        sys.exit(0)
+
+    if args.delete_invoice:
+        debug_log("CLI MODE: --delete-invoice", {"invoice_id": args.delete_invoice, "schedule_ids": args.schedule_ids})
+        sched_ids = [s.strip() for s in args.schedule_ids.split(',') if s.strip()] if args.schedule_ids else []
+        result = delete_ghl_invoice(args.delete_invoice, schedule_ids=sched_ids)
+        _save_and_log_result(result)
+        sys.exit(0 if result.get('success') else 1)
+
+    if args.delete_for_client:
+        debug_log("CLI MODE: --delete-for-client", {"xml_path": args.delete_for_client})
+        if not os.path.exists(args.delete_for_client):
+            debug_log(f"DELETE-FOR-CLIENT FILE NOT FOUND: {args.delete_for_client}")
+            print(f"Error: File not found: {args.delete_for_client}")
+            sys.exit(1)
+        result = delete_client_invoices(args.delete_for_client)
+        _save_and_log_result(result)
+        sys.exit(0 if result.get('success') else 1)
+
+    if args.send_room_email:
+        cid, img_path = args.send_room_email
+        debug_log("CLI MODE: --send-room-email", {"contact_id": cid, "image_path": img_path, "template_id": args.email_template})
+        result = send_room_capture_email(cid, img_path, subject=args.email_subject, template_id=args.email_template)
+        _save_and_log_result(result)
+        sys.exit(0 if result.get('success') else 1)
 
     if not args.xml_path:
         print("Error: xml_path is required for sync mode")

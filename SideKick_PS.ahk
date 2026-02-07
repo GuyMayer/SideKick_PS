@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.4.70
+; Version:     2.4.68
 ; Build Date:  2026-02-05
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -199,6 +199,7 @@ global Settings_AutoAddOppTags := 1  ; Automatically add opportunity tags on syn
 global Settings_RoundingInDeposit := 1  ; Add rounding errors to deposit (1) or 1st payment (0)
 global GHL_CachedTags := ""  ; Cached list of contact tags from GHL
 global GHL_CachedOppTags := ""  ; Cached list of opportunity tags from GHL
+global GHL_CachedEmailTemplates := ""  ; Cached list of email templates from GHL (id|name format)
 global Settings_CurrentTab := "General"
 global PayCalcOpen := false  ; Track if Payment Calculator window is open
 
@@ -217,6 +218,33 @@ global Settings_AutoDriveDetect := true   ; Detect SD card insertion
 global Settings_SDCardEnabled := true    ; Enable SD Card Download feature (show toolbar icon)
 global Settings_RoomCaptureFolder := ""  ; Folder for room capture JPGs (default: Documents\ProSelect Room Captures)
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow
+global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
+
+; Toolbar button visibility settings
+global Settings_ShowBtn_Client := true
+global Settings_ShowBtn_Invoice := true
+global Settings_ShowBtn_OpenGHL := true
+global Settings_ShowBtn_Camera := true
+global Settings_ShowBtn_Sort := true
+global Settings_ShowBtn_Photoshop := true
+global Settings_ShowBtn_Refresh := true
+global Settings_ShowBtn_Print := true
+global Settings_PrintTemplate_PayPlan := "PayPlan"
+global Settings_PrintTemplate_Standard := "Terms of Sale"
+global Settings_EmailTemplateID := ""
+global Settings_EmailTemplateName := "(none selected)"
+
+; Rooms button calibration (OCR-detected at startup)
+global RoomsBtn_Calibrated := false  ; Whether calibration has been done
+global RoomsBtn_X := 0               ; Absolute X position of Rooms button center
+global RoomsBtn_Y := 0               ; Absolute Y position of Rooms button center
+global RoomsBtn_OffsetX := 0         ; Offset from ProSelect window left edge
+global RoomsBtn_OffsetY := 0         ; Offset from ProSelect window top edge
+global RoomsBtn_CalibW := 0          ; Window width at calibration time
+global RoomsBtn_CalibH := 0          ; Window height at calibration time
+global TB_CalibShowing := false      ; True while yellow calibration icon is showing
+global TB_CameraState := ""          ; Current camera button state ("on" or "off")
+global RoomView_LastLogTime := 0     ; For throttling RoomView debug logging
 
 ; Export automation state
 global ExportInProgress := false  ; Flag to suspend file watcher during export
@@ -229,7 +257,7 @@ global Hotkey_DevReload := "^+r"  ; Ctrl+Shift+R (dev mode only)
 
 ; License settings
 global License_Key := ""          ; LemonSqueezy license key
-global License_Status := "unlicensed"  ; unlicensed, active, expired, invalid
+global License_Status := "trial"  ; trial, active, expired, invalid
 global License_CustomerName := ""
 global License_CustomerEmail := ""
 global License_ExpiresAt := ""
@@ -325,6 +353,10 @@ FileAppend, % A_Now . " - Loading settings from INI...`n", %DebugLogFile%
 ; Load settings from INI
 LoadSettings()
 FileAppend, % A_Now . " - Settings loaded`n", %DebugLogFile%
+
+; Auto-calibrate menu delay based on system speed
+CalibrateMenuDelay()
+FileAppend, % A_Now . " - Menu delay calibrated: " . Settings_MenuDelay . "ms`n", %DebugLogFile%
 
 ; Add dev menu items if developer mode
 if (IsDeveloperMode()) {
@@ -1170,14 +1202,20 @@ GetPythonPath() {
 ; scriptName: base name without extension (e.g., "validate_license")
 ; Returns: full path to .exe if exists, otherwise full path to .py
 GetScriptPath(scriptName) {
-	; Check for compiled executable first (PyInstaller output)
+	pyPath := A_ScriptDir . "\" . scriptName . ".py"
 	exePath := A_ScriptDir . "\" . scriptName . ".exe"
+	
+	; In dev mode (running .ahk not compiled), prefer .py for faster iteration
+	if (!A_IsCompiled && FileExist(pyPath)) {
+		return pyPath
+	}
+	
+	; In production (compiled) or if no .py, use .exe
 	if (FileExist(exePath)) {
 		return exePath
 	}
 	
-	; Fall back to Python script (development mode)
-	pyPath := A_ScriptDir . "\" . scriptName . ".py"
+	; Fall back to Python script
 	return pyPath
 }
 
@@ -1213,9 +1251,30 @@ CreateFloatingToolbar()
 {
 	global
 	
-	; Toolbar dimensions - add 51px for each button (44+7 spacing)
-	; Base: Client(44) + Invoice(44) + OpenGHL(44) + Camera(44) + Settings(44) = 5 buttons + spacing
-	toolbarWidth := Settings_SDCardEnabled ? 305 : 254  ; +51 for camera button
+	; Calculate toolbar width dynamically based on enabled buttons
+	; Each button = 44px wide + 7px spacing (51px per slot), plus 2px left margin
+	btnCount := 0
+	if (Settings_ShowBtn_Client)
+		btnCount++
+	if (Settings_ShowBtn_Invoice)
+		btnCount++
+	if (Settings_ShowBtn_OpenGHL)
+		btnCount++
+	if (Settings_ShowBtn_Camera)
+		btnCount++
+	if (Settings_ShowBtn_Sort)
+		btnCount++
+	if (Settings_ShowBtn_Photoshop)
+		btnCount++
+	if (Settings_ShowBtn_Refresh)
+		btnCount++
+	if (Settings_ShowBtn_Print)
+		btnCount++
+	if (Settings_SDCardEnabled)
+		btnCount++
+	btnCount++  ; Settings button (always visible)
+	
+	toolbarWidth := 2 + (btnCount * 51)
 	toolbarHeight := 43
 	
 	; Transparent background with colored buttons
@@ -1226,19 +1285,70 @@ CreateFloatingToolbar()
 	; Get icon color from settings
 	iconColor := Settings_ToolbarIconColor ? Settings_ToolbarIconColor : "White"
 	
-	; Colored icon buttons (0.75x: 44x38)
-	Gui, Toolbar:Add, Text, x2 y3 w44 h38 Center BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client, 👤
-	Gui, Toolbar:Add, Text, x53 y3 w44 h38 Center BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice, 📋
-	Gui, Toolbar:Add, Text, x104 y3 w44 h38 Center BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL, 🌐
-	Gui, Toolbar:Add, Text, x155 y3 w44 h38 Center BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_Camera, 📷
+	; Dynamic x position - each visible button advances by 51px
+	nextX := 2
 	
-	; SD Card Download button - only if enabled
-	if (Settings_SDCardEnabled) {
-		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download, 📥
-		Gui, Toolbar:Add, Text, x257 y3 w44 h38 Center BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings, ⚙
-	} else {
-		Gui, Toolbar:Add, Text, x206 y3 w44 h38 Center BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings, ⚙
+	; Client button (👤)
+	if (Settings_ShowBtn_Client) {
+		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client, 👤
+		nextX += 51
 	}
+	
+	; Invoice button (📋)
+	if (Settings_ShowBtn_Invoice) {
+		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice, 📋
+		nextX += 51
+	}
+	
+	; Open GHL button (🌐)
+	if (Settings_ShowBtn_OpenGHL) {
+		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL, 🌐
+		nextX += 51
+	}
+	
+	; Camera button - two versions for state indication (only one visible at a time)
+	if (Settings_ShowBtn_Camera) {
+		Gui, Toolbar:Add, Text, x%nextX% y1 w44 h38 Center 0x200 BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_CameraOn, 📷
+		Gui, Toolbar:Add, Text, x%nextX% y1 w44 h38 Center 0x200 BackgroundGray c%iconColor% gToolbar_CaptureRoom vTB_CameraOff Hidden, 📷
+		Gui, Toolbar:Add, Text, x%nextX% y1 w44 h38 Center 0x200 BackgroundYellow cBlack gToolbar_CaptureRoom vTB_CameraCalib Hidden, 📷
+		nextX += 51
+	}
+	
+	; Sort button (🔀/🔤)
+	if (Settings_ShowBtn_Sort) {
+		SortMode_IsRandom := false
+		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundGray c%iconColor% gToolbar_ToggleSort vTB_Sort, 🔀
+		nextX += 51
+	}
+	
+	; Photoshop button (Ps)
+	if (Settings_ShowBtn_Photoshop) {
+		Gui, Toolbar:Font, s14 Bold, Segoe UI
+		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 Background001E36 c33A1FD gToolbar_Photoshop vTB_Photoshop, Ps
+		Gui, Toolbar:Font, s16 Norm, Segoe UI
+		nextX += 51
+	}
+	
+	; Refresh button (🔄)
+	if (Settings_ShowBtn_Refresh) {
+		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh, 🔄
+		nextX += 51
+	}
+	
+	; Quick Print button (🖨)
+	if (Settings_ShowBtn_Print) {
+		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 Background444444 c%iconColor% gToolbar_QuickPrint vTB_Print, 🖨
+		nextX += 51
+	}
+	
+	; SD Card Download button
+	if (Settings_SDCardEnabled) {
+		Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download, 📥
+		nextX += 51
+	}
+	
+	; Settings button (always visible)
+	Gui, Toolbar:Add, Text, x%nextX% y3 w44 h38 Center 0x200 BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings, ⚙
 	
 	; Make background transparent
 	WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
@@ -1293,8 +1403,62 @@ if (psW < 800 || psH < 600)
 	return
 }
 
+; Room detection disabled - always show camera as active
+; Show maroon camera icon (capture always available)
+if (TB_CameraState != "on") {
+	TB_CameraState := "on"
+	GuiControl, Toolbar:Show, TB_CameraOn
+	GuiControl, Toolbar:Hide, TB_CameraOff
+	GuiControl, Toolbar:Hide, TB_CameraCalib
+}
+
+/*
+; === ROOM DETECTION CODE - DISABLED ===
+; Check if calibration needed (first time or window size changed)
+if (!RoomsBtn_Calibrated || RoomsBtn_CalibW != psW || RoomsBtn_CalibH != psH) {
+	; Only calibrate if we have a proper album title (not splash screen)
+	if (InStr(psTitle, "ProSelect -") || InStr(psTitle, " - ProSelect")) {
+		; Show yellow camera icon during calibration (only once)
+		if (!TB_CalibShowing) {
+			TB_CalibShowing := true
+			GuiControl, Toolbar:Hide, TB_CameraOn
+			GuiControl, Toolbar:Hide, TB_CameraOff
+			GuiControl, Toolbar:Show, TB_CameraCalib
+		}
+		RoomsBtn_Calibrated := false
+		CalibrateRoomsButton()
+	}
+} else {
+	if (TB_CalibShowing) {
+		TB_CalibShowing := false
+		TB_CameraState := ""  ; Reset so next update applies
+	}
+}
+
+; Update camera icon based on Room view status
+; Maroon when in Room view (capture available), Gray when not
+; Only update if state changed to prevent flickering
+; Skip if calibration is in progress (showing yellow icon)
+if (!TB_CalibShowing) {
+	newCameraState := (RoomsBtn_Calibrated && IsRoomViewActive()) ? "on" : "off"
+	if (newCameraState != TB_CameraState) {
+		TB_CameraState := newCameraState
+		if (TB_CameraState = "on") {
+			GuiControl, Toolbar:Show, TB_CameraOn
+			GuiControl, Toolbar:Hide, TB_CameraOff
+			GuiControl, Toolbar:Hide, TB_CameraCalib
+		} else {
+			GuiControl, Toolbar:Hide, TB_CameraOn
+			GuiControl, Toolbar:Show, TB_CameraOff
+			GuiControl, Toolbar:Hide, TB_CameraCalib
+		}
+	}
+}
+; === END ROOM DETECTION CODE ===
+*/
+
 ; Position inline with window close X button - adjust for toolbar width
-tbWidth := Settings_SDCardEnabled ? 305 : 254
+tbWidth := toolbarWidth
 newX := psX + psW - (tbWidth + 147)
 newY := psY + 6
 
@@ -1309,6 +1473,349 @@ Toolbar_OpenGHL:
 Gosub, OpenGHLClientURL
 Return
 
+Toolbar_ToggleSort:
+; Toggle between random and filename sort order in ProSelect
+; Icon shows action that will happen: 🔀 = click to randomize, 🔤 = click to sort by filename
+{
+	global Settings_DebugLogging, SortMode_IsRandom, Settings_MenuDelay
+	delay := Settings_MenuDelay
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	; DebugKeystroke("Alt+I (Images menu)")
+	Send, !i  ; Alt+I for Images menu
+	Sleep, %delay%
+	; DebugKeystroke("Down x8 (to Sort By)")
+	Send, {Down 8}  ; Down 8 times to Sort By
+	Sleep, %delay%
+	; DebugKeystroke("Right (open submenu)")
+	Send, {Right}  ; Open submenu
+	Sleep, %delay%
+	
+	if (!SortMode_IsRandom) {
+		; Currently filename order, switch to random
+		; DebugKeystroke("R (Random)")
+		Send, r   ; R for Random
+		Sleep, %delay%
+		; DebugKeystroke("Enter (confirm)")
+		Send, {Enter}
+		SortMode_IsRandom := true
+		GuiControl, Toolbar:, TB_Sort, 🔤  ; Show filename icon (next action)
+	} else {
+		; Currently random order, switch to filename
+		; DebugKeystroke("Enter (Filename - first item)")
+		Send, {Enter}  ; Filename is first item in submenu
+		SortMode_IsRandom := false
+		GuiControl, Toolbar:, TB_Sort, 🔀  ; Show random icon (next action)
+	}
+	Sleep, %delay%
+}
+Return
+
+Toolbar_Photoshop:
+; Send Ctrl+T to ProSelect (Transfer to Photoshop)
+WinActivate, ahk_exe ProSelect.exe
+WinWaitActive, ahk_exe ProSelect.exe, , 2
+Send, ^t
+Return
+
+Toolbar_Refresh:
+; Send Ctrl+U to ProSelect (Refresh/Update)
+WinActivate, ahk_exe ProSelect.exe
+WinWaitActive, ahk_exe ProSelect.exe, , 2
+Send, ^u
+Return
+
+Toolbar_QuickPrint:
+; Quick Print - opens ProSelect print dialog, sets template based on payment plan, prints
+WinActivate, ahk_exe ProSelect.exe
+WinWaitActive, ahk_exe ProSelect.exe, , 2
+if ErrorLevel
+	Return
+Send, ^p
+; Wait for the Print dialog to appear
+WinWait, ahk_class #32770, , 3
+if ErrorLevel {
+	ToolTip, Print dialog did not open
+	SetTimer, RemoveToolTip, -2000
+	Return
+}
+Sleep, 300
+; Read the last sync result to determine payment plan
+resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+hasPayPlan := false
+if FileExist(resultFile) {
+	FileRead, rJson, %resultFile%
+	if InStr(rJson, """schedule_created"": true")
+		hasPayPlan := true
+}
+; Check Button20 (print option checkbox)
+Control, Check,, Button20, ahk_class #32770
+Sleep, 100
+; Find matching template in ComboBox5 dropdown list
+searchTerm := hasPayPlan ? Settings_PrintTemplate_PayPlan : Settings_PrintTemplate_Standard
+ControlGet, cbList, List,, ComboBox5, ahk_class #32770
+templateFound := false
+Loop, Parse, cbList, `n
+{
+	if InStr(A_LoopField, searchTerm) {
+		Control, ChooseString, %A_LoopField%, ComboBox5, ahk_class #32770
+		templateFound := true
+		break
+	}
+}
+if (!templateFound) {
+	ToolTip, Template containing "%searchTerm%" not found
+	SetTimer, RemoveToolTip, -2000
+	Return
+}
+Sleep, 100
+; Click Print (Button32)
+ControlClick, Button32, ahk_class #32770
+Return
+
+; Debug keystroke progress indicator - shows what key is being sent when debug logging enabled
+; Press Right Ctrl to skip waiting and proceed immediately
+DebugKeystroke(keystrokeDesc) {
+	global Settings_DebugLogging
+	if (!Settings_DebugLogging)
+		return
+	
+	; Show progress bar with keystroke description - press RCtrl to skip
+	Progress, B W350 FS12 WS700, %keystrokeDesc%, Press Right Ctrl to skip (10s wait)..., SideKick Debug
+	
+	; Wait up to 10 seconds, checking for right control key every 100ms to skip
+	Loop, 100
+	{
+		Sleep, 100
+		; Check if right control key was pressed
+		if (GetKeyState("RControl", "P"))
+		{
+			; Wait for key release
+			KeyWait, RControl
+			break
+		}
+	}
+	Progress, Off
+}
+
+DebugKeystrokeClose:
+Progress, Off
+Return
+
+; Calibrate menu delay based on system performance
+; Runs a quick benchmark and sets Settings_MenuDelay accordingly
+; Fast PC (< 50ms): 50ms delay
+; Medium PC (50-100ms): 100ms delay  
+; Slow PC (> 100ms): 200ms delay
+CalibrateMenuDelay() {
+	global Settings_MenuDelay
+	
+	; Run a simple CPU benchmark - count iterations in a fixed time
+	startTick := A_TickCount
+	iterations := 0
+	
+	; Do some computational work for ~20ms
+	Loop {
+		; Simple math operations to stress CPU
+		temp := Mod(A_Index * 7919, 104729)  ; Prime number operations
+		temp := Sqrt(temp)
+		iterations++
+		if (A_TickCount - startTick >= 20)
+			break
+	}
+	
+	; Calculate performance score (iterations per ms)
+	elapsed := A_TickCount - startTick
+	if (elapsed < 1)
+		elapsed := 1
+	score := iterations / elapsed
+	
+	; Set delay based on score
+	; Modern PC: score > 500 (very fast)
+	; Good PC: score > 200 (fast)
+	; Normal PC: score > 100 (medium)
+	; Slow PC: score <= 100 (slow)
+	if (score > 500)
+		Settings_MenuDelay := 50
+	else if (score > 200)
+		Settings_MenuDelay := 75
+	else if (score > 100)
+		Settings_MenuDelay := 100
+	else
+		Settings_MenuDelay := 200
+}
+
+; Calibrate the Rooms button position using OCR
+; Should be called once when ProSelect is first detected
+; Stores the button offset relative to window position for later use
+CalibrateRoomsButton() {
+	global RoomsBtn_Calibrated, RoomsBtn_X, RoomsBtn_Y, RoomsBtn_OffsetX, RoomsBtn_OffsetY
+	global RoomsBtn_CalibW, RoomsBtn_CalibH
+	global DPI_Scale, DebugLogFile
+	static lastAttempt := 0
+	
+	; Cooldown - don't retry more than once per 5 seconds
+	if (A_TickCount - lastAttempt < 5000)
+		return false
+	lastAttempt := A_TickCount
+	
+	; Ensure ProSelect is the active window before screen capture
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	if (ErrorLevel) {
+		FileAppend, % A_Now . " - Could not activate ProSelect for OCR calibration`n", %DebugLogFile%
+		return false
+	}
+	Sleep, 100  ; Brief wait for window to fully render
+	
+	; Get ProSelect window position
+	WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
+	if (psW = "" || psH = "")
+		return false
+	
+	FileAppend, % A_Now . " - Calibrating Rooms button via OCR...`n", %DebugLogFile%
+	FileAppend, % A_Now . " - ProSelect window: X=" . psX . " Y=" . psY . " W=" . psW . " H=" . psH . "`n", %DebugLogFile%
+	
+	; Define toolbar region to scan - toolbar is below title bar and menu
+	; Start at ~50px from window top (after title bar + menu), scan 80px tall area
+	scanX := psX + Round(psW * 0.30)
+	scanY := psY + Round(50 * DPI_Scale)
+	scanW := Round(psW * 0.60)
+	scanH := Round(80 * DPI_Scale)
+	
+	FileAppend, % A_Now . " - Scan region: X=" . scanX . " Y=" . scanY . " W=" . scanW . " H=" . scanH . " DPI=" . DPI_Scale . "`n", %DebugLogFile%
+	
+	; Run OCR script to find "Rooms" text
+	ocrScript := A_ScriptDir . "\OCR_FindText.ps1"
+	if (!FileExist(ocrScript)) {
+		FileAppend, % A_Now . " - OCR script not found: " . ocrScript . "`n", %DebugLogFile%
+		return false
+	}
+	
+	psCmd := "powershell.exe -ExecutionPolicy Bypass -File """ . ocrScript . """ -x " . scanX . " -y " . scanY . " -width " . scanW . " -height " . scanH . " -searchText ""Rooms"""
+	
+	; Run and capture output
+	RunWait, %ComSpec% /c %psCmd% > "%A_Temp%\ocr_result.json" 2>&1, , Hide
+	
+	; Read result
+	FileRead, ocrJson, %A_Temp%\ocr_result.json
+	if (ocrJson = "") {
+		FileAppend, % A_Now . " - OCR returned empty result`n", %DebugLogFile%
+		return false
+	}
+	
+	; Log raw JSON for debugging (first 500 chars)
+	FileAppend, % A_Now . " - OCR raw output: " . SubStr(ocrJson, 1, 500) . "`n", %DebugLogFile%
+	
+	; Log what OCR detected for debugging
+	RegExMatch(ocrJson, """fullText"":""([^""]*)", fullTextMatch)
+	FileAppend, % A_Now . " - OCR detected: " . fullTextMatch1 . "`n", %DebugLogFile%
+	
+	; Parse JSON to find "Rooms" position
+	; Look for "found":{"text":"Rooms", pattern
+	if (InStr(ocrJson, """found"":null") || !InStr(ocrJson, """found"":{")) {
+		FileAppend, % A_Now . " - OCR did not find 'Rooms' text in detected words`n", %DebugLogFile%
+		return false
+	}
+	
+	; Extract centerX and centerY from found object
+	RegExMatch(ocrJson, """centerX"":(\d+)", matchX)
+	RegExMatch(ocrJson, """centerY"":(\d+)", matchY)
+	
+	if (matchX1 = "" || matchY1 = "") {
+		FileAppend, % A_Now . " - Could not parse Rooms button position from OCR`n", %DebugLogFile%
+		return false
+	}
+	
+	; Store absolute position and offset from window
+	RoomsBtn_X := matchX1
+	RoomsBtn_Y := matchY1
+	RoomsBtn_OffsetX := RoomsBtn_X - psX
+	RoomsBtn_OffsetY := RoomsBtn_Y - psY
+	RoomsBtn_CalibW := psW
+	RoomsBtn_CalibH := psH
+	RoomsBtn_Calibrated := true
+	
+	FileAppend, % A_Now . " - Rooms button calibrated at offset (" . RoomsBtn_OffsetX . ", " . RoomsBtn_OffsetY . ") for window " . psW . "x" . psH . "`n", %DebugLogFile%
+	return true
+}
+
+; Check if ProSelect is currently showing Room View
+; Uses calibrated Rooms button position if available, otherwise scans toolbar
+; Returns true if Room view is active, false otherwise
+IsRoomViewActive() {
+	global DPI_Scale, RoomsBtn_Calibrated, RoomsBtn_OffsetX, RoomsBtn_OffsetY
+	global RoomsBtn_CalibW, RoomsBtn_CalibH, DebugLogFile, Settings_DebugLogging
+	
+	; Get ProSelect window position
+	WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
+	if (psW = "" || psH = "")
+		return false
+	
+	; If calibrated, check the known Rooms button position
+	if (RoomsBtn_Calibrated) {
+		baseX := psX + RoomsBtn_OffsetX
+		baseY := psY + RoomsBtn_OffsetY
+		
+		; Only check pixels if ProSelect is the active window (avoid reading covered pixels)
+		WinGet, activeExe, ProcessName, A
+		if (activeExe != "ProSelect.exe")
+			return false  ; Can't determine state, assume not in Room view
+		
+		; Use screen coordinates for pixel check
+		CoordMode, Pixel, Screen
+		
+		; Icon is RIGHT of text "Rooms" and both change color
+		; Text center is at baseX, scan from 0 to +40px right
+		; Check 9 points across text and icon area
+		Loop, 3 {
+			scanY := baseY - 3 + (A_Index - 1) * 3  ; -3, 0, +3 from text center
+			Loop, 3 {
+				scanX := baseX + (A_Index - 1) * 15  ; 0, +15, +30 right of text center
+				
+				PixelGetColor, pixelColor, %scanX%, %scanY%, RGB Slow
+				red := (pixelColor >> 16) & 0xFF
+				green := (pixelColor >> 8) & 0xFF
+				blue := pixelColor & 0xFF
+				
+				; Yellow detection: based on actual samples, active=159,112,71, inactive=68,68,68
+				; Detect if R>120 AND (R+G) > 200 AND R > B+20 (not gray)
+				if (red > 120 && (red + green) > 200 && red > blue + 20)
+					return true
+			}
+		}
+		
+		; Log every 5 seconds during debugging - sample a grid
+		global RoomView_LastLogTime
+		if (Settings_DebugLogging && A_TickCount - RoomView_LastLogTime > 5000) {
+			RoomView_LastLogTime := A_TickCount
+			; Sample 10 points across the Rooms text/icon area and log all colors
+			FileAppend, % A_Now . " - RoomView grid sample starting at (" . baseX . "," . baseY . "):`n", %DebugLogFile%
+			maxR := 0
+			maxG := 0
+			Loop, 10 {
+				sX := baseX - 10 + (A_Index - 1) * 5  ; -10 to +35 from center
+				PixelGetColor, pxColor, %sX%, %baseY%, RGB Slow
+				pR := (pxColor >> 16) & 0xFF
+				pG := (pxColor >> 8) & 0xFF
+				pB := pxColor & 0xFF
+				FileAppend, % "  x" . A_Index . "=" . pR . "," . pG . "," . pB, %DebugLogFile%
+				if (pR > maxR)
+					maxR := pR
+				if (pG > maxG)
+					maxG := pG
+			}
+			FileAppend, % "`n  Max R=" . maxR . " Max G=" . maxG . "`n", %DebugLogFile%
+		}
+		
+		return false
+	}
+	
+	; Fallback: If not calibrated, assume not in room view (user gets gray icon, must click to try)
+	; This avoids false positives from other orange icons in the toolbar
+	return false
+}
+
 Toolbar_DownloadSD:
 ; Placeholder - Image download functionality coming soon
 DarkMsgBox("Coming Soon", "📥 Image Download`n`nImage download functionality to follow in a future update.", "info", {timeout: 5})
@@ -1317,7 +1824,7 @@ Return
 Toolbar_CaptureRoom:
 ; Capture the central room view from ProSelect and save as JPG
 {
-	global Settings_RoomCaptureFolder, IniFilename
+	global Settings_RoomCaptureFolder, IniFilename, DPI_Scale
 	
 	; Get the album name from ProSelect window title
 	WinGetTitle, psTitle, ahk_exe ProSelect.exe
@@ -1326,6 +1833,22 @@ Toolbar_CaptureRoom:
 		DarkMsgBox("Capture Failed", "No album is open in ProSelect.", "warning", {timeout: 3})
 		return
 	}
+	
+	; Activate ProSelect first to ensure we're checking the right window
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	Sleep, 100
+	
+	; Room view check disabled - capture from any view
+	/*
+	; Check if ProSelect is in Room View by looking for yellow/orange highlighted Rooms button
+	; The Rooms button is in the icon toolbar at the top, has yellow color when active
+	if (!IsRoomViewActive())
+	{
+		DarkMsgBox("Room View Required", "📷 Please switch to Room View first.`n`nClick the Rooms button (🏠) in the ProSelect toolbar, then try again.", "warning", {timeout: 5})
+		return
+	}
+	*/
 	
 	; Extract album name - remove "ProSelect - " prefix and " - ProSelect" suffix
 	albumName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")  ; Remove "ProSelect - " prefix
@@ -1432,9 +1955,9 @@ Toolbar_CaptureRoom:
 		; Auto-copy path to clipboard
 		Clipboard := outputFile
 		
-		; Show confirmation with Open and Reveal buttons - path already copied
-		btnTips := {"OK": "Close this dialog", "Open": "Open image in default viewer", "Reveal": "Show file in Explorer"}
-		captureResult := DarkMsgBox("Room Captured", "Saved: " . albumName . "-room" . roomNum . ".jpg`n`nFolder: " . Settings_RoomCaptureFolder . "`n`n📋 Image path copied to clipboard", "info", {buttons: ["OK", "Open", "Reveal"], tooltips: btnTips})
+		; Show confirmation with Open, Reveal and Email buttons - path already copied
+		btnTips := {"OK": "Close this dialog", "Open": "Open image in default viewer", "Reveal": "Show file in Explorer", "Email": "Email this image to the client via GHL"}
+		captureResult := DarkMsgBox("Room Captured", "Saved: " . albumName . "-room" . roomNum . ".jpg`n`nFolder: " . Settings_RoomCaptureFolder . "`n`n📋 Image path copied to clipboard", "info", {buttons: ["OK", "Open", "Reveal", "Email"], tooltips: btnTips})
 		if (captureResult = "Open")
 		{
 			; Open the image file with default viewer
@@ -1444,6 +1967,40 @@ Toolbar_CaptureRoom:
 		{
 			; Open Explorer and select the file
 			Run, explorer.exe /select`,"%outputFile%"
+		}
+		else if (captureResult = "Email")
+		{
+			; Extract GHL contact ID from album name
+			; Album name format: P26016P_Hornett_UWge6H1hK1raUtu1roAo
+			emailContactId := ""
+			if (InStr(albumName, "_")) {
+				albumParts := StrSplit(albumName, "_")
+				; Check each part from the end for a GHL-like ID (15+ alphanumeric chars)
+				idx := albumParts.MaxIndex()
+				while (idx >= 1) {
+					part := albumParts[idx]
+					if (StrLen(part) >= 15 && RegExMatch(part, "^[A-Za-z0-9]+$"))
+					{
+						emailContactId := part
+						break
+					}
+					idx--
+				}
+			}
+			
+			if (emailContactId = "") {
+				DarkMsgBox("No Contact ID", "Could not extract GHL contact ID from album name:`n" . albumName . "`n`nAlbum name should contain the contact ID`n(e.g. P26016P_Hornett_UWge6H1hK1raUtu1roAo)", "warning")
+			} else {
+				; Store for use in send handler
+				global RoomEmail_ContactId, RoomEmail_OutputFile, RoomEmail_AlbumName, RoomEmail_RoomNum, RoomEmail_SelectedTemplateID
+				RoomEmail_ContactId := emailContactId
+				RoomEmail_OutputFile := outputFile
+				RoomEmail_AlbumName := albumName
+				RoomEmail_RoomNum := roomNum
+				
+				; Show email template picker dialog
+				ShowRoomEmailDialog()
+			}
 		}
 	}
 	else
@@ -1458,6 +2015,12 @@ ToolTip, , , , 2
 Return
 
 Toolbar_GetInvoice:
+; Check for Ctrl+Click to delete last invoice
+if (GetKeyState("Ctrl", "P")) {
+	Gosub, Toolbar_DeleteLastInvoice
+	Return
+}
+
 ; DEBUG: Clear and start invoice log
 FileDelete, %DebugLogFile%
 FileAppend, % "=== Invoice Sync Debug Log ===" . "`n", %DebugLogFile%
@@ -1831,6 +2394,184 @@ else
 }
 Return
 
+; Delete invoices for current client from GHL (Ctrl+Click on invoice button)
+Toolbar_DeleteLastInvoice:
+
+; Get shoot number from ProSelect window title
+WinGetTitle, psTitle, ahk_exe ProSelect.exe
+if (psTitle = "" || psTitle = "ProSelect") {
+	DarkMsgBox("No Album Open", "No album is open in ProSelect.`n`nOpen a client's album first, then Ctrl+Click to delete their invoice.", "info")
+	Return
+}
+
+; Extract album name from title (format: "AlbumName - ProSelect")
+delAlbumName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")
+delAlbumName := RegExReplace(delAlbumName, "\s*-\s*ProSelect.*$", "")
+
+; Extract shoot number (first part before underscore)
+delShootNo := ""
+if (InStr(delAlbumName, "_"))
+	delShootNo := SubStr(delAlbumName, 1, InStr(delAlbumName, "_") - 1)
+else
+	delShootNo := delAlbumName
+
+; Extract client name (second part between first and second underscore)
+delClientName := ""
+if (InStr(delAlbumName, "_")) {
+	parts := StrSplit(delAlbumName, "_")
+	if (parts.MaxIndex() >= 2)
+		delClientName := parts[2]
+}
+
+if (delShootNo = "") {
+	DarkMsgBox("No Shoot Number", "Could not determine shoot number from ProSelect title.`n`nTitle: " . psTitle, "warning")
+	Return
+}
+
+; Find the matching XML in the export/watch folder
+ExportFolder := Settings_InvoiceWatchFolder
+if (ExportFolder = "" || !FileExist(ExportFolder)) {
+	DarkMsgBox("Watch Folder Missing", "Invoice Watch Folder is not set or doesn't exist.`n`nConfigure it in Settings → Invoice tab.", "warning")
+	Return
+}
+
+; Search for XML files containing this shoot number (most recent first)
+delClientXml := ""
+delLatestTime := 0
+Loop, Files, %ExportFolder%\*.xml
+{
+	if (InStr(A_LoopFileName, delShootNo)) {
+		FileGetTime, fileTime, %A_LoopFileFullPath%, M
+		if (fileTime > delLatestTime) {
+			delLatestTime := fileTime
+			delClientXml := A_LoopFileFullPath
+		}
+	}
+}
+
+if (delClientXml = "") {
+	DarkMsgBox("No XML Found", "No invoice XML found for " . delShootNo . " in:`n" . ExportFolder . "`n`nExport an invoice for this client first.", "info")
+	Return
+}
+
+; Build display label
+delLabel := delShootNo
+if (delClientName != "")
+	delLabel := delClientName . " (" . delShootNo . ")"
+
+; Confirmation dialog
+Gui, DeleteInvoice:New, +AlwaysOnTop +OwnDialogs
+if (Settings_DarkMode) {
+	Gui, DeleteInvoice:Color, 1E1E1E, 2D2D2D
+	Gui, DeleteInvoice:Font, s11 cFFFFFF, Segoe UI
+} else {
+	Gui, DeleteInvoice:Color, FFFFFF, FFFFFF
+	Gui, DeleteInvoice:Font, s11 c000000, Segoe UI
+}
+
+; Warning icon and header
+Gui, DeleteInvoice:Add, Picture, x25 y25 w40 h40 Icon110, %A_WinDir%\System32\imageres.dll
+
+if (Settings_DarkMode)
+	Gui, DeleteInvoice:Font, s12 Bold cFF6666, Segoe UI
+else
+	Gui, DeleteInvoice:Font, s12 Bold cCC0000, Segoe UI
+Gui, DeleteInvoice:Add, Text, x80 y25 w320, Delete Invoice?
+
+if (Settings_DarkMode)
+	Gui, DeleteInvoice:Font, s10 Norm cCCCCCC, Segoe UI
+else
+	Gui, DeleteInvoice:Font, s10 Norm c333333, Segoe UI
+Gui, DeleteInvoice:Add, Text, x80 y55 w320, This will delete all invoices and payment schedules for:
+
+if (Settings_DarkMode)
+	Gui, DeleteInvoice:Font, s11 Bold cFFFFFF, Segoe UI
+else
+	Gui, DeleteInvoice:Font, s11 Bold c000000, Segoe UI
+Gui, DeleteInvoice:Add, Text, x80 y+5 w320, %delLabel%
+
+if (Settings_DarkMode)
+	Gui, DeleteInvoice:Font, s9 Norm cAAAA00, Segoe UI
+else
+	Gui, DeleteInvoice:Font, s9 Norm c996600, Segoe UI
+Gui, DeleteInvoice:Add, Text, x80 y+10 w320, Recorded payments will be automatically refunded.
+Gui, DeleteInvoice:Add, Text, x80 y+3 w320, Recurring schedules will be cancelled.
+
+if (Settings_DarkMode)
+	Gui, DeleteInvoice:Font, s10 Norm cFFFFFF, Segoe UI
+else
+	Gui, DeleteInvoice:Font, s10 Norm c000000, Segoe UI
+Gui, DeleteInvoice:Add, Button, x120 y+20 w120 h35 Default gDeleteInvoice_Cancel, Cancel
+Gui, DeleteInvoice:Add, Button, x250 yp w120 h35 gDeleteInvoice_Confirm, Delete
+
+Gui, DeleteInvoice:Show, w430 h240, Delete Invoice
+
+if (Settings_DarkMode) {
+	Gui, DeleteInvoice:+LastFound
+	WinGet, hWnd, ID
+	DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", hWnd, "Int", 20, "Int*", 1, "Int", 4)
+}
+
+; Store XML path for confirm handler
+DeleteInvoice_XmlPath := delClientXml
+Return
+
+DeleteInvoice_Cancel:
+DeleteInvoiceGuiClose:
+DeleteInvoiceGuiEscape:
+Gui, DeleteInvoice:Destroy
+Return
+
+DeleteInvoice_Confirm:
+Gui, DeleteInvoice:Destroy
+xmlPath := DeleteInvoice_XmlPath
+
+; Run delete-for-client command
+scriptCmd := GetScriptCommand("sync_ps_invoice", "--delete-for-client """ . xmlPath . """")
+RunWait, %scriptCmd%, %A_ScriptDir%, Hide
+exitCode := ErrorLevel
+
+; Read result file to check what happened
+resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+FileRead, resultJson, %resultFile%
+
+; Build summary message
+msgParts := ""
+
+; Get client name from result
+RegExMatch(resultJson, """client_name"":\s*""([^""]+)""", matchCN)
+if (matchCN1 != "")
+	msgParts .= matchCN1 . "`n`n"
+
+; Invoice counts
+RegExMatch(resultJson, """invoices_deleted"":\s*(\d+)", matchDel)
+RegExMatch(resultJson, """invoices_voided"":\s*(\d+)", matchVoid)
+invDel := matchDel1 ? matchDel1 : 0
+invVoid := matchVoid1 ? matchVoid1 : 0
+
+if (invDel > 0)
+	msgParts .= invDel . " invoice(s) deleted`n"
+if (invVoid > 0)
+	msgParts .= invVoid . " invoice(s) voided`n"
+
+; Schedule counts
+RegExMatch(resultJson, """schedules_cancelled"":\s*(\d+)", matchSC)
+if (matchSC1 > 0)
+	msgParts .= matchSC1 . " schedule(s) cancelled`n"
+
+; No invoices found
+if (invDel = 0 && invVoid = 0 && (!matchSC1 || matchSC1 = 0)) {
+	if (InStr(resultJson, "No invoices or schedules found"))
+		msgParts .= "No invoices or schedules found for this client."
+}
+
+if (exitCode = 0) {
+	DarkMsgBox("Invoice Removed", msgParts, "info")
+} else {
+	DarkMsgBox("Delete Failed", "Failed to delete invoice.`n`n" . msgParts . "`nCheck the debug log for details.", "warning")
+}
+Return
+
 Toolbar_Settings:
 Gosub, ShowSettings
 Return
@@ -1887,8 +2628,8 @@ Gui, Settings:Add, Text, x15 y20 w150 BackgroundTrans Center, SideKick Hub
 Gui, Settings:Font, s11 c%textColor%, Segoe UI
 
 ; Tab buttons with highlight indicator
-global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout
-global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg
+global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts
+global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg
 
 ; General tab
 Gui, Settings:Add, Progress, x0 y60 w4 h35 Background0078D4 vTabGeneralBg Hidden
@@ -1914,9 +2655,13 @@ Gui, Settings:Add, Text, x15 y225 w160 h25 BackgroundTrans gSettingsTabLicense v
 Gui, Settings:Add, Progress, x0 y260 w4 h35 Background0078D4 vTabAboutBg Hidden
 Gui, Settings:Add, Text, x15 y265 w160 h25 BackgroundTrans gSettingsTabAbout vTabAbout, ℹ  About
 
+; Shortcuts tab
+Gui, Settings:Add, Progress, x0 y300 w4 h35 Background0078D4 vTabShortcutsBg Hidden
+Gui, Settings:Add, Text, x15 y305 w160 h25 BackgroundTrans gSettingsTabShortcuts vTabShortcuts, 🎛  Shortcuts
+
 ; Developer tab (only for dev location)
-Gui, Settings:Add, Progress, x0 y300 w4 h35 Background0078D4 vTabDeveloperBg Hidden
-Gui, Settings:Add, Text, x15 y305 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
+Gui, Settings:Add, Progress, x0 y340 w4 h35 Background0078D4 vTabDeveloperBg Hidden
+Gui, Settings:Add, Text, x15 y345 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
 
 ; SideKick Logo at bottom of sidebar - transparent PNG, use appropriate version for theme
 logoPathDark := A_ScriptDir . "\SideKick_Logo_2025_Dark.png"
@@ -1948,6 +2693,7 @@ CreateHotkeysPanel()
 CreateFilesPanel()
 CreateLicensePanel()
 CreateAboutPanel()
+CreateShortcutsPanel()
 CreateDeveloperPanel()
 
 ; Show Developer tab only for dev location
@@ -2209,6 +2955,46 @@ SaveSettings()
 ; Recreate toolbar with new layout
 Gui, Toolbar:Destroy
 CreateFloatingToolbar()
+Return
+
+ToggleClick_ShowBtn_Client:
+Toggle_ShowBtn_Client_State := !Toggle_ShowBtn_Client_State
+UpdateToggleSlider("Settings", "ShowBtn_Client", Toggle_ShowBtn_Client_State, 590)
+Return
+
+ToggleClick_ShowBtn_Invoice:
+Toggle_ShowBtn_Invoice_State := !Toggle_ShowBtn_Invoice_State
+UpdateToggleSlider("Settings", "ShowBtn_Invoice", Toggle_ShowBtn_Invoice_State, 590)
+Return
+
+ToggleClick_ShowBtn_OpenGHL:
+Toggle_ShowBtn_OpenGHL_State := !Toggle_ShowBtn_OpenGHL_State
+UpdateToggleSlider("Settings", "ShowBtn_OpenGHL", Toggle_ShowBtn_OpenGHL_State, 590)
+Return
+
+ToggleClick_ShowBtn_Camera:
+Toggle_ShowBtn_Camera_State := !Toggle_ShowBtn_Camera_State
+UpdateToggleSlider("Settings", "ShowBtn_Camera", Toggle_ShowBtn_Camera_State, 590)
+Return
+
+ToggleClick_ShowBtn_Sort:
+Toggle_ShowBtn_Sort_State := !Toggle_ShowBtn_Sort_State
+UpdateToggleSlider("Settings", "ShowBtn_Sort", Toggle_ShowBtn_Sort_State, 590)
+Return
+
+ToggleClick_ShowBtn_Photoshop:
+Toggle_ShowBtn_Photoshop_State := !Toggle_ShowBtn_Photoshop_State
+UpdateToggleSlider("Settings", "ShowBtn_Photoshop", Toggle_ShowBtn_Photoshop_State, 590)
+Return
+
+ToggleClick_ShowBtn_Refresh:
+Toggle_ShowBtn_Refresh_State := !Toggle_ShowBtn_Refresh_State
+UpdateToggleSlider("Settings", "ShowBtn_Refresh", Toggle_ShowBtn_Refresh_State, 590)
+Return
+
+ToggleClick_ShowBtn_Print:
+Toggle_ShowBtn_Print_State := !Toggle_ShowBtn_Print_State
+UpdateToggleSlider("Settings", "ShowBtn_Print", Toggle_ShowBtn_Print_State, 590)
 Return
 
 ; Function to enable/disable File Management controls based on SD Card enabled state
@@ -3469,7 +4255,7 @@ CreateLicensePanel()
 	statusColor := GetLicenseStatusColor()
 	Gui, Settings:Font, s11 Norm c%statusColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y80 w440 BackgroundTrans vLicenseStatusText Hidden HwndHwndLicenseStatus, %statusText%
-	RegisterSettingsTooltip(HwndLicenseStatus, "LICENSE STATUS`n`nShows your current license state:`n• Licensed - Active: Full features enabled`n• No License: Start free trial to unlock features`n• Expired: Renewal required`n• Invalid: Contact support")
+	RegisterSettingsTooltip(HwndLicenseStatus, "LICENSE STATUS`n`nShows your current license state:`n• Licensed - Active: Full features enabled`n• Trial Mode: Limited functionality`n• Expired: Renewal required`n• Invalid: Contact support")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; LICENSE KEY GROUP BOX
@@ -3552,7 +4338,7 @@ GetLicenseStatusText() {
 	else if (License_Key != "")
 		return "● License Not Validated"
 	else
-		return "● No License"
+		return "● Trial Mode"
 }
 
 GetLicenseStatusColor() {
@@ -3643,8 +4429,24 @@ IsLicenseValid() {
 		return (daysRemaining > 0)
 	}
 	
-	; No license = no access
+	; Trial mode - check trial days
+	if (License_Status = "trial")
+		return IsTrialValid()
+	
 	return false
+}
+
+IsTrialValid() {
+	global License_TrialStart, License_TrialDays
+	
+	if (License_TrialStart = "")
+		return true  ; Trial not started yet
+	
+	FormatTime, today,, yyyyMMdd
+	; Calculate days used using EnvSub (AHK v1 date math)
+	daysUsed := today
+	EnvSub, daysUsed, %License_TrialStart%, Days
+	return (daysUsed < License_TrialDays)
 }
 
 CheckLicenseForGHL(featureName := "GHL Integration") {
@@ -3663,10 +4465,14 @@ CheckLicenseForGHL(featureName := "GHL Integration") {
 	}
 	
 	; License not valid - show message and offer to purchase
-	DarkMsgBox("License Required", "SideKick_PS requires a license to use " . featureName . ".`n`nStart your 14-day free trial to unlock all features.", "warning")
+	if (License_Status = "trial") {
+		DarkMsgBox("Trial Expired", "Your SideKick_PS trial has expired.`n`n" . featureName . " requires a valid license.`n`nPlease purchase a license to continue.", "warning")
+	} else {
+		DarkMsgBox("License Required", "Your SideKick_PS license has expired or is invalid.`n`n" . featureName . " requires a valid license.`n`nPlease renew your license to continue.", "warning")
+	}
 	
-	result := DarkMsgBox("Start Free Trial?", "Would you like to start your free trial now?", "question", {buttons: ["Start Trial", "Not Now"]})
-	if (result = "Start Trial")
+	result := DarkMsgBox("Purchase License?", "Would you like to purchase a license now?", "question", {buttons: ["Yes", "No"]})
+	if (result = "Yes")
 		Run, %License_PurchaseURL%
 	
 	return false
@@ -3705,9 +4511,6 @@ CheckMonthlyValidationAndUpdate() {
 	if (!needsCheck)
 		return
 	
-	; Show status
-	ToolTip, Checking for updates and validating license...
-	
 	; Validate license if we have one
 	if (License_Key != "" && License_Status = "active") {
 		ValidateLicenseSilent()
@@ -3719,8 +4522,6 @@ CheckMonthlyValidationAndUpdate() {
 	; Update last check date
 	FormatTime, Update_LastCheckDate,, yyyyMMdd
 	SaveSettings()
-	
-	ToolTip
 }
 
 ValidateLicenseSilent() {
@@ -4361,6 +5162,172 @@ CreateAboutPanel()
 	RegisterSettingsTooltip(HwndAboutSendLogs, "SEND DIAGNOSTIC LOGS`n`nManually send current logs to support.`nUse this when reporting an issue or if requested by support.`n`nLogs include:`n• Recent actions and errors`n• Script configuration (no passwords)`n• System information`n`nThis helps diagnose problems quickly.")
 }
 
+CreateShortcutsPanel()
+{
+	global
+	
+	; Theme-aware colors
+	if (Settings_DarkMode) {
+		headerColor := "4FC3F7"
+		textColor := "FFFFFF"
+		labelColor := "CCCCCC"
+		mutedColor := "888888"
+		groupColor := "666666"
+		iconBg := "333333"
+	} else {
+		headerColor := "0078D4"
+		textColor := "1E1E1E"
+		labelColor := "444444"
+		mutedColor := "666666"
+		groupColor := "999999"
+		iconBg := "E0E0E0"
+	}
+	
+	; Shortcuts panel container
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelShortcuts
+	
+	; Section header
+	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
+	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vSCHeader, 🎛 Toolbar Shortcuts
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; TOOLBAR BUTTONS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h375 vSCButtonsGroup, Toolbar Buttons
+	
+	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y78 w350 BackgroundTrans vSCDescription, Enable or disable individual toolbar buttons.
+	
+	; Row spacing: 35px per row, starting at y105
+	; Each row: Icon preview + Label + Toggle
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	
+	; Client button (👤)
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y105 w30 h28 Center Background0000FF cWhite vSCIcon_Client, 👤
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y109 w280 BackgroundTrans vSCLabel_Client, Client Lookup  —  GHL contact search
+	CreateToggleSlider("Settings", "ShowBtn_Client", 630, 107, Settings_ShowBtn_Client)
+	
+	; Invoice button (📋)
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y140 w30 h28 Center Background008000 cWhite vSCIcon_Invoice, 📋
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y144 w280 BackgroundTrans vSCLabel_Invoice, Invoice  —  Sync / Ctrl+Click to delete
+	CreateToggleSlider("Settings", "ShowBtn_Invoice", 630, 142, Settings_ShowBtn_Invoice)
+	
+	; Open GHL button (🌐)
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y175 w30 h28 Center Background008080 cWhite vSCIcon_OpenGHL, 🌐
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y179 w280 BackgroundTrans vSCLabel_OpenGHL, Open GHL  —  Open client in browser
+	CreateToggleSlider("Settings", "ShowBtn_OpenGHL", 630, 177, Settings_ShowBtn_OpenGHL)
+	
+	; Camera button (📷)
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y210 w30 h28 Center Background800000 cWhite vSCIcon_Camera, 📷
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y214 w280 BackgroundTrans vSCLabel_Camera, Camera  —  Room capture
+	CreateToggleSlider("Settings", "ShowBtn_Camera", 630, 212, Settings_ShowBtn_Camera)
+	
+	; Sort button (🔀)
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y245 w30 h28 Center Background808080 cWhite vSCIcon_Sort, 🔀
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y249 w280 BackgroundTrans vSCLabel_Sort, Sort Order  —  Random / filename toggle
+	CreateToggleSlider("Settings", "ShowBtn_Sort", 630, 247, Settings_ShowBtn_Sort)
+	
+	; Photoshop button (Ps)
+	Gui, Settings:Font, s10 Bold, Segoe UI
+	Gui, Settings:Add, Text, x215 y280 w30 h28 Center Background001E36 c33A1FD vSCIcon_Photoshop, Ps
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y284 w280 BackgroundTrans vSCLabel_Photoshop, Photoshop  —  Send to Photoshop (Ctrl+T)
+	CreateToggleSlider("Settings", "ShowBtn_Photoshop", 630, 282, Settings_ShowBtn_Photoshop)
+	
+	; Refresh button (🔄)
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y315 w30 h28 Center Background000080 cWhite vSCIcon_Refresh, 🔄
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y319 w280 BackgroundTrans vSCLabel_Refresh, Refresh  —  Update album (Ctrl+U)
+	CreateToggleSlider("Settings", "ShowBtn_Refresh", 630, 317, Settings_ShowBtn_Refresh)
+	
+	; Print button (🖨)
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y350 w30 h28 Center Background444444 cWhite vSCIcon_Print, 🖨
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y354 w280 BackgroundTrans vSCLabel_Print, Quick Print  —  Auto-print with template
+	CreateToggleSlider("Settings", "ShowBtn_Print", 630, 352, Settings_ShowBtn_Print)
+	
+	; SD Download button (📥) — note: managed separately in File Management
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y385 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
+	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y389 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; INFO NOTE
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y440 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; QUICK PRINT TEMPLATES GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y470 w480 h110 vSCPrintGroup, Quick Print Templates
+	
+	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y493 w440 BackgroundTrans vSCPrintDesc, Template name to match in the Print dialog dropdown.
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y520 w95 h22 BackgroundTrans vSCPrintPayLabel, Payment Plan:
+	Gui, Settings:Add, Edit, x310 y518 w345 h22 cBlack vSCPrintPayPlanEdit, %Settings_PrintTemplate_PayPlan%
+	
+	Gui, Settings:Add, Text, x210 y550 w95 h22 BackgroundTrans vSCPrintStdLabel, Standard:
+	Gui, Settings:Add, Edit, x310 y548 w345 h22 cBlack vSCPrintStandardEdit, %Settings_PrintTemplate_Standard%
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; ROOM CAPTURE EMAIL GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y590 w480 h80 vSCEmailGroup, Room Capture Email
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y615 w95 h22 BackgroundTrans vSCEmailTplLabel HwndHwndEmailTpl, Template:
+	RegisterSettingsTooltip(HwndEmailTpl, "EMAIL TEMPLATE`n`nSelect a GHL email template for room capture emails.`nThe room image will be appended to the template body.`n`nClick 🔄 to fetch templates from GHL.")
+	
+	; Build template list for ComboBox (saved value first, then cached)
+	tplList := Settings_EmailTemplateName
+	if (GHL_CachedEmailTemplates != "") {
+		if (tplList != "" && tplList != "(none selected)")
+			tplList .= "||"
+		else
+			tplList := ""
+		; Extract just the names from cached templates (format: id|name`nid|name...)
+		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2) {
+				if (tplList != "")
+					tplList .= "|"
+				tplList .= parts[2]
+			}
+		}
+	}
+	Gui, Settings:Add, ComboBox, x310 y612 w200 r10 vSCEmailTplCombo, %tplList%
+	Gui, Settings:Add, Button, x515 y611 w40 h27 gRefreshEmailTemplates vSCEmailTplRefresh HwndHwndEmailRefresh, 🔄
+	RegisterSettingsTooltip(HwndEmailRefresh, "REFRESH EMAIL TEMPLATES`n`nFetch available email templates from GHL.")
+	
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y643 w440 BackgroundTrans vSCEmailTplHint, GHL email template used when emailing room captures to client.
+	
+	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
+}
+
 CreateDeveloperPanel()
 {
 	global
@@ -4384,7 +5351,7 @@ CreateDeveloperPanel()
 	; STATUS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y55 w480 h95 vDevStatusGroup Hidden, Status
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h115 vDevStatusGroup Hidden, Status
 	
 	; Warning message
 	Gui, Settings:Font, s10 Norm cFF6600, Segoe UI
@@ -4403,41 +5370,55 @@ CreateDeveloperPanel()
 	Gui, Settings:Add, Text, x400 y105 w80 BackgroundTrans vDevModeLabel Hidden, Mode:
 	Gui, Settings:Add, Text, x485 y105 w150 BackgroundTrans vDevModeValue Hidden, %runningMode%
 	
+	; Menu delay calibration result
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y125 w100 BackgroundTrans vDevDelayLabel Hidden, Menu Delay:
+	delayText := Settings_MenuDelay . "ms"
+	if (Settings_MenuDelay <= 50)
+		delayColor := "00CC00"  ; Green - fast
+	else if (Settings_MenuDelay <= 100)
+		delayColor := "FF9900"  ; Orange - medium
+	else
+		delayColor := "FF6600"  ; Red-orange - slow
+	Gui, Settings:Font, s10 Norm c%delayColor%, Segoe UI
+	Gui, Settings:Add, Text, x315 y125 w340 BackgroundTrans vDevDelayValue Hidden HwndHwndDevDelay, %delayText%
+	RegisterSettingsTooltip(HwndDevDelay, "MENU DELAY CALIBRATION`n`nAuto-detected at startup based on CPU speed.`n`n50ms = Fast PC`n75ms = Good PC`n100ms = Medium PC`n200ms = Slow PC`n`nUsed for menu keystroke timing.")
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; BUILD & RELEASE GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y160 w480 h130 vDevBuildGroup Hidden, Build && Release
+	Gui, Settings:Add, GroupBox, x195 y180 w480 h130 vDevBuildGroup Hidden, Build && Release
 	
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y185 w440 BackgroundTrans vDevBuildDesc Hidden, Create release package, update version, and push to GitHub.
+	Gui, Settings:Add, Text, x210 y205 w440 BackgroundTrans vDevBuildDesc Hidden, Create release package, update version, and push to GitHub.
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x210 y215 w140 h40 gDevCreateRelease vDevCreateBtn Hidden HwndHwndDevCreate, 📦 Create Release
+	Gui, Settings:Add, Button, x210 y235 w140 h40 gDevCreateRelease vDevCreateBtn Hidden HwndHwndDevCreate, 📦 Create Release
 	RegisterSettingsTooltip(HwndDevCreate, "CREATE RELEASE`n`nCompile the script to EXE and create`na release package with all required files.`n`nOutput goes to the build folder.")
-	Gui, Settings:Add, Button, x360 y215 w140 h40 gDevUpdateVersion vDevUpdateBtn Hidden HwndHwndDevUpdate, 🔢 Update Version
+	Gui, Settings:Add, Button, x360 y235 w140 h40 gDevUpdateVersion vDevUpdateBtn Hidden HwndHwndDevUpdate, 🔢 Update Version
 	RegisterSettingsTooltip(HwndDevUpdate, "UPDATE VERSION`n`nIncrement the version number.`nUpdates ScriptVersion and BuildDate variables.`n`nFollow semantic versioning: Major.Minor.Patch")
-	Gui, Settings:Add, Button, x510 y215 w150 h40 gDevPushGitHub vDevPushBtn Hidden HwndHwndDevPush, 🚀 Push GitHub
+	Gui, Settings:Add, Button, x510 y235 w150 h40 gDevPushGitHub vDevPushBtn Hidden HwndHwndDevPush, 🚀 Push GitHub
 	RegisterSettingsTooltip(HwndDevPush, "PUSH TO GITHUB`n`nCommit changes and push to the remote repository.`nOpens GitHub Desktop or runs git push.`n`nMake sure all changes are saved first.")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; QUICK ACTIONS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y300 w480 h130 vDevQuickGroup Hidden, Quick Actions
+	Gui, Settings:Add, GroupBox, x195 y320 w480 h130 vDevQuickGroup Hidden, Quick Actions
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x210 y330 w100 h35 gDevReloadScript vDevReloadBtn Hidden HwndHwndDevReload, 🔄 Reload
+	Gui, Settings:Add, Button, x210 y350 w100 h35 gDevReloadScript vDevReloadBtn Hidden HwndHwndDevReload, 🔄 Reload
 	RegisterSettingsTooltip(HwndDevReload, "RELOAD SCRIPT`n`nReload the script to apply code changes.`nSame as pressing the Dev Reload hotkey.`n`nUseful when testing modifications.")
-	Gui, Settings:Add, Button, x320 y330 w110 h35 gDevTestBuild vDevTestBtn Hidden HwndHwndDevTest, 🧪 Test Build
+	Gui, Settings:Add, Button, x320 y350 w110 h35 gDevTestBuild vDevTestBtn Hidden HwndHwndDevTest, 🧪 Test Build
 	RegisterSettingsTooltip(HwndDevTest, "TEST BUILD`n`nRun a test compilation to check for errors.`nDoes not create a release package.`n`nUseful for validating syntax before release.")
-	Gui, Settings:Add, Button, x440 y330 w100 h35 gDevOpenGitHub vDevGitHubBtn Hidden HwndHwndDevGitHub, 🌐 GitHub
+	Gui, Settings:Add, Button, x440 y350 w100 h35 gDevOpenGitHub vDevGitHubBtn Hidden HwndHwndDevGitHub, 🌐 GitHub
 	RegisterSettingsTooltip(HwndDevGitHub, "OPEN GITHUB`n`nOpen the GitHub repository in your browser.`nView commits, issues, and pull requests.")
-	Gui, Settings:Add, Button, x550 y330 w110 h35 gDevQuickPush vDevQuickPushBtn Hidden HwndHwndDevQuickPush, ⚡ Publish
+	Gui, Settings:Add, Button, x550 y350 w110 h35 gDevQuickPush vDevQuickPushBtn Hidden HwndHwndDevQuickPush, ⚡ Publish
 	RegisterSettingsTooltip(HwndDevQuickPush, "QUICK PUBLISH`n`nOne-click build and push to GitHub.`nCreates release and uploads automatically.`n`nUse for rapid deployment.")
 	
 	; Second row
-	Gui, Settings:Add, Button, x210 y375 w120 h35 gDevOpenFolder vDevOpenFolderBtn Hidden HwndHwndDevFolder, 📂 Open Folder
+	Gui, Settings:Add, Button, x210 y395 w120 h35 gDevOpenFolder vDevOpenFolderBtn Hidden HwndHwndDevFolder, 📂 Open Folder
 	RegisterSettingsTooltip(HwndDevFolder, "OPEN FOLDER`n`nOpen the script folder in Windows Explorer.`nQuick access to source files and resources.")
 }
 
@@ -4451,6 +5432,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, TabHotkeysBg
 	GuiControl, Settings:Hide, TabFilesBg
 	GuiControl, Settings:Hide, TabAboutBg
+	GuiControl, Settings:Hide, TabShortcutsBg
 	GuiControl, Settings:Hide, TabDeveloperBg
 	
 	; Hide all panels - General
@@ -4651,6 +5633,50 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, FilesAutoDrive
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
 	
+	; Hide all panels - Shortcuts
+	GuiControl, Settings:Hide, PanelShortcuts
+	GuiControl, Settings:Hide, SCHeader
+	GuiControl, Settings:Hide, SCButtonsGroup
+	GuiControl, Settings:Hide, SCDescription
+	GuiControl, Settings:Hide, SCIcon_Client
+	GuiControl, Settings:Hide, SCLabel_Client
+	GuiControl, Settings:Hide, Toggle_ShowBtn_Client
+	GuiControl, Settings:Hide, SCIcon_Invoice
+	GuiControl, Settings:Hide, SCLabel_Invoice
+	GuiControl, Settings:Hide, Toggle_ShowBtn_Invoice
+	GuiControl, Settings:Hide, SCIcon_OpenGHL
+	GuiControl, Settings:Hide, SCLabel_OpenGHL
+	GuiControl, Settings:Hide, Toggle_ShowBtn_OpenGHL
+	GuiControl, Settings:Hide, SCIcon_Camera
+	GuiControl, Settings:Hide, SCLabel_Camera
+	GuiControl, Settings:Hide, Toggle_ShowBtn_Camera
+	GuiControl, Settings:Hide, SCIcon_Sort
+	GuiControl, Settings:Hide, SCLabel_Sort
+	GuiControl, Settings:Hide, Toggle_ShowBtn_Sort
+	GuiControl, Settings:Hide, SCIcon_Photoshop
+	GuiControl, Settings:Hide, SCLabel_Photoshop
+	GuiControl, Settings:Hide, Toggle_ShowBtn_Photoshop
+	GuiControl, Settings:Hide, SCIcon_Refresh
+	GuiControl, Settings:Hide, SCLabel_Refresh
+	GuiControl, Settings:Hide, Toggle_ShowBtn_Refresh
+	GuiControl, Settings:Hide, SCIcon_Print
+	GuiControl, Settings:Hide, SCLabel_Print
+	GuiControl, Settings:Hide, Toggle_ShowBtn_Print
+	GuiControl, Settings:Hide, SCIcon_Download
+	GuiControl, Settings:Hide, SCLabel_Download
+	GuiControl, Settings:Hide, SCInfoNote
+	GuiControl, Settings:Hide, SCPrintGroup
+	GuiControl, Settings:Hide, SCPrintDesc
+	GuiControl, Settings:Hide, SCPrintPayLabel
+	GuiControl, Settings:Hide, SCPrintPayPlanEdit
+	GuiControl, Settings:Hide, SCPrintStdLabel
+	GuiControl, Settings:Hide, SCPrintStandardEdit
+	GuiControl, Settings:Hide, SCEmailGroup
+	GuiControl, Settings:Hide, SCEmailTplLabel
+	GuiControl, Settings:Hide, SCEmailTplCombo
+	GuiControl, Settings:Hide, SCEmailTplRefresh
+	GuiControl, Settings:Hide, SCEmailTplHint
+	
 	; Hide all panels - Developer
 	GuiControl, Settings:Hide, PanelDeveloper
 	GuiControl, Settings:Hide, DevHeader
@@ -4660,6 +5686,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, DevVersionValue
 	GuiControl, Settings:Hide, DevModeLabel
 	GuiControl, Settings:Hide, DevModeValue
+	GuiControl, Settings:Hide, DevDelayLabel
+	GuiControl, Settings:Hide, DevDelayValue
 	GuiControl, Settings:Hide, DevBuildGroup
 	GuiControl, Settings:Hide, DevBuildDesc
 	GuiControl, Settings:Hide, DevCreateBtn
@@ -4917,6 +5945,52 @@ ShowSettingsTab(tabName)
 		; Refresh latest version info
 		RefreshLatestVersion()
 	}
+	else if (tabName = "Shortcuts")
+	{
+		GuiControl, Settings:Show, TabShortcutsBg
+		GuiControl, Settings:Show, PanelShortcuts
+		GuiControl, Settings:Show, SCHeader
+		GuiControl, Settings:Show, SCButtonsGroup
+		GuiControl, Settings:Show, SCDescription
+		GuiControl, Settings:Show, SCIcon_Client
+		GuiControl, Settings:Show, SCLabel_Client
+		GuiControl, Settings:Show, Toggle_ShowBtn_Client
+		GuiControl, Settings:Show, SCIcon_Invoice
+		GuiControl, Settings:Show, SCLabel_Invoice
+		GuiControl, Settings:Show, Toggle_ShowBtn_Invoice
+		GuiControl, Settings:Show, SCIcon_OpenGHL
+		GuiControl, Settings:Show, SCLabel_OpenGHL
+		GuiControl, Settings:Show, Toggle_ShowBtn_OpenGHL
+		GuiControl, Settings:Show, SCIcon_Camera
+		GuiControl, Settings:Show, SCLabel_Camera
+		GuiControl, Settings:Show, Toggle_ShowBtn_Camera
+		GuiControl, Settings:Show, SCIcon_Sort
+		GuiControl, Settings:Show, SCLabel_Sort
+		GuiControl, Settings:Show, Toggle_ShowBtn_Sort
+		GuiControl, Settings:Show, SCIcon_Photoshop
+		GuiControl, Settings:Show, SCLabel_Photoshop
+		GuiControl, Settings:Show, Toggle_ShowBtn_Photoshop
+		GuiControl, Settings:Show, SCIcon_Refresh
+		GuiControl, Settings:Show, SCLabel_Refresh
+		GuiControl, Settings:Show, Toggle_ShowBtn_Refresh
+		GuiControl, Settings:Show, SCIcon_Print
+		GuiControl, Settings:Show, SCLabel_Print
+		GuiControl, Settings:Show, Toggle_ShowBtn_Print
+		GuiControl, Settings:Show, SCIcon_Download
+		GuiControl, Settings:Show, SCLabel_Download
+		GuiControl, Settings:Show, SCInfoNote
+		GuiControl, Settings:Show, SCPrintGroup
+		GuiControl, Settings:Show, SCPrintDesc
+		GuiControl, Settings:Show, SCPrintPayLabel
+		GuiControl, Settings:Show, SCPrintPayPlanEdit
+		GuiControl, Settings:Show, SCPrintStdLabel
+		GuiControl, Settings:Show, SCPrintStandardEdit
+		GuiControl, Settings:Show, SCEmailGroup
+		GuiControl, Settings:Show, SCEmailTplLabel
+		GuiControl, Settings:Show, SCEmailTplCombo
+		GuiControl, Settings:Show, SCEmailTplRefresh
+		GuiControl, Settings:Show, SCEmailTplHint
+	}
 	else if (tabName = "Developer")
 	{
 		GuiControl, Settings:Show, TabDeveloperBg
@@ -4929,6 +6003,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, DevVersionValue
 		GuiControl, Settings:Show, DevModeLabel
 		GuiControl, Settings:Show, DevModeValue
+		GuiControl, Settings:Show, DevDelayLabel
+		GuiControl, Settings:Show, DevDelayValue
 		; Build & Release GroupBox
 		GuiControl, Settings:Show, DevBuildGroup
 		GuiControl, Settings:Show, DevBuildDesc
@@ -4970,6 +6046,10 @@ Return
 
 SettingsTabFiles:
 ShowSettingsTab("Files")
+Return
+
+SettingsTabShortcuts:
+ShowSettingsTab("Shortcuts")
 Return
 
 SettingsTabDeveloper:
@@ -5366,8 +6446,8 @@ ActivateLicenseBtn:
 	ToolTip, Activating license...
 	tempFile := A_Temp . "\license_result.json"
 	scriptCmd := GetScriptCommand("validate_license", "activate """ . licenseKey . """ """ . GHL_LocationID . """")
-	
-	RunWait, %ComSpec% /c "%scriptCmd% > "%tempFile%"", , Hide
+	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempFile . """"""
+	RunWait, %fullCmd%, , Hide
 	
 	; Read result
 	FileRead, resultJson, %tempFile%
@@ -5416,8 +6496,8 @@ ValidateLicenseBtn:
 	ToolTip, Validating license...
 	tempFile := A_Temp . "\license_result.json"
 	scriptCmd := GetScriptCommand("validate_license", "validate """ . License_Key . """ """ . GHL_LocationID . """")
-	
-	RunWait, %ComSpec% /c "%scriptCmd% > "%tempFile%"", , Hide
+	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempFile . """"""
+	RunWait, %fullCmd%, , Hide
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%
@@ -5457,15 +6537,15 @@ DeactivateLicenseBtn:
 	ToolTip, Deactivating license...
 	tempFile := A_Temp . "\license_result.json"
 	scriptCmd := GetScriptCommand("validate_license", "deactivate """ . License_Key . """ """ . GHL_LocationID . """ """ . License_InstanceID . """")
-	
-	RunWait, %ComSpec% /c "%scriptCmd% > "%tempFile%"", , Hide
+	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempFile . """"""
+	RunWait, %fullCmd%, , Hide
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%
 	ToolTip
 	
 	if InStr(resultJson, """success"": true") || InStr(resultJson, """deactivated"": true") {
-		License_Status := "unlicensed"
+		License_Status := "trial"
 		License_InstanceID := ""
 		License_ActivatedAt := ""
 		License_ValidatedAt := ""
@@ -5598,6 +6678,7 @@ SaveLicenseSecure() {
 	IniWrite, %License_CustomerName%, %IniFilename%, License, CustomerName
 	IniWrite, %License_CustomerEmail%, %IniFilename%, License, CustomerEmail
 	IniWrite, %License_ActivatedAt%, %IniFilename%, License, ActivatedAt
+	IniWrite, %License_TrialStart%, %IniFilename%, License, TrialStart
 	
 	; Remove old plain-text values (migration)
 	IniDelete, %IniFilename%, License, Key
@@ -5695,6 +6776,88 @@ CheckMonthlyLicenseValidation() {
 			SaveSettings()
 			DarkMsgBox("License Issue", "Your license could not be validated.`n`nPlease check your internet connection or contact support.", "warning")
 		}
+	}
+}
+
+; Check trial status on startup (tied to Location ID)
+CheckTrialStatus() {
+	global License_Key, License_Status, GHL_LocationID, License_TrialStart, License_TrialWarningDate, License_PurchaseURL
+	
+	; Skip if licensed
+	if (License_Key != "" && License_Status = "active")
+		return
+	
+	; Need Location ID for trial
+	if (GHL_LocationID = "") {
+		; Can't check trial without Location ID - will prompt user
+		return
+	}
+	
+	tempFile := A_Temp . "\trial_result.json"
+	trialCmd := GetScriptCommand("validate_license", "trial """ . GHL_LocationID . """")
+	
+	RunWait, %ComSpec% /c "%trialCmd% > "%tempFile%"", , Hide
+	
+	FileRead, resultJson, %tempFile%
+	FileDelete, %tempFile%
+	
+	; Parse trial info
+	if InStr(resultJson, """is_expired"": true") {
+		License_Status := "expired"
+		DarkMsgBox("Trial Expired", "Your 14-day trial has expired.`n`nPlease purchase a license to continue using SideKick_PS.", "warning")
+		Run, %License_PurchaseURL%
+	} else {
+		; Extract days remaining
+		RegExMatch(resultJson, """days_remaining"":\s*(\d+)", match)
+		daysRemaining := match1
+		
+		RegExMatch(resultJson, """trial_start"":\s*""([^""]*)""", match)
+		License_TrialStart := match1
+		
+		; Show daily trial warning popup
+		ShowDailyTrialWarning(daysRemaining)
+	}
+}
+
+; Show trial warning popup once per day
+ShowDailyTrialWarning(daysRemaining) {
+	global License_TrialWarningDate, License_PurchaseURL
+	
+	; Get today's date
+	FormatTime, today,, yyyy-MM-dd
+	
+	; Skip if already shown today
+	if (License_TrialWarningDate = today)
+		return
+	
+	; Update last warning date
+	License_TrialWarningDate := today
+	IniWrite, %License_TrialWarningDate%, %IniFilename%, License, TrialWarningDate
+	
+	; Build warning message based on days remaining
+	if (daysRemaining <= 0) {
+		title := "Trial Expired"
+		msg := "Your SideKick_PS trial has expired!`n`nPurchase a license to continue using all features."
+		msgType := "warning"
+	} else if (daysRemaining = 1) {
+		title := "Trial Ending Tomorrow"
+		msg := "Your SideKick_PS trial expires TOMORROW!`n`nOnly 1 day remaining.`n`nPurchase now to avoid interruption."
+		msgType := "warning"
+	} else if (daysRemaining <= 3) {
+		title := "Trial Ending Soon"
+		msg := "Your SideKick_PS trial expires in " . daysRemaining . " days!`n`nPurchase a license to continue using all features."
+		msgType := "warning"
+	} else {
+		title := "SideKick_PS Trial"
+		msg := "You are using SideKick_PS in trial mode.`n`n" . daysRemaining . " days remaining in your free trial.`n`nEnjoy exploring all features!"
+		msgType := "info"
+	}
+	
+	; Show dialog with Buy License option
+	result := DarkMsgBox(title, msg . "`n`nWould you like to purchase a license now?", msgType, {buttons: ["Buy License", "Later"]})
+	if (result = "Buy License")
+	{
+		Run, %License_PurchaseURL%
 	}
 }
 
@@ -5900,6 +7063,37 @@ Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 Settings_SDCardEnabled := Toggle_SDCardEnabled_State
+; Toolbar button visibility toggles
+Settings_ShowBtn_Client := Toggle_ShowBtn_Client_State
+Settings_ShowBtn_Invoice := Toggle_ShowBtn_Invoice_State
+Settings_ShowBtn_OpenGHL := Toggle_ShowBtn_OpenGHL_State
+Settings_ShowBtn_Camera := Toggle_ShowBtn_Camera_State
+Settings_ShowBtn_Sort := Toggle_ShowBtn_Sort_State
+Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
+Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
+Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
+; Quick Print template strings from edit controls
+Settings_PrintTemplate_PayPlan := SCPrintPayPlanEdit
+Settings_PrintTemplate_Standard := SCPrintStandardEdit
+; Email template from combo box - look up ID from cached templates
+if (SCEmailTplCombo != "" && SCEmailTplCombo != "(none selected)") {
+	Settings_EmailTemplateName := SCEmailTplCombo
+	; Find ID for this template name
+	Settings_EmailTemplateID := ""
+	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2 && parts[2] = SCEmailTplCombo) {
+			Settings_EmailTemplateID := parts[1]
+			break
+		}
+	}
+} else {
+	Settings_EmailTemplateName := "(none selected)"
+	Settings_EmailTemplateID := ""
+}
 ; GHL settings from edit controls
 Settings_GHLTags := GHLTagsEdit
 Settings_GHLOppTags := GHLOppTagsEdit
@@ -5907,6 +7101,9 @@ Settings_InvoiceWatchFolder := GHLWatchFolderEdit
 Settings_ContactSheetFolder := GHLCSFolderEdit
 ; Save settings
 SaveSettings()
+; Rebuild toolbar to reflect button visibility changes
+Gui, Toolbar:Destroy
+CreateFloatingToolbar()
 ToolTip, Settings saved!
 SetTimer, RemoveSettingsTooltip, -1500
 Return
@@ -5942,6 +7139,37 @@ Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 Settings_SDCardEnabled := Toggle_SDCardEnabled_State
+; Toolbar button visibility toggles
+Settings_ShowBtn_Client := Toggle_ShowBtn_Client_State
+Settings_ShowBtn_Invoice := Toggle_ShowBtn_Invoice_State
+Settings_ShowBtn_OpenGHL := Toggle_ShowBtn_OpenGHL_State
+Settings_ShowBtn_Camera := Toggle_ShowBtn_Camera_State
+Settings_ShowBtn_Sort := Toggle_ShowBtn_Sort_State
+Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
+Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
+Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
+; Quick Print template strings from edit controls
+Settings_PrintTemplate_PayPlan := SCPrintPayPlanEdit
+Settings_PrintTemplate_Standard := SCPrintStandardEdit
+; Email template from combo box - look up ID from cached templates
+if (SCEmailTplCombo != "" && SCEmailTplCombo != "(none selected)") {
+	Settings_EmailTemplateName := SCEmailTplCombo
+	; Find ID for this template name
+	Settings_EmailTemplateID := ""
+	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2 && parts[2] = SCEmailTplCombo) {
+			Settings_EmailTemplateID := parts[1]
+			break
+		}
+	}
+} else {
+	Settings_EmailTemplateName := "(none selected)"
+	Settings_EmailTemplateID := ""
+}
 ; GHL settings from edit controls
 Settings_GHLTags := GHLTagsEdit
 Settings_GHLOppTags := GHLOppTagsEdit
@@ -5949,6 +7177,9 @@ Settings_InvoiceWatchFolder := GHLWatchFolderEdit
 Settings_ContactSheetFolder := GHLCSFolderEdit
 ; Save settings
 SaveSettings()
+; Rebuild toolbar to reflect button visibility changes
+Gui, Toolbar:Destroy
+CreateFloatingToolbar()
 Gui, Settings:Destroy
 Settings_CurrentTab := "General"  ; Reset to General for next open
 Return
@@ -6230,9 +7461,33 @@ ProcessInvoiceXML(xmlFile)
 		}
 	}
 	
-	if (contactId = "")
+	; Validate contactId - must be 20+ chars (GHL format). If not, try album title fallback
+	if (StrLen(contactId) < 20)
 	{
-		DarkMsgBox("Missing Client ID", "Invoice XML is missing a Client ID.`n`nPlease link this order to a GHL contact before exporting.`n`nFile: " . xmlFile, "warning")
+		; Try to get Client ID from ProSelect album title as fallback
+		albumContactId := ""
+		if WinExist("ProSelect ahk_exe ProSelect.exe")
+		{
+			WinGetTitle, psTitle, ahk_exe ProSelect.exe
+			; Look for GHL Client ID pattern in album name (20+ alphanumeric chars after underscore)
+			if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch))
+				albumContactId := idMatch1
+		}
+		
+		if (albumContactId != "" && StrLen(albumContactId) >= 20)
+		{
+			if (contactId != "" && contactId != albumContactId)
+			{
+				; XML has a different ID (likely shootNo) - use album title instead
+				FileAppend, % A_Now . " - XML Client_ID '" . contactId . "' appears invalid, using album ID: " . albumContactId . "`n", %DebugLogFile%
+			}
+			contactId := albumContactId
+		}
+	}
+	
+	if (contactId = "" || StrLen(contactId) < 20)
+	{
+		DarkMsgBox("Missing Client ID", "Invoice XML is missing a valid GHL Client ID.`n`nPlease link this order to a GHL contact before exporting.`n`nFile: " . xmlFile, "warning")
 		return
 	}
 	
@@ -6245,8 +7500,8 @@ ProcessInvoiceXML(xmlFile)
 		return
 	}
 	
-	; Build arguments - contact ID is read from XML by Python script
-	syncArgs := """" . xmlFile . """"
+	; Build arguments - pass contact ID explicitly in case XML has wrong value
+	syncArgs := """" . xmlFile . """ --contact-id """ . contactId . """"
 	if (Settings_FinancialsOnly)
 		syncArgs .= " --financials-only"
 	if (!Settings_ContactSheet)
@@ -6284,7 +7539,8 @@ ShowGHLFolderPicker()
 	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-folders")
 	
 	tempOutput := A_Temp . "\ghl_folders_" . A_TickCount . ".txt"
-	RunWait, %ComSpec% /c "%scriptCmd%" > "%tempOutput%" 2>&1, , Hide
+	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempOutput . """ 2>&1"""
+	RunWait, %fullCmd%, , Hide
 	ToolTip
 	
 	FileRead, folderOutput, %tempOutput%
@@ -6373,6 +7629,185 @@ ShowGHLFolderPicker()
 		Gui, FolderPicker:Destroy
 		return
 }
+
+; ============================================================================
+; Refresh Email Templates - Fetch templates from GHL API
+; ============================================================================
+RefreshEmailTemplates:
+{
+	global GHL_CachedEmailTemplates, Settings_EmailTemplateID, Settings_EmailTemplateName, IniFilename
+	
+	ToolTip, Fetching email templates from GHL...
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
+	
+	tempOutput := A_Temp . "\ghl_templates_" . A_TickCount . ".txt"
+	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempOutput . """ 2>&1"""
+	RunWait, %fullCmd%, , Hide
+	ToolTip
+	
+	FileRead, tplOutput, %tempOutput%
+	FileDelete, %tempOutput%
+	
+	; Check for errors
+	if (InStr(tplOutput, "API_ERROR") || InStr(tplOutput, "ERROR|"))
+	{
+		DarkMsgBox("API Error", "Could not load email templates from GHL.`nCheck API connection.", "warning")
+		return
+	}
+	
+	if (InStr(tplOutput, "NO_TEMPLATES") || tplOutput = "")
+	{
+		DarkMsgBox("No Templates", "No email templates found in GHL.`n`nCreate an email template in GHL first.", "info")
+		return
+	}
+	
+	; Cache the raw output (id|name per line)
+	GHL_CachedEmailTemplates := tplOutput
+	
+	; Save to INI for persistence
+	; Replace newlines with §§ for INI storage
+	iniValue := StrReplace(tplOutput, "`n", "§§")
+	iniValue := StrReplace(iniValue, "`r", "")
+	IniWrite, %iniValue%, %IniFilename%, GHL, CachedEmailTemplates
+	
+	; Build template name list for ComboBox
+	templateNames := []
+	Loop, Parse, tplOutput, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2)
+			templateNames.Push(parts[2])
+	}
+	
+	; Update the ComboBox
+	newList := ""
+	for i, tplName in templateNames {
+		if (newList != "")
+			newList .= "|"
+		newList .= tplName
+	}
+	GuiControl, Settings:, SCEmailTplCombo, |%newList%
+	
+	; Select current value if it exists
+	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)")
+		GuiControl, Settings:ChooseString, SCEmailTplCombo, %Settings_EmailTemplateName%
+	
+	tplCount := templateNames.MaxIndex() ? templateNames.MaxIndex() : 0
+	if (tplCount > 0)
+		DarkMsgBox("Templates Loaded", "Loaded " . tplCount . " email templates from GHL.", "success")
+	
+	return
+}
+
+; ============================================================================
+; Room Email Dialog - Show template picker before sending room capture email
+; ============================================================================
+ShowRoomEmailDialog()
+{
+	global GHL_CachedEmailTemplates, Settings_EmailTemplateID, Settings_EmailTemplateName
+	global RoomEmail_SelectedTplName, RoomEmail_TplIDs, RoomEmail_TplNames
+	
+	; Build template list from cached templates
+	RoomEmail_TplIDs := []
+	RoomEmail_TplNames := []
+	tplDropdown := "(none - use default)|"
+	
+	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2)
+		{
+			RoomEmail_TplIDs.Push(parts[1])
+			RoomEmail_TplNames.Push(parts[2])
+			tplDropdown .= parts[2] . "|"
+		}
+	}
+	
+	; Create template picker GUI
+	Gui, RoomEmail:New, +AlwaysOnTop +ToolWindow
+	Gui, RoomEmail:Color, 1a1a2e
+	Gui, RoomEmail:Font, s11 cWhite, Segoe UI
+	Gui, RoomEmail:Add, Text, x20 y15 w360, 📧 Send Room Capture Email
+	Gui, RoomEmail:Font, s10 c888888, Segoe UI
+	Gui, RoomEmail:Add, Text, x20 y45 w360, Select an email template:
+	Gui, RoomEmail:Font, s10 cWhite, Segoe UI
+	Gui, RoomEmail:Add, DropDownList, x20 y70 w360 vRoomEmail_SelectedTplName, %tplDropdown%
+	
+	; Pre-select the default template if configured
+	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)")
+		GuiControl, RoomEmail:ChooseString, RoomEmail_SelectedTplName, %Settings_EmailTemplateName%
+	else
+		GuiControl, RoomEmail:Choose, RoomEmail_SelectedTplName, 1
+	
+	Gui, RoomEmail:Font, s9 c888888, Segoe UI
+	Gui, RoomEmail:Add, Text, x20 y105 w360, The room image will be attached to the email body.
+	Gui, RoomEmail:Add, Button, x100 y140 w100 gRoomEmailSend Default, 📧 Send
+	Gui, RoomEmail:Add, Button, x220 y140 w100 gRoomEmailCancel, Cancel
+	
+	Gui, RoomEmail:Show, w400 h185, Send Room Capture
+	return
+}
+
+RoomEmailSend:
+{
+	global RoomEmail_SelectedTplName, RoomEmail_TplIDs, RoomEmail_TplNames
+	global RoomEmail_ContactId, RoomEmail_OutputFile, RoomEmail_AlbumName, RoomEmail_RoomNum
+	global Settings_EmailTemplateID
+	
+	Gui, RoomEmail:Submit
+	
+	; Find selected template ID
+	selectedTemplateID := ""
+	if (RoomEmail_SelectedTplName != "(none - use default)" && RoomEmail_SelectedTplName != "") {
+		Loop, % RoomEmail_TplNames.Length()
+		{
+			if (RoomEmail_TplNames[A_Index] = RoomEmail_SelectedTplName)
+			{
+				selectedTemplateID := RoomEmail_TplIDs[A_Index]
+				break
+			}
+		}
+	}
+	
+	; Run sync_ps_invoice with --send-room-email
+	emailArgs := "--send-room-email " . RoomEmail_ContactId . " """ . RoomEmail_OutputFile . """"
+	if (selectedTemplateID != "")
+		emailArgs .= " --email-template " . selectedTemplateID
+	
+	emailCmd := GetScriptCommand("sync_ps_invoice", emailArgs)
+	ToolTip, 📧 Sending room capture email...
+	RunWait, %emailCmd%, %A_ScriptDir%, Hide
+	
+	; Check result
+	resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+	if FileExist(resultFile) {
+		FileRead, emailResultJson, %resultFile%
+		if InStr(emailResultJson, """success"": true") {
+			; Extract email from result
+			RegExMatch(emailResultJson, """contact_email"":\s*""([^""]+)""", emailMatch)
+			ToolTip
+			DarkMsgBox("Email Sent", "📧 Room capture emailed successfully!`n`nSent to: " . emailMatch1 . "`nImage: " . RoomEmail_AlbumName . "-room" . RoomEmail_RoomNum . ".jpg", "info", {timeout: 5})
+		} else {
+			RegExMatch(emailResultJson, """error"":\s*""([^""]+)""", errMatch)
+			ToolTip
+			DarkMsgBox("Email Failed", "Could not send email.`n`n" . errMatch1, "error")
+		}
+	} else {
+		ToolTip
+		DarkMsgBox("Email Failed", "No result returned from email send.", "error")
+	}
+	return
+}
+
+RoomEmailCancel:
+RoomEmailGuiClose:
+RoomEmailGuiEscape:
+Gui, RoomEmail:Destroy
+return
 
 ; ============================================================================
 ; Refresh GHL Tags - Fetch CONTACT tags from GHL API
@@ -7919,6 +9354,9 @@ LoadSettings()
 	IniRead, Settings_AutoAddOppTags, %IniFilename%, GHL, AutoAddOppTags, 1
 	IniRead, GHL_CachedTags, %IniFilename%, GHL, CachedTags, %A_Space%
 	IniRead, GHL_CachedOppTags, %IniFilename%, GHL, CachedOppTags, %A_Space%
+	; Load cached email templates (stored with §§ as newline separator)
+	IniRead, cachedEmailTpls, %IniFilename%, GHL, CachedEmailTemplates, %A_Space%
+	GHL_CachedEmailTemplates := StrReplace(cachedEmailTpls, "§§", "`n")
 	IniRead, Settings_RoundingInDeposit, %IniFilename%, GHL, RoundingInDeposit, 1
 	IniRead, Settings_GHLInvoiceWarningShown, %IniFilename%, GHL, InvoiceWarningShown, 0
 	IniRead, Settings_MediaFolderID, %IniFilename%, GHL, MediaFolderID, %A_Space%
@@ -7957,6 +9395,20 @@ LoadSettings()
 	IniRead, Settings_SDCardEnabled, %IniFilename%, FileManagement, SDCardEnabled, 1
 	IniRead, Settings_ToolbarIconColor, %IniFilename%, Appearance, ToolbarIconColor, White
 	
+	; Toolbar button visibility
+	IniRead, Settings_ShowBtn_Client, %IniFilename%, Toolbar, ShowBtn_Client, 1
+	IniRead, Settings_ShowBtn_Invoice, %IniFilename%, Toolbar, ShowBtn_Invoice, 1
+	IniRead, Settings_ShowBtn_OpenGHL, %IniFilename%, Toolbar, ShowBtn_OpenGHL, 1
+	IniRead, Settings_ShowBtn_Camera, %IniFilename%, Toolbar, ShowBtn_Camera, 1
+	IniRead, Settings_ShowBtn_Sort, %IniFilename%, Toolbar, ShowBtn_Sort, 1
+	IniRead, Settings_ShowBtn_Photoshop, %IniFilename%, Toolbar, ShowBtn_Photoshop, 1
+	IniRead, Settings_ShowBtn_Refresh, %IniFilename%, Toolbar, ShowBtn_Refresh, 1
+	IniRead, Settings_ShowBtn_Print, %IniFilename%, Toolbar, ShowBtn_Print, 1
+	IniRead, Settings_PrintTemplate_PayPlan, %IniFilename%, Toolbar, PrintTemplate_PayPlan, PayPlan
+	IniRead, Settings_PrintTemplate_Standard, %IniFilename%, Toolbar, PrintTemplate_Standard, Terms of Sale
+	IniRead, Settings_EmailTemplateID, %IniFilename%, Toolbar, EmailTemplateID, %A_Space%
+	IniRead, Settings_EmailTemplateName, %IniFilename%, Toolbar, EmailTemplateName, (none selected)
+	
 	; Build GHL payment settings URL from location ID
 	if (GHL_LocationID != "")
 		Settings_GHLPaymentSettingsURL := "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/payments/settings/receipts"
@@ -7966,16 +9418,28 @@ LoadSettings()
 	IniRead, License_CustomerName, %IniFilename%, License, CustomerName, %A_Space%
 	IniRead, License_CustomerEmail, %IniFilename%, License, CustomerEmail, %A_Space%
 	IniRead, License_ActivatedAt, %IniFilename%, License, ActivatedAt, %A_Space%
+	IniRead, License_TrialStart, %IniFilename%, License, TrialStart, %A_Space%
+	IniRead, License_TrialWarningDate, %IniFilename%, License, TrialWarningDate, %A_Space%
 	
 	; If license data was tampered with, force online validation
 	if (!licenseOK && License_Status = "invalid") {
 		; Will be caught by CheckMonthlyLicenseValidation
 	}
 	
+	; Start trial if not set
+	if (License_TrialStart = "" && License_Status = "trial") {
+		FormatTime, License_TrialStart,, yyyy-MM-dd
+		IniWrite, %License_TrialStart%, %IniFilename%, License, TrialStart
+	}
+	
 	; Check if monthly license validation is needed (only if licensed)
 	if (License_Status = "active" && License_Key != "") {
 		CheckMonthlyLicenseValidation()
 	}
+	; Trial check disabled - LemonSqueezy handles licensing
+	; else {
+	; 	CheckTrialStatus()
+	; }
 	
 	; Start invoice folder monitor if configured
 	if (Settings_InvoiceWatchFolder != "" && FileExist(Settings_InvoiceWatchFolder))
@@ -8045,6 +9509,20 @@ SaveSettings()
 	IniWrite, %Settings_AutoRenameImages%, %IniFilename%, FileManagement, AutoRenameImages
 	IniWrite, %Settings_AutoDriveDetect%, %IniFilename%, FileManagement, AutoDriveDetect
 	IniWrite, %Settings_SDCardEnabled%, %IniFilename%, FileManagement, SDCardEnabled
+	
+	; Save toolbar button visibility
+	IniWrite, %Settings_ShowBtn_Client%, %IniFilename%, Toolbar, ShowBtn_Client
+	IniWrite, %Settings_ShowBtn_Invoice%, %IniFilename%, Toolbar, ShowBtn_Invoice
+	IniWrite, %Settings_ShowBtn_OpenGHL%, %IniFilename%, Toolbar, ShowBtn_OpenGHL
+	IniWrite, %Settings_ShowBtn_Camera%, %IniFilename%, Toolbar, ShowBtn_Camera
+	IniWrite, %Settings_ShowBtn_Sort%, %IniFilename%, Toolbar, ShowBtn_Sort
+	IniWrite, %Settings_ShowBtn_Photoshop%, %IniFilename%, Toolbar, ShowBtn_Photoshop
+	IniWrite, %Settings_ShowBtn_Refresh%, %IniFilename%, Toolbar, ShowBtn_Refresh
+	IniWrite, %Settings_ShowBtn_Print%, %IniFilename%, Toolbar, ShowBtn_Print
+	IniWrite, %Settings_PrintTemplate_PayPlan%, %IniFilename%, Toolbar, PrintTemplate_PayPlan
+	IniWrite, %Settings_PrintTemplate_Standard%, %IniFilename%, Toolbar, PrintTemplate_Standard
+	IniWrite, %Settings_EmailTemplateID%, %IniFilename%, Toolbar, EmailTemplateID
+	IniWrite, %Settings_EmailTemplateName%, %IniFilename%, Toolbar, EmailTemplateName
 	
 	; Update invoice folder monitor
 	if (Settings_InvoiceWatchFolder != "" && FileExist(Settings_InvoiceWatchFolder))
@@ -8905,7 +10383,10 @@ if WinExist("ProSelect ahk_exe ProSelect.exe")
 		; Album has Client ID - offer to use it
 		existingClientId := idMatch1
 		
-		result := DarkMsgBox("Client ID Found in Album", "The current album already has a Client ID:`n`n" . existingClientId . "`n`nUse this ID to fetch client data?", "question", {buttons: ["Yes - Use Album ID", "No - Scan Chrome"]})
+		result := DarkMsgBox("Client ID Found in Album", "The current album already has a Client ID:`n`n" . existingClientId . "`n`nUse this ID to fetch client data?", "question", {buttons: ["Yes - Use Album ID", "No - Scan Chrome", "Cancel"]})
+		
+		if (result = "Cancel")
+			Return
 		
 		if (result = "Yes - Use Album ID")
 		{

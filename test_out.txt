@@ -1,0 +1,7 @@
+DEBUG: Config loaded successfully
+DEBUG: LIST EMAIL TEMPLATES REQUEST
+DEBUG: LIST EMAIL TEMPLATES RESPONSE
+cyvqeNCVNC7iCsf4nyRU|Bad mobile 
+EzvdMsNPm6dppdSd0grB|Boudoir Deposit Request Email
+VAEyMnFU2DshhVKa2RRi|Confirm or Lose it Boudoir
+wsnCGJG8NM5YlqC2SSSj|Room Set  view
