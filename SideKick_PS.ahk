@@ -3316,6 +3316,9 @@ Return
 ToggleClick_EnablePDF:
 Toggle_EnablePDF_State := !Toggle_EnablePDF_State
 UpdateToggleSlider("Settings", "EnablePDF", Toggle_EnablePDF_State, 590)
+; Save immediately so it persists without needing Apply/Close
+Settings_EnablePDF := Toggle_EnablePDF_State
+IniWrite, %Settings_EnablePDF%, %IniFilename%, Toolbar, EnablePDF
 Return
 
 ; Function to enable/disable File Management controls based on SD Card enabled state
