@@ -1462,6 +1462,53 @@ tbWidth := toolbarWidth
 newX := psX + psW - (tbWidth + 147)
 newY := psY + 6
 
+; Ensure toolbar stays within screen bounds
+SysGet, monitorCount, MonitorCount
+SysGet, primaryMon, MonitorWorkArea
+
+; Get the monitor that contains the ProSelect window center
+psCenterX := psX + (psW // 2)
+psCenterY := psY + (psH // 2)
+
+; Track if we found a valid monitor
+foundMonitor := false
+
+; Check each monitor to find which one contains the ProSelect window
+Loop, %monitorCount% {
+	SysGet, mon, MonitorWorkArea, %A_Index%
+	if (psCenterX >= monLeft && psCenterX <= monRight && psCenterY >= monTop && psCenterY <= monBottom) {
+		foundMonitor := true
+		; Found the monitor - ensure toolbar is fully visible within it
+		if (newX < monLeft)
+			newX := monLeft
+		if (newX + tbWidth > monRight)
+			newX := monRight - tbWidth
+		if (newY < monTop)
+			newY := monTop
+		if (newY + 43 > monBottom)
+			newY := monBottom - 43
+		break
+	}
+}
+
+; Fallback: use primary monitor bounds if no monitor found for window center
+if (!foundMonitor) {
+	if (newX < primaryMonLeft)
+		newX := primaryMonLeft
+	if (newX + tbWidth > primaryMonRight)
+		newX := primaryMonRight - tbWidth
+	if (newY < primaryMonTop)
+		newY := primaryMonTop
+	if (newY + 43 > primaryMonBottom)
+		newY := primaryMonBottom - 43
+}
+
+; Final safety check - ensure at least X >= 0 and Y >= 0
+if (newX < 0)
+	newX := 0
+if (newY < 0)
+	newY := 0
+
 Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h43 NoActivate
 Return
 
