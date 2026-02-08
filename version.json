@@ -2,9 +2,10 @@
   "version": "2.4.8",
   "build_date": "2026-02-08",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Debug logging now includes SideKick version",
+  "release_notes": "Fixed debug log upload - now reads from correct folder and deletes after upload",
   "changelog": [
-    "ADDED: SideKick version now logged in debug output for easier troubleshooting",
-    "IMPROVED: Version read from version.json for consistency across all components"
+    "FIX: Debug logs now uploaded from correct AppData folder (was reading old Desktop logs)",
+    "FIX: Logs are deleted after successful upload to prevent re-uploading stale data",
+    "ADDED: SideKick version now logged in debug output for easier troubleshooting"
   ]
 }
