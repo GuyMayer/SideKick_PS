@@ -85,7 +85,8 @@
     <nav class="fixed top-0 w-full z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/5">
         <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <img src="images/logo-nav.webp" alt="SideKick PS" class="w-10 h-10 rounded-lg" width="40" height="40">
+                <!-- Logo placeholder - replace with actual logo -->
+                <div class="w-8 h-8 rounded-lg gradient-accent flex items-center justify-center text-white font-bold text-sm">SK</div>
                 <span class="text-white font-semibold text-lg">SideKick <span class="text-brand-accent">PS</span></span>
             </div>
             <div class="hidden md:flex items-center gap-8 text-sm text-gray-400">
@@ -166,24 +167,6 @@
         </div>
     </section>
 
-    <!-- The Integration Problem -->
-    <section class="py-16 px-6 bg-gradient-to-b from-brand-dark to-brand-mid/30">
-        <div class="max-w-3xl mx-auto text-center">
-            <h2 class="text-2xl md:text-3xl font-bold text-white mb-6">Two Powerful Tools. Zero Integration.</h2>
-            <p class="text-lg text-gray-300 leading-relaxed mb-4">
-                ProSelect is the <span class="text-white font-medium">premier IPS viewing system</span>. 
-                GoHighLevel is the <span class="text-white font-medium">premier CRM for photographers</span>. 
-                You already know this — that's why you use both.
-            </p>
-            <p class="text-lg text-gray-400 leading-relaxed">
-                But when a client is sitting in front of you waiting for their viewing to start, 
-                the last thing you need is <span class="text-brand-accent">friction</span>. 
-                Copying names. Typing addresses. Creating invoices manually. 
-                <span class="text-white">SideKick bridges the gap</span> — instantly.
-            </p>
-        </div>
-    </section>
-
     <!-- Problem → Solution -->
     <section class="py-20 px-6">
         <div class="max-w-6xl mx-auto">
@@ -191,7 +174,7 @@
                 <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Sound Familiar?</h2>
                 <p class="text-gray-400 text-lg max-w-2xl mx-auto">Every photographer using ProSelect and GHL knows these pain points.</p>
             </div>
-            <div class="grid md:grid-cols-3 gap-8">
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
                 <!-- Pain 1 -->
                 <div class="bg-brand-mid/60 border border-white/5 rounded-2xl p-8 card-hover">
                     <div class="text-3xl mb-4">😫</div>
@@ -220,6 +203,16 @@
                     <div class="border-t border-white/10 pt-4 mt-4">
                         <div class="text-brand-accent font-medium text-sm mb-1">With SideKick</div>
                         <p class="text-gray-300 text-sm">Smart calculator generates the schedule and enters every payment automatically.</p>
+                    </div>
+                </div>
+                <!-- Pain 4 -->
+                <div class="bg-brand-mid/60 border border-white/5 rounded-2xl p-8 card-hover">
+                    <div class="text-3xl mb-4">😟</div>
+                    <h3 class="text-lg font-semibold text-white mb-2">"Will It Fit?" Hesitation</h3>
+                    <p class="text-gray-400 text-sm mb-4">Clients unsure if wall art will fit their space — hesitation kills sales.</p>
+                    <div class="border-t border-white/10 pt-4 mt-4">
+                        <div class="text-brand-accent font-medium text-sm mb-1">With SideKick</div>
+                        <p class="text-gray-300 text-sm">"Snap a photo of your wall at home—I'll email you a preview with your art in place."</p>
                     </div>
                 </div>
             </div>
@@ -332,7 +325,7 @@
                 <div class="order-2 md:order-1">
                     <div class="feature-icon bg-red-500/10 text-red-400 mb-4">📷</div>
                     <h3 class="text-2xl font-bold text-white mb-3">Room Capture & Auto-Email</h3>
-                    <p class="text-gray-300 mb-6">Screenshot the ProSelect room view and send it straight to your client via GHL. No saving, no attaching — just capture and send.</p>
+                    <p class="text-gray-300 mb-6">Forgot the room photo? Clients unsure if wall art will fit can stall a sale. Capture the ProSelect room view and email it directly—showing exactly how their artwork looks in their space. Hesitation gone, sale closed.</p>
                     <ul class="space-y-3">
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
@@ -340,15 +333,15 @@
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            One-click email to client via GoHighLevel
-                        </li>
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
                             Auto-named per album with incrementing numbers
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            File path copied to clipboard — or skip the clipboard entirely
+                            File path copied to clipboard — paste straight into a message
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Diffuse doubt instantly: "Not sure if it'll fit? Peace of mind included."
                         </li>
                     </ul>
                 </div>
@@ -391,71 +384,7 @@
                 </div>
             </div>
 
-            <!-- Feature 6: Quick Clicks -->
-            <div class="grid md:grid-cols-2 gap-12 items-center mt-24">
-                <div class="order-2 md:order-1">
-                    <div class="feature-icon bg-cyan-500/10 text-cyan-400 mb-4">⚡</div>
-                    <h3 class="text-2xl font-bold text-white mb-3">Quick Clicks</h3>
-                    <p class="text-gray-300 mb-6">Instant shortcuts for actions you do every session. Skip the menus, skip the clicks — get straight to the work.</p>
-                    <ul class="space-y-3">
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
-                            One-click access to most-used ProSelect functions
-                        </li>
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
-                            Customisable hotkeys for your workflow
-                        </li>
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
-                            Quick toggles for display options and sorting
-                        </li>
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
-                            Streamlined actions that normally take 3-4 clicks
-                        </li>
-                    </ul>
-                </div>
-                <div class="order-1 md:order-2">
-                    <!-- SCREENSHOT: Quick Clicks in action -->
-                    <div class="screenshot-placeholder aspect-[16/10] w-full">
-                        <span>📸 feature-quick-clicks.png<br>Quick Clicks shortcuts</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Feature 7: QR Code Generator -->
-            <div class="grid md:grid-cols-2 gap-12 items-center mt-24">
-                <div>
-                    <!-- QR Code display screenshot -->
-                    <img src="images/feature-qr-codes.webp" alt="SideKick PS QR Code Display" class="w-full rounded-xl shadow-2xl border border-white/10" loading="lazy">
-                </div>
-                <div>
-                    <div class="feature-icon bg-pink-500/10 text-pink-400 mb-4">📱</div>
-                    <h3 class="text-2xl font-bold text-white mb-3">Client QR Codes</h3>
-                    <p class="text-gray-300 mb-6">Show clients a QR code and they're connected instantly. WiFi access, payment plan registration, contact forms — no typing required.</p>
-                    <ul class="space-y-3">
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
-                            Studio WiFi QR — clients scan and connect in seconds
-                        </li>
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
-                            Payment plan registration link with pre-filled client data
-                        </li>
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
-                            Direct Debit mandate setup via GoCardless integration
-                        </li>
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
-                            Full-screen display mode for easy scanning
-                        </li>
-                    </ul>
-                </div>
-            </div>
-
-            <!-- Feature 8: File Management (Coming Soon) -->
+            <!-- Feature 6: File Management (Coming Soon) -->
             <div class="grid md:grid-cols-2 gap-12 items-center mt-24">
                 <div class="order-2 md:order-1">
                     <div class="feature-icon bg-gray-500/10 text-gray-400 mb-4">📁</div>
