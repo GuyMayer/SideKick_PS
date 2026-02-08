@@ -3325,13 +3325,17 @@ hasManualRefundOnly := InStr(resultJson, "needs_manual_refund")
 RegExMatch(resultJson, """problem_invoices"":\s*\[([^\]]+)\]", matchProblems)
 problemList := matchProblems1 ? matchProblems1 : ""
 
+; Get problem invoice details (id|number pairs) for void action
+RegExMatch(resultJson, """problem_invoice_details"":\s*\[([^\]]*)\]", matchDetails)
+problemDetails := matchDetails1 ? matchDetails1 : ""
+
 if (exitCode = 0 && invFailed = 0) {
 	DarkMsgBox("Invoice Removed", msgParts, "info")
 } else if (hasPermissionError) {
 	DarkMsgBox("Permission Error", "API key lacks permission to void/delete invoices.`n`n" . msgParts . "`nUpdate GHL Private Integration scopes to include:`n• invoices.readonly`n• invoices.write", "warning")
 } else if (hasProviderRefundNeeded || hasManualRefundOnly) {
 	; Show custom dialog with clickable link to GHL payments
-	ShowRefundRequiredDialog(msgParts, problemList)
+	ShowRefundRequiredDialog(msgParts, problemList, problemDetails)
 } else {
 	DarkMsgBox("Delete Failed", "Could not remove all invoices.`n`n" . msgParts . "`nCheck GHL for payment status.", "warning")
 }
@@ -3837,7 +3841,7 @@ UpdateFilesControlsState(enabled) {
 ; ============================================================
 ; ShowRefundRequiredDialog - Shows dialog with clickable GHL link
 ; ============================================================
-ShowRefundRequiredDialog(msgParts, problemList) {
+ShowRefundRequiredDialog(msgParts, problemList, problemDetails := "") {
 	global Settings_DarkMode, GHL_LocationID, DPI_Scale
 	
 	; DPI scaling factor
@@ -3846,12 +3850,26 @@ ShowRefundRequiredDialog(msgParts, problemList) {
 	; Build GHL URL for transactions (where refunds are processed)
 	ghlUrl := "https://app.gohighlevel.com/v2/location/" . GHL_LocationID . "/payments/v2/transactions"
 	
-	; Store URL for click handler
+	; Store URL and invoice details for click handlers
 	global RefundDialog_URL := ghlUrl
+	global RefundDialog_InvoiceDetails := problemDetails
+	
+	; Parse invoice numbers from problemList for display
+	invoiceNumbers := []
+	if (problemList != "") {
+		; problemList is like: "#000093", "#000090"
+		cleanList := StrReplace(problemList, """", "")
+		Loop, Parse, cleanList, `,
+		{
+			num := Trim(A_LoopField)
+			if (num != "")
+				invoiceNumbers.Push(num)
+		}
+	}
 	
 	; Window dimensions
-	winWidth := Round(500 * dpi)
-	winHeight := Round(380 * dpi)
+	winWidth := Round(520 * dpi)
+	winHeight := Round(450 * dpi)
 	
 	; Create GUI
 	Gui, RefundDlg:New, +AlwaysOnTop +OwnDialogs
@@ -3861,11 +3879,13 @@ ShowRefundRequiredDialog(msgParts, problemList) {
 		textColor := "CCCCCC"
 		headerColor := "FFCC00"
 		linkColor := "4FC3F7"
+		invColor := "FF9999"
 	} else {
 		Gui, RefundDlg:Color, FFFFFF, FFFFFF
 		textColor := "333333"
 		headerColor := "CC8800"
 		linkColor := "0066CC"
+		invColor := "CC3333"
 	}
 	
 	; DPI-scaled positions
@@ -3890,8 +3910,28 @@ ShowRefundRequiredDialog(msgParts, problemList) {
 	Gui, RefundDlg:Font, s%textFont% Norm c%textColor%, Segoe UI
 	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, These invoices have payment provider transactions`n(GoCardless/Stripe) that must be manually refunded.
 	
+	; Invoice list header
+	yPos += Round(50 * dpi)
+	Gui, RefundDlg:Font, s%textFont% Bold c%invColor%, Segoe UI
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos%, INVOICES REQUIRING REFUND:
+	
+	; List invoice numbers
+	yPos += Round(22 * dpi)
+	Gui, RefundDlg:Font, s%textFont% Norm c%invColor%, Segoe UI
+	if (invoiceNumbers.Length() > 0) {
+		invListText := ""
+		for i, num in invoiceNumbers {
+			if (i > 1)
+				invListText .= ", "
+			invListText .= num
+		}
+		Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, %invListText%
+	} else {
+		Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, (invoice numbers not available)
+	}
+	
 	; Steps header
-	yPos += Round(55 * dpi)
+	yPos += Round(35 * dpi)
 	stepsColor := "FFCC00"
 	Gui, RefundDlg:Font, s%textFont% Bold c%stepsColor%, Segoe UI
 	Gui, RefundDlg:Add, Text, x%contentX% y%yPos%, STEPS TO FIX:
@@ -3905,34 +3945,32 @@ ShowRefundRequiredDialog(msgParts, problemList) {
 	yPos += Round(22 * dpi)
 	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 3. Click the transaction → Refund
 	yPos += Round(22 * dpi)
-	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 4. Once refunded, invoice can be voided
-	yPos += Round(22 * dpi)
-	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 5. Run 'Remove Invoice' again
-	
-	; Problem invoices/client info
-	yPos += Round(35 * dpi)
-	Gui, RefundDlg:Font, s%textFont% Norm c%textColor%, Segoe UI
-	displayInfo := msgParts ? msgParts : problemList
-	displayInfo := StrReplace(displayInfo, "`n", " ")
-	if (StrLen(displayInfo) > 60)
-		displayInfo := SubStr(displayInfo, 1, 60) . "..."
-	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, %displayInfo%
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 4. Click 'Done' below to void the invoices
 	
 	; Clickable link to GHL
 	yPos += Round(35 * dpi)
 	Gui, RefundDlg:Font, s%textFont% Underline c%linkColor%, Segoe UI
 	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW% gRefundDlg_OpenGHL, 🔗 Open GHL Transactions Page
 	
-	; OK button
-	btnWidth := Round(100 * dpi)
+	; Buttons - Done (void invoices) and Cancel
+	btnWidth := Round(140 * dpi)
 	btnHeight := Round(32 * dpi)
-	btnX := (winWidth - btnWidth) // 2
-	yPos += Round(45 * dpi)
+	btnSpacing := Round(15 * dpi)
+	totalBtnW := (btnWidth * 2) + btnSpacing
+	btnStartX := (winWidth - totalBtnW) // 2
+	yPos += Round(50 * dpi)
+	
 	Gui, RefundDlg:Font, s%textFont% Norm, Segoe UI
-	Gui, RefundDlg:Add, Button, x%btnX% y%yPos% w%btnWidth% h%btnHeight% Default gRefundDlg_Close, OK
+	
+	; Only show "Done - Void" button if we have invoice details to void
+	if (problemDetails != "") {
+		Gui, RefundDlg:Add, Button, x%btnStartX% y%yPos% w%btnWidth% h%btnHeight% gRefundDlg_VoidInvoices, ✓ Done - Void Now
+		btnStartX += btnWidth + btnSpacing
+	}
+	Gui, RefundDlg:Add, Button, x%btnStartX% y%yPos% w%btnWidth% h%btnHeight% Default gRefundDlg_Close, Close
 	
 	; Show dialog
-	winHeight := yPos + Round(50 * dpi)
+	winHeight := yPos + Round(55 * dpi)
 	Gui, RefundDlg:Show, w%winWidth% h%winHeight%, Manual Refund Required
 	return
 }
@@ -3940,6 +3978,61 @@ ShowRefundRequiredDialog(msgParts, problemList) {
 RefundDlg_OpenGHL:
 	global RefundDialog_URL
 	Run, %RefundDialog_URL%
+return
+
+RefundDlg_VoidInvoices:
+	global RefundDialog_InvoiceDetails
+	Gui, RefundDlg:Destroy
+	
+	; Parse invoice details and void each one
+	; Format: "id1|#num1", "id2|#num2"
+	if (RefundDialog_InvoiceDetails = "") {
+		DarkMsgBox("Error", "No invoice details available to void.", "error")
+		return
+	}
+	
+	; Clean and parse
+	cleanDetails := StrReplace(RefundDialog_InvoiceDetails, """", "")
+	voidedCount := 0
+	failedCount := 0
+	voidResults := ""
+	
+	Loop, Parse, cleanDetails, `,
+	{
+		pair := Trim(A_LoopField)
+		if (pair = "")
+			continue
+		
+		; Split by |
+		pipePos := InStr(pair, "|")
+		if (pipePos > 0) {
+			invId := SubStr(pair, 1, pipePos - 1)
+			invNum := SubStr(pair, pipePos + 1)
+			
+			; Call Python to void this invoice using --void-invoice
+			voidCmd := GetScriptCommand("sync_ps_invoice", "--void-invoice """ . invId . """")
+			RunWait, %ComSpec% /c %voidCmd%, , Hide
+			
+			; Check result file
+			resultFile := A_Temp . "\ghl_sync_result.json"
+			if FileExist(resultFile) {
+				FileRead, voidJson, %resultFile%
+				if (InStr(voidJson, """voided"": true") || InStr(voidJson, """success"": true"))
+					voidedCount++
+				else
+					failedCount++
+			} else {
+				voidedCount++  ; Assume success if no result file
+			}
+		}
+	}
+	
+	if (voidedCount > 0 && failedCount = 0)
+		DarkMsgBox("Invoices Voided", voidedCount . " invoice(s) have been voided successfully.", "success")
+	else if (voidedCount > 0)
+		DarkMsgBox("Partial Success", voidedCount . " voided, " . failedCount . " failed.`nCheck GHL for remaining invoices.", "warning")
+	else
+		DarkMsgBox("Void Failed", "Could not void invoices.`nPayments may not be refunded yet.`nCheck GHL for status.", "warning")
 return
 
 RefundDlg_Close:

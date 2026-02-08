@@ -1,10 +1,10 @@
 {
-  "version": "2.4.78",
+  "version": "2.4.8",
   "build_date": "2026-02-08",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Toolbar tooltips fix, timer-based hover detection",
+  "release_notes": "Debug logging now includes SideKick version",
   "changelog": [
-    "FIX: Toolbar tooltips now work reliably using timer-based hover detection",
-    "IMPROVED: MouseGetPos used for accurate button detection under cursor"
+    "ADDED: SideKick version now logged in debug output for easier troubleshooting",
+    "IMPROVED: Version read from version.json for consistency across all components"
   ]
 }
