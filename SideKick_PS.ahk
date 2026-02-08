@@ -1287,6 +1287,15 @@ Return
 ; Floating Toolbar - Docks to ProSelect Window
 ; ============================================================================
 
+; Toolbar tooltip data (hwnd => tooltip text)
+global ToolbarTooltips := {}
+global ToolbarLastHoveredButton := 0
+
+; Toolbar tooltip timer
+ToolbarTooltipOff:
+ToolTip
+return
+
 CreateFloatingToolbar()
 {
 	global
@@ -1294,6 +1303,9 @@ CreateFloatingToolbar()
 	
 	; Stop position timer during rebuild to prevent conflicts
 	SetTimer, PositionToolbar, Off
+	
+	; Clear old tooltip mappings
+	ToolbarTooltips := {}
 	
 	; Destroy any existing toolbar first to prevent ghost/duplicate windows
 	Gui, Toolbar:Destroy
@@ -1339,7 +1351,7 @@ CreateFloatingToolbar()
 	; Transparent background with colored buttons
 	Gui, Toolbar:New, +AlwaysOnTop +ToolWindow -Caption +HwndToolbarHwnd
 	Gui, Toolbar:Color, 1E1E1E
-	Gui, Toolbar:Font, s%fontSize%, Segoe UI
+	Gui, Toolbar:Font, s%fontSize% w300, Segoe UI
 	
 	; Get icon color from settings
 	iconColor := Settings_ToolbarIconColor ? Settings_ToolbarIconColor : "White"
@@ -1347,73 +1359,101 @@ CreateFloatingToolbar()
 	; Dynamic x position - each visible button advances by btnSpacing
 	nextX := btnMargin
 	
-	; Client button (👤)
+	; Use Segoe Fluent Icons for thin outline style (Windows 10/11)
+	; Fallback to Segoe MDL2 Assets if Fluent not available
+	
+	; Client button (person icon)
 	if (Settings_ShowBtn_Client) {
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client, 👤
+		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client +HwndTB_Client_Hwnd, % Chr(0xE77B)
+		ToolbarTooltips[TB_Client_Hwnd] := "Get Client from GHL"
 		nextX += btnSpacing
 	}
 	
-	; Invoice button (📋)
+	; Invoice button (document icon)
 	if (Settings_ShowBtn_Invoice) {
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice, 📋
+		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice +HwndTB_Invoice_Hwnd, % Chr(0xE8A5)
+		ToolbarTooltips[TB_Invoice_Hwnd] := "Sync Invoice to GHL"
 		nextX += btnSpacing
 	}
 	
-	; Open GHL button (🌐)
+	; Open GHL button (globe icon)
 	if (Settings_ShowBtn_OpenGHL) {
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL, 🌐
+		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL +HwndTB_OpenGHL_Hwnd, % Chr(0xE774)
+		ToolbarTooltips[TB_OpenGHL_Hwnd] := "Open GHL Contact"
 		nextX += btnSpacing
 	}
 	
 	; Camera button - two versions for state indication (only one visible at a time)
 	if (Settings_ShowBtn_Camera) {
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_CameraOn, 📷
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_CaptureRoom vTB_CameraOff Hidden, 📷
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundYellow cBlack gToolbar_CaptureRoom vTB_CameraCalib Hidden, 📷
+		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_CameraOn +HwndTB_CameraOn_Hwnd, % Chr(0xE722)
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_CaptureRoom vTB_CameraOff Hidden +HwndTB_CameraOff_Hwnd, % Chr(0xE722)
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundYellow cBlack gToolbar_CaptureRoom vTB_CameraCalib Hidden +HwndTB_CameraCalib_Hwnd, % Chr(0xE722)
+		ToolbarTooltips[TB_CameraOn_Hwnd] := "Capture Room Photo"
+		ToolbarTooltips[TB_CameraOff_Hwnd] := "Capture Room Photo"
+		ToolbarTooltips[TB_CameraCalib_Hwnd] := "Capture Room Photo"
 		nextX += btnSpacing
 	}
 	
-	; Sort button (🔀/🔤)
+	; Photoshop button (Ps text) - moved next to camera
+	if (Settings_ShowBtn_Photoshop) {
+		Gui, Toolbar:Font, s%fontSizeSmall% w400, Segoe UI
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background001E36 c%iconColor% gToolbar_Photoshop vTB_Photoshop +HwndTB_Photoshop_Hwnd, Ps
+		ToolbarTooltips[TB_Photoshop_Hwnd] := "Open in Photoshop"
+		nextX += btnSpacing
+	}
+	
+	; Sort button (shuffle/alpha toggle) - uses emoji for toggle states
 	if (Settings_ShowBtn_Sort) {
 		SortMode_IsRandom := false
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_ToggleSort vTB_Sort, 🔀
+		Gui, Toolbar:Font, s%fontSize%, Segoe UI Emoji
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_ToggleSort vTB_Sort +HwndTB_Sort_Hwnd, 🔀
+		ToolbarTooltips[TB_Sort_Hwnd] := "Toggle Sort Mode"
 		nextX += btnSpacing
 	}
 	
-	; Photoshop button (Ps)
-	if (Settings_ShowBtn_Photoshop) {
-		Gui, Toolbar:Font, s%fontSizeSmall% Bold, Segoe UI
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background001E36 c%iconColor% gToolbar_Photoshop vTB_Photoshop, Ps
-		Gui, Toolbar:Font, s%fontSize% Norm, Segoe UI
-		nextX += btnSpacing
-	}
-	
-	; Refresh button (🔄)
+	; Refresh button (sync icon)
 	if (Settings_ShowBtn_Refresh) {
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh, 🔄
+		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh +HwndTB_Refresh_Hwnd, % Chr(0xE72C)
+		ToolbarTooltips[TB_Refresh_Hwnd] := "Refresh Album"
 		nextX += btnSpacing
 	}
 	
-	; Quick Print button (🖨)
+	; Quick Print button (print icon)
 	if (Settings_ShowBtn_Print) {
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background444444 c%iconColor% gToolbar_QuickPrint vTB_Print, 🖨
+		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background444444 c%iconColor% gToolbar_QuickPrint vTB_Print +HwndTB_Print_Hwnd, % Chr(0xE749)
+		ToolbarTooltips[TB_Print_Hwnd] := "Quick Print"
 		nextX += btnSpacing
 	}
 	
-	; QR Code button
+	; QR Code button (grid icon)
 	if (Settings_ShowBtn_QRCode) {
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background006666 c%iconColor% gToolbar_QRCode vTB_QRCode, ▣
+		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background006666 c%iconColor% gToolbar_QRCode vTB_QRCode +HwndTB_QRCode_Hwnd, % Chr(0xED14)
+		ToolbarTooltips[TB_QRCode_Hwnd] := "Show QR Code"
 		nextX += btnSpacing
 	}
 	
-	; SD Card Download button
+	; SD Card Download button (download icon)
 	if (Settings_SDCardEnabled) {
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download, 📥
+		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download +HwndTB_Download_Hwnd, % Chr(0xE896)
+		ToolbarTooltips[TB_Download_Hwnd] := "Download from SD Card"
 		nextX += btnSpacing
 	}
 	
-	; Settings button (always visible)
-	Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings, ⚙
+	; Settings button (gear icon)
+	Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
+	Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings +HwndTB_Settings_Hwnd, % Chr(0xE713)
+	ToolbarTooltips[TB_Settings_Hwnd] := "Settings"
+	
+	; Register mouse move handler for toolbar tooltips
+	OnMessage(0x200, "SettingsMouseMove")
 	
 	; Make background transparent
 	WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
@@ -1421,7 +1461,36 @@ CreateFloatingToolbar()
 	; Re-enable interrupts and start position timer
 	Critical, Off
 	SetTimer, PositionToolbar, 200
+	SetTimer, CheckToolbarTooltip, 100  ; Check for tooltip hover every 100ms
 }
+
+; Timer-based tooltip check for toolbar (backup for WM_MOUSEMOVE)
+CheckToolbarTooltip:
+	global ToolbarTooltips, ToolbarLastHoveredButton, ToolbarHwnd
+	
+	; Only process when mouse is over toolbar window
+	MouseGetPos, , , mouseWin, controlHwnd, 2
+	if (mouseWin != ToolbarHwnd) {
+		if (ToolbarLastHoveredButton) {
+			ToolbarLastHoveredButton := 0
+			ToolTip
+		}
+		return
+	}
+	
+	; Check if mouse is over a tooltip-enabled button
+	if (ToolbarTooltips.HasKey(controlHwnd)) {
+		if (controlHwnd != ToolbarLastHoveredButton) {
+			ToolbarLastHoveredButton := controlHwnd
+			ToolTip, % ToolbarTooltips[controlHwnd]
+			SetTimer, ToolbarTooltipOff, -2000
+		}
+	} else if (ToolbarLastHoveredButton) {
+		; Mouse is on toolbar but not a button
+		ToolbarLastHoveredButton := 0
+		ToolTip
+	}
+return
 
 PositionToolbar:
 ; Only show toolbar when ProSelect is the active window
@@ -3224,13 +3293,17 @@ if (matchCN1 != "")
 ; Invoice counts
 RegExMatch(resultJson, """invoices_deleted"":\s*(\d+)", matchDel)
 RegExMatch(resultJson, """invoices_voided"":\s*(\d+)", matchVoid)
+RegExMatch(resultJson, """invoices_failed"":\s*(\d+)", matchFailed)
 invDel := matchDel1 ? matchDel1 : 0
 invVoid := matchVoid1 ? matchVoid1 : 0
+invFailed := matchFailed1 ? matchFailed1 : 0
 
 if (invDel > 0)
 	msgParts .= invDel . " invoice(s) deleted`n"
 if (invVoid > 0)
 	msgParts .= invVoid . " invoice(s) voided`n"
+if (invFailed > 0)
+	msgParts .= invFailed . " invoice(s) FAILED (need manual refund)`n"
 
 ; Schedule counts
 RegExMatch(resultJson, """schedules_cancelled"":\s*(\d+)", matchSC)
@@ -3238,15 +3311,40 @@ if (matchSC1 > 0)
 	msgParts .= matchSC1 . " schedule(s) cancelled`n"
 
 ; No invoices found
-if (invDel = 0 && invVoid = 0 && (!matchSC1 || matchSC1 = 0)) {
+if (invDel = 0 && invVoid = 0 && invFailed = 0 && (!matchSC1 || matchSC1 = 0)) {
 	if (InStr(resultJson, "No invoices or schedules found"))
 		msgParts .= "No invoices or schedules found for this client."
 }
 
-if (exitCode = 0) {
+; Check for specific error types
+hasPermissionError := InStr(resultJson, "permission_error")
+hasProviderRefundNeeded := InStr(resultJson, "needs_provider_refund")
+hasManualRefundOnly := InStr(resultJson, "needs_manual_refund")
+
+; Get list of problematic invoices if any
+RegExMatch(resultJson, """problem_invoices"":\s*\[([^\]]+)\]", matchProblems)
+problemList := matchProblems1 ? matchProblems1 : ""
+
+if (exitCode = 0 && invFailed = 0) {
 	DarkMsgBox("Invoice Removed", msgParts, "info")
+} else if (hasPermissionError) {
+	DarkMsgBox("Permission Error", "API key lacks permission to void/delete invoices.`n`n" . msgParts . "`nUpdate GHL Private Integration scopes to include:`n• invoices.readonly`n• invoices.write", "warning")
+} else if (hasProviderRefundNeeded || hasManualRefundOnly) {
+	manualSteps := ""
+	manualSteps .= "These invoices have payment provider transactions`n"
+	manualSteps .= "(GoCardless/Stripe) that must be manually refunded.`n`n"
+	manualSteps .= "STEPS TO FIX:`n"
+	manualSteps .= "1. Go to GHL → Payments → Invoices`n"
+	manualSteps .= "2. Find the invoice(s) listed below`n"
+	manualSteps .= "3. Click '...' menu → Refund`n"
+	manualSteps .= "4. Process refund for each payment`n"
+	manualSteps .= "5. Run 'Remove Invoice' again`n`n"
+	manualSteps .= msgParts
+	if (problemList != "")
+		manualSteps .= "`nInvoices needing refund: " . problemList
+	DarkMsgBox("Manual Refund Required", manualSteps, "warning")
 } else {
-	DarkMsgBox("Delete Failed", "Failed to delete invoice.`n`n" . msgParts . "`nCheck the debug log for details.", "warning")
+	DarkMsgBox("Delete Failed", "Could not remove all invoices.`n`n" . msgParts . "`nCheck GHL for payment status.", "warning")
 }
 Return
 
@@ -4150,17 +4248,32 @@ Return
 ; Hover-based Tooltip System for Settings and PayPlan GUIs
 ; ============================================================
 
-; Mouse hover handler for Settings and PP windows
+; Mouse hover handler for Settings, PP windows, and Toolbar
 SettingsMouseMove(wParam, lParam, msg, hwnd) {
-	global SettingsTooltips, LastHoveredControl, SettingsHwnd
+	global SettingsTooltips, LastHoveredControl, SettingsHwnd, ToolbarHwnd
+	global ToolbarTooltips, ToolbarLastHoveredButton
 	static hoverTimer := 0
+	
+	; Get the control under the mouse cursor
+	MouseGetPos, , , mouseWin, controlHwnd, 2
+	
+	; Check for Toolbar tooltips using the control under mouse
+	if (ToolbarTooltips.HasKey(controlHwnd)) {
+		if (controlHwnd != ToolbarLastHoveredButton) {
+			ToolbarLastHoveredButton := controlHwnd
+			ToolTip, % ToolbarTooltips[controlHwnd]
+			SetTimer, ToolbarTooltipOff, -2000
+		}
+		return
+	} else if (ToolbarLastHoveredButton && mouseWin != ToolbarHwnd) {
+		; Mouse moved off toolbar entirely
+		ToolbarLastHoveredButton := 0
+		ToolTip
+	}
 	
 	; Process if Settings window or PP window is active
 	if !WinExist("ahk_id " . SettingsHwnd) && !WinActive("Payment Calculator")
 		return
-	
-	; Get the control under the mouse
-	MouseGetPos, , , , controlHwnd, 2
 	
 	; If we moved to a different control
 	if (controlHwnd != LastHoveredControl) {
@@ -11663,40 +11776,31 @@ if WinExist("ProSelect ahk_exe ProSelect.exe")
 	; Check for Client ID pattern in album name (20+ alphanumeric chars)
 	if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch))
 	{
-		; Album has Client ID - offer to use it
+		; Album has Client ID - automatically use it (no need to ask)
 		existingClientId := idMatch1
 		
-		result := DarkMsgBox("Client ID Found in Album", "The current album already has a Client ID:`n`n" . existingClientId . "`n`nUse this ID to fetch client data?", "question", {buttons: ["Yes - Use Album ID", "No - Scan Chrome", "Cancel"]})
+		; Fetch client data using existing ID
+		GHL_Data := FetchGHLData(existingClientId)
 		
-		if (result = "Cancel")
-			Return
-		
-		if (result = "Yes - Use Album ID")
+		if (GHL_Data.success)
 		{
-			; Fetch client data using existing ID
-			GHL_Data := FetchGHLData(existingClientId)
+			global GHL_CurrentData := GHL_Data
 			
-			if (GHL_Data.success)
+			if (Settings_GHL_AutoLoad)
 			{
-				global GHL_CurrentData := GHL_Data
-				
-				if (Settings_GHL_AutoLoad)
-				{
-					UpdateProSelectClient(GHL_Data)
-				}
-				else
-				{
-					ShowGHLClientDialog(GHL_Data, existingClientId, "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/contacts/detail/" . existingClientId)
-				}
+				UpdateProSelectClient(GHL_Data)
 			}
 			else
 			{
-				ErrorMsg := GHL_Data.error ? GHL_Data.error : "Unknown error fetching client data"
-				DarkMsgBox("GHL Lookup Failed", ErrorMsg . "`n`nContact ID: " . existingClientId, "error", {timeout: 10})
+				ShowGHLClientDialog(GHL_Data, existingClientId, "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/contacts/detail/" . existingClientId)
 			}
-			Return
 		}
-		; else: User chose to scan Chrome - continue below
+		else
+		{
+			ErrorMsg := GHL_Data.error ? GHL_Data.error : "Unknown error fetching client data"
+			DarkMsgBox("GHL Lookup Failed", ErrorMsg . "`n`nContact ID: " . existingClientId, "error", {timeout: 10})
+		}
+		Return
 	}
 	else if (!InStr(psTitle, "Untitled"))
 	{
