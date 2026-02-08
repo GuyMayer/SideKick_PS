@@ -85,8 +85,7 @@
     <nav class="fixed top-0 w-full z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/5">
         <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <!-- Logo placeholder - replace with actual logo -->
-                <div class="w-8 h-8 rounded-lg gradient-accent flex items-center justify-center text-white font-bold text-sm">SK</div>
+                <img src="images/logo-nav.webp" alt="SideKick PS" class="w-10 h-10 rounded-lg" width="40" height="40">
                 <span class="text-white font-semibold text-lg">SideKick <span class="text-brand-accent">PS</span></span>
             </div>
             <div class="hidden md:flex items-center gap-8 text-sm text-gray-400">
@@ -314,8 +313,8 @@
             <div class="grid md:grid-cols-2 gap-12 items-center">
                 <div class="order-2 md:order-1">
                     <div class="feature-icon bg-red-500/10 text-red-400 mb-4">📷</div>
-                    <h3 class="text-2xl font-bold text-white mb-3">Room Capture</h3>
-                    <p class="text-gray-300 mb-6">Screenshot the ProSelect room view and share it with clients in seconds. Perfect for wall art previews.</p>
+                    <h3 class="text-2xl font-bold text-white mb-3">Room Capture & Auto-Email</h3>
+                    <p class="text-gray-300 mb-6">Screenshot the ProSelect room view and send it straight to your client via GHL. No saving, no attaching — just capture and send.</p>
                     <ul class="space-y-3">
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
@@ -323,11 +322,15 @@
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
+                            One-click email to client via GoHighLevel
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
                             Auto-named per album with incrementing numbers
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            File path copied to clipboard — paste straight into a message
+                            File path copied to clipboard — or skip the clipboard entirely
                         </li>
                     </ul>
                 </div>
@@ -370,7 +373,73 @@
                 </div>
             </div>
 
-            <!-- Feature 6: File Management (Coming Soon) -->
+            <!-- Feature 6: Quick Clicks -->
+            <div class="grid md:grid-cols-2 gap-12 items-center mt-24">
+                <div class="order-2 md:order-1">
+                    <div class="feature-icon bg-cyan-500/10 text-cyan-400 mb-4">⚡</div>
+                    <h3 class="text-2xl font-bold text-white mb-3">Quick Clicks</h3>
+                    <p class="text-gray-300 mb-6">Instant shortcuts for actions you do every session. Skip the menus, skip the clicks — get straight to the work.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            One-click access to most-used ProSelect functions
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Customisable hotkeys for your workflow
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Quick toggles for display options and sorting
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Streamlined actions that normally take 3-4 clicks
+                        </li>
+                    </ul>
+                </div>
+                <div class="order-1 md:order-2">
+                    <!-- SCREENSHOT: Quick Clicks in action -->
+                    <div class="screenshot-placeholder aspect-[16/10] w-full">
+                        <span>📸 feature-quick-clicks.png<br>Quick Clicks shortcuts</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feature 7: QR Code Generator -->
+            <div class="grid md:grid-cols-2 gap-12 items-center mt-24">
+                <div>
+                    <!-- SCREENSHOT: QR Code display -->
+                    <div class="screenshot-placeholder aspect-[16/10] w-full">
+                        <span>📸 feature-qr-codes.png<br>QR code display</span>
+                    </div>
+                </div>
+                <div>
+                    <div class="feature-icon bg-pink-500/10 text-pink-400 mb-4">📱</div>
+                    <h3 class="text-2xl font-bold text-white mb-3">Client QR Codes</h3>
+                    <p class="text-gray-300 mb-6">Show clients a QR code and they're connected instantly. WiFi access, payment plan registration, contact forms — no typing required.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Studio WiFi QR — clients scan and connect in seconds
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Payment plan registration link with pre-filled client data
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Direct Debit mandate setup via GoCardless integration
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Full-screen display mode for easy scanning
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Feature 8: File Management (Coming Soon) -->
             <div class="grid md:grid-cols-2 gap-12 items-center mt-24">
                 <div class="order-2 md:order-1">
                     <div class="feature-icon bg-gray-500/10 text-gray-400 mb-4">📁</div>
