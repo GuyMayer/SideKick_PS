@@ -7,14 +7,14 @@
 # 4. Creates a ZIP for uploading to GitHub
 #
 # IMPORTANT: Only .exe files are distributed - NO source scripts!
-# OPTIMIZATION: Caches compiled EXEs and reuses them if source unchanged
+# OPTIMIZATION: Caching disabled - always recompile for reliability
 
 param(
     [Parameter(Mandatory=$true)]
     [string]$Version,
     
     [switch]$SkipPythonCompile = $false,
-    [switch]$ForceRebuild = $false
+    [switch]$ForceRebuild = $true
 )
 
 $ErrorActionPreference = "Stop"

@@ -12,14 +12,12 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
-## v2.4.10 (2026-02-08)
+## v2.5.0 (2026-02-08)
 
-### Bug Fixes
-- **Sync Invoice**: Fixed 'shoot_no is not defined' error in _process_sync function
-
----
-
-## v2.4.78 (2026-02-08)
+### New Features
+- **Toolbar Grab Handle**: Ctrl+Click and drag the ⋮ handle on the left of toolbar to reposition
+- **Persistent Position**: Toolbar position offset saved to INI file, relative to ProSelect window
+- **Reset Position Button**: Settings > Shortcuts > Toolbar Appearance - resets toolbar to default position
 
 ### Bug Fixes
 - **Toolbar Tooltips**: Fixed tooltips not appearing on hover - now uses timer-based detection (100ms interval)
