@@ -2,12 +2,16 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.4.77
+; Version:     2.5.0
 ; Build Date:  2026-02-08
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
 ; Changelog:
+;   v2.5.0 (2026-02-08)
+;     - NEW: Toolbar grab handle - Ctrl+Click and drag to reposition
+;     - NEW: Position is saved relative to ProSelect window (persistent)
+;     - NEW: Reset Position button in Settings > Shortcuts > Toolbar Appearance
 ;   v2.4.77 (2026-02-08)
 ;     - NEW: Local QR code generation using BARCODER library (no Google API)
 ;     - NEW: QR codes cached on startup for instant display
@@ -246,6 +250,9 @@ global Settings_EnablePDF := false           ; Enable Print to PDF mode (toolbar
 global Settings_PDFOutputFolder := ""       ; Secondary folder to copy PDF output to
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow
 global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
+global Settings_ToolbarOffsetX := 0  ; Toolbar X offset from default position (Ctrl+Click grab handle to adjust)
+global Settings_ToolbarOffsetY := 0  ; Toolbar Y offset from default position
+global Toolbar_IsDragging := false   ; True when user is dragging the toolbar
 
 ; Toolbar button visibility settings
 global Settings_ShowBtn_Client := true
@@ -905,6 +912,18 @@ if (customColor != "") {
 }
 Return
 
+; Reset toolbar position to default
+HKResetToolbarPos:
+Settings_ToolbarOffsetX := 0
+Settings_ToolbarOffsetY := 0
+SaveSettings()
+; Rebuild toolbar at default position
+Gui, Toolbar:Destroy
+CreateFloatingToolbar()
+ToolTip, Toolbar position reset!
+SetTimer, RemoveSettingsTooltip, -1500
+Return
+
 ; Windows Color Picker Dialog
 ChooseColor(initialColor := "FFFFFF") {
 	static cc, customColors
@@ -1348,6 +1367,10 @@ CreateFloatingToolbar()
 	toolbarWidth := btnMargin + (btnCount * btnSpacing)
 	toolbarHeight := Round(43 * DPI_Scale)
 	
+	; Add width for grab handle on the left
+	grabHandleWidth := Round(16 * DPI_Scale)
+	toolbarWidth := toolbarWidth + grabHandleWidth
+	
 	; Transparent background with colored buttons
 	Gui, Toolbar:New, +AlwaysOnTop +ToolWindow -Caption +HwndToolbarHwnd
 	Gui, Toolbar:Color, 1E1E1E
@@ -1356,8 +1379,17 @@ CreateFloatingToolbar()
 	; Get icon color from settings
 	iconColor := Settings_ToolbarIconColor ? Settings_ToolbarIconColor : "White"
 	
-	; Dynamic x position - each visible button advances by btnSpacing
-	nextX := btnMargin
+	; Add grab handle on the left (vertical dots for drag indicator)
+	; Ctrl+Click to drag and reposition toolbar
+	grabX := 0
+	grabY := Round(3 * DPI_Scale)
+	grabH := Round(38 * DPI_Scale)
+	Gui, Toolbar:Font, s14 w700, Segoe UI
+	Gui, Toolbar:Add, Text, x%grabX% y%grabY% w%grabHandleWidth% h%grabH% Center 0x200 Background1E1E1E c%iconColor% gToolbar_GrabHandle vTB_GrabHandle +HwndTB_GrabHandle_Hwnd, ⋮
+	ToolbarTooltips[TB_GrabHandle_Hwnd] := "Ctrl+Click to move toolbar"
+	
+	; Dynamic x position - each visible button advances by btnSpacing (after grab handle)
+	nextX := grabHandleWidth + btnMargin
 	
 	; Use Segoe Fluent Icons for thin outline style (Windows 10/11)
 	; Fallback to Segoe MDL2 Assets if Fluent not available
@@ -1611,6 +1643,12 @@ newX := psX + psW - (tbWidth + closeButtonOffset)
 ; Y offset: position toolbar at very top of window title bar area
 newY := psY
 
+; Apply user-defined position offset (set via Ctrl+Click drag on grab handle)
+if (!Toolbar_IsDragging) {
+	newX := newX + Settings_ToolbarOffsetX
+	newY := newY + Settings_ToolbarOffsetY
+}
+
 ; Ensure toolbar stays within screen bounds
 SysGet, monitorCount, MonitorCount
 SysGet, primaryMon, MonitorWorkArea
@@ -1668,6 +1706,72 @@ Return
 
 Toolbar_OpenGHL:
 Gosub, OpenGHLClientURL
+Return
+
+Toolbar_GrabHandle:
+; Ctrl+Click to drag toolbar to new position (relative to ProSelect window)
+{
+	global Settings_ToolbarOffsetX, Settings_ToolbarOffsetY, Toolbar_IsDragging, ToolbarHwnd, toolbarWidth
+	
+	; Only respond to Ctrl+Click
+	if (!GetKeyState("Ctrl", "P")) {
+		ToolTip, Ctrl+Click to move toolbar
+		SetTimer, RemoveGrabTooltip, -1500
+		return
+	}
+	
+	; Get ProSelect window position as reference
+	WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
+	if (psX = "" || psW = "")
+		return
+	
+	; Get current toolbar position
+	WinGetPos, tbX, tbY, , , ahk_id %ToolbarHwnd%
+	
+	; Calculate default position (without offset)
+	tbWidth := toolbarWidth
+	closeButtonOffset := Round(300 * DPI_Scale)
+	defaultX := psX + psW - (tbWidth + closeButtonOffset)
+	defaultY := psY
+	
+	; Store mouse start position for relative drag
+	CoordMode, Mouse, Screen
+	MouseGetPos, startMouseX, startMouseY
+	startTbX := tbX
+	startTbY := tbY
+	
+	Toolbar_IsDragging := true
+	SetTimer, PositionToolbar, Off  ; Stop auto-positioning during drag
+	
+	; Track mouse movement while button held
+	while (GetKeyState("LButton", "P")) {
+		MouseGetPos, currentMouseX, currentMouseY
+		deltaX := currentMouseX - startMouseX
+		deltaY := currentMouseY - startMouseY
+		newTbX := startTbX + deltaX
+		newTbY := startTbY + deltaY
+		Gui, Toolbar:Show, x%newTbX% y%newTbY% NoActivate
+		Sleep, 16  ; ~60fps
+	}
+	
+	; Get final toolbar position
+	WinGetPos, finalX, finalY, , , ahk_id %ToolbarHwnd%
+	
+	; Calculate and save offset from default position
+	Settings_ToolbarOffsetX := finalX - defaultX
+	Settings_ToolbarOffsetY := finalY - defaultY
+	
+	Toolbar_IsDragging := false
+	SaveSettings()
+	SetTimer, PositionToolbar, 200  ; Resume auto-positioning
+	
+	ToolTip, Position saved!
+	SetTimer, RemoveGrabTooltip, -1000
+}
+Return
+
+RemoveGrabTooltip:
+ToolTip
 Return
 
 Toolbar_ToggleSort:
@@ -5052,7 +5156,7 @@ CreateHotkeysPanel()
 	; ═══════════════════════════════════════════════════════════════════════════
 	toolbarY := A_IsCompiled ? 305 : 345
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y%toolbarY% w480 h70 vHotkeysToolbarGroup Hidden, Toolbar Appearance
+	Gui, Settings:Add, GroupBox, x195 y%toolbarY% w480 h105 vHotkeysToolbarGroup Hidden, Toolbar Appearance
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	iconLabelY := toolbarY + 30
@@ -5079,10 +5183,18 @@ CreateHotkeysPanel()
 	pickBtnX := 480
 	Gui, Settings:Add, Button, x%pickBtnX% y%iconDropY% w65 h25 gHKPickColor vHKPickColorBtn Hidden, Pick...
 	
+	; Position reset row
+	posLabelY := iconLabelY + 35
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y%posLabelY% w120 BackgroundTrans vHKToolbarPosLabel Hidden HwndHwndHKToolbarPos, Position:
+	RegisterSettingsTooltip(HwndHKToolbarPos, "TOOLBAR POSITION`n`nThe toolbar position can be adjusted by Ctrl+Clicking the grab handle (⋮) on the left of the toolbar.`n`nClick Reset to restore default position.")
+	posBtnY := posLabelY - 3
+	Gui, Settings:Add, Button, x340 y%posBtnY% w120 h25 gHKResetToolbarPos vHKResetPosBtn Hidden, Reset Position
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INSTRUCTIONS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
-	instructY := A_IsCompiled ? 385 : 425
+	instructY := A_IsCompiled ? 415 : 455
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y%instructY% w480 h130 vHotkeysInstructGroup Hidden, How to Set Hotkeys
 	
@@ -6768,6 +6880,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Settings_ToolbarIconColor_DDL
 	GuiControl, Settings:Hide, HKColorPreview
 	GuiControl, Settings:Hide, HKPickColorBtn
+	GuiControl, Settings:Hide, HKToolbarPosLabel
+	GuiControl, Settings:Hide, HKResetPosBtn
 	
 	; Hide all panels - About
 	GuiControl, Settings:Hide, PanelAbout
@@ -7070,6 +7184,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Settings_ToolbarIconColor_DDL
 		GuiControl, Settings:Show, HKColorPreview
 		GuiControl, Settings:Show, HKPickColorBtn
+		GuiControl, Settings:Show, HKToolbarPosLabel
+		GuiControl, Settings:Show, HKResetPosBtn
 		; Restore icon color dropdown to current value
 		if (Settings_ToolbarIconColor = "White" || Settings_ToolbarIconColor = "Black" || Settings_ToolbarIconColor = "Yellow") {
 			GuiControl, Settings:, Settings_ToolbarIconColor_DDL, White|Black|Yellow
@@ -10339,7 +10455,7 @@ SendDebugLogs() {
 	
 	; Check if folder exists
 	if (!FileExist(logsFolder)) {
-		DarkMsgBox("No Logs Found", "Log folder does not exist:`n`n" . logsFolder . "`n`nLogs are created when invoice sync runs with DEBUG_MODE enabled in Python.", "info")
+		DarkMsgBox("No Logs Found", "Log folder does not exist:`n`n" . logsFolder . "`n`nTo enable logging:`n1. Go to Settings > About tab`n2. Turn ON 'Debug Logging'`n3. Run an invoice sync`n4. Try 'Send Logs' again", "info")
 		return false
 	}
 	
@@ -10356,7 +10472,7 @@ SendDebugLogs() {
 	
 	logCount := logFiles.Length()
 	if (logCount = 0) {
-		DarkMsgBox("No Logs Found", "No .log files found in:`n" . logsFolder, "info")
+		DarkMsgBox("No Logs Found", "No .log files found in:`n`n" . logsFolder . "`n`nTo create logs:`n1. Ensure 'Debug Logging' is ON in Settings`n2. Run an invoice sync`n3. Try 'Send Logs' again", "info")
 		return false
 	}
 	
@@ -10989,6 +11105,8 @@ LoadSettings()
 	IniRead, Settings_ShowBtn_Refresh, %IniFilename%, Toolbar, ShowBtn_Refresh, 1
 	IniRead, Settings_ShowBtn_Print, %IniFilename%, Toolbar, ShowBtn_Print, 1
 	IniRead, Settings_ShowBtn_QRCode, %IniFilename%, Toolbar, ShowBtn_QRCode, 1
+	IniRead, Settings_ToolbarOffsetX, %IniFilename%, Toolbar, OffsetX, 0
+	IniRead, Settings_ToolbarOffsetY, %IniFilename%, Toolbar, OffsetY, 0
 	IniRead, Settings_QRCode_Text1, %IniFilename%, QRCode, Text1, %A_Space%
 	IniRead, Settings_QRCode_Text2, %IniFilename%, QRCode, Text2, %A_Space%
 	IniRead, Settings_QRCode_Text3, %IniFilename%, QRCode, Text3, %A_Space%
@@ -11111,6 +11229,8 @@ SaveSettings()
 	IniWrite, %Settings_ShowBtn_Refresh%, %IniFilename%, Toolbar, ShowBtn_Refresh
 	IniWrite, %Settings_ShowBtn_Print%, %IniFilename%, Toolbar, ShowBtn_Print
 	IniWrite, %Settings_ShowBtn_QRCode%, %IniFilename%, Toolbar, ShowBtn_QRCode
+	IniWrite, %Settings_ToolbarOffsetX%, %IniFilename%, Toolbar, OffsetX
+	IniWrite, %Settings_ToolbarOffsetY%, %IniFilename%, Toolbar, OffsetY
 	IniWrite, %Settings_QRCode_Text1%, %IniFilename%, QRCode, Text1
 	IniWrite, %Settings_QRCode_Text2%, %IniFilename%, QRCode, Text2
 	IniWrite, %Settings_QRCode_Text3%, %IniFilename%, QRCode, Text3
