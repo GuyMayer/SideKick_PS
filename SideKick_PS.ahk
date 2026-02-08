@@ -10339,7 +10339,7 @@ SendDebugLogs() {
 	
 	; Check if folder exists
 	if (!FileExist(logsFolder)) {
-		DarkMsgBox("No Logs Found", "No debug logs found.`n`nLogs are created when invoice sync runs with debug mode enabled.", "info")
+		DarkMsgBox("No Logs Found", "Log folder does not exist:`n`n" . logsFolder . "`n`nLogs are created when invoice sync runs with DEBUG_MODE enabled in Python.", "info")
 		return false
 	}
 	
