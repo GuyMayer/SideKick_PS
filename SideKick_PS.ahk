@@ -3330,19 +3330,8 @@ if (exitCode = 0 && invFailed = 0) {
 } else if (hasPermissionError) {
 	DarkMsgBox("Permission Error", "API key lacks permission to void/delete invoices.`n`n" . msgParts . "`nUpdate GHL Private Integration scopes to include:`n• invoices.readonly`n• invoices.write", "warning")
 } else if (hasProviderRefundNeeded || hasManualRefundOnly) {
-	manualSteps := ""
-	manualSteps .= "These invoices have payment provider transactions`n"
-	manualSteps .= "(GoCardless/Stripe) that must be manually refunded.`n`n"
-	manualSteps .= "STEPS TO FIX:`n"
-	manualSteps .= "1. Go to GHL → Payments → Invoices`n"
-	manualSteps .= "2. Find the invoice(s) listed below`n"
-	manualSteps .= "3. Click '...' menu → Refund`n"
-	manualSteps .= "4. Process refund for each payment`n"
-	manualSteps .= "5. Run 'Remove Invoice' again`n`n"
-	manualSteps .= msgParts
-	if (problemList != "")
-		manualSteps .= "`nInvoices needing refund: " . problemList
-	DarkMsgBox("Manual Refund Required", manualSteps, "warning")
+	; Show custom dialog with clickable link to GHL payments
+	ShowRefundRequiredDialog(msgParts, problemList)
 } else {
 	DarkMsgBox("Delete Failed", "Could not remove all invoices.`n`n" . msgParts . "`nCheck GHL for payment status.", "warning")
 }
@@ -3844,6 +3833,120 @@ UpdateFilesControlsState(enabled) {
 	GuiControl, Settings:+c%sectionColor%, FilesNaming
 	GuiControl, Settings:+c%sectionColor%, FilesEditor
 }
+
+; ============================================================
+; ShowRefundRequiredDialog - Shows dialog with clickable GHL link
+; ============================================================
+ShowRefundRequiredDialog(msgParts, problemList) {
+	global Settings_DarkMode, GHL_LocationID, DPI_Scale
+	
+	; DPI scaling factor
+	dpi := DPI_Scale ? DPI_Scale : 1.0
+	
+	; Build GHL URL for transactions (where refunds are processed)
+	ghlUrl := "https://app.gohighlevel.com/v2/location/" . GHL_LocationID . "/payments/v2/transactions"
+	
+	; Store URL for click handler
+	global RefundDialog_URL := ghlUrl
+	
+	; Window dimensions
+	winWidth := Round(500 * dpi)
+	winHeight := Round(380 * dpi)
+	
+	; Create GUI
+	Gui, RefundDlg:New, +AlwaysOnTop +OwnDialogs
+	
+	if (Settings_DarkMode) {
+		Gui, RefundDlg:Color, 1E1E1E, 2D2D2D
+		textColor := "CCCCCC"
+		headerColor := "FFCC00"
+		linkColor := "4FC3F7"
+	} else {
+		Gui, RefundDlg:Color, FFFFFF, FFFFFF
+		textColor := "333333"
+		headerColor := "CC8800"
+		linkColor := "0066CC"
+	}
+	
+	; DPI-scaled positions
+	iconX := Round(25 * dpi)
+	iconY := Round(25 * dpi)
+	iconSize := Round(40 * dpi)
+	textX := Round(80 * dpi)
+	contentX := Round(25 * dpi)
+	contentW := winWidth - Round(50 * dpi)
+	
+	; Icon (key icon for security)
+	Gui, RefundDlg:Add, Picture, x%iconX% y%iconY% w%iconSize% h%iconSize% Icon77, %A_WinDir%\System32\imageres.dll
+	
+	; Header
+	headerFont := Round(12 * dpi)
+	Gui, RefundDlg:Font, s%headerFont% Bold c%headerColor%, Segoe UI
+	Gui, RefundDlg:Add, Text, x%textX% y%iconY%, Manual Refund Required
+	
+	; Description
+	yPos := Round(75 * dpi)
+	textFont := Round(10 * dpi)
+	Gui, RefundDlg:Font, s%textFont% Norm c%textColor%, Segoe UI
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, These invoices have payment provider transactions`n(GoCardless/Stripe) that must be manually refunded.
+	
+	; Steps header
+	yPos += Round(55 * dpi)
+	stepsColor := "FFCC00"
+	Gui, RefundDlg:Font, s%textFont% Bold c%stepsColor%, Segoe UI
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos%, STEPS TO FIX:
+	
+	; Steps list
+	yPos += Round(25 * dpi)
+	Gui, RefundDlg:Font, s%textFont% Norm c%textColor%, Segoe UI
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 1. Click the link below to open GHL Transactions
+	yPos += Round(22 * dpi)
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 2. Find the payment transaction for this client
+	yPos += Round(22 * dpi)
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 3. Click the transaction → Refund
+	yPos += Round(22 * dpi)
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 4. Once refunded, invoice can be voided
+	yPos += Round(22 * dpi)
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, 5. Run 'Remove Invoice' again
+	
+	; Problem invoices/client info
+	yPos += Round(35 * dpi)
+	Gui, RefundDlg:Font, s%textFont% Norm c%textColor%, Segoe UI
+	displayInfo := msgParts ? msgParts : problemList
+	displayInfo := StrReplace(displayInfo, "`n", " ")
+	if (StrLen(displayInfo) > 60)
+		displayInfo := SubStr(displayInfo, 1, 60) . "..."
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW%, %displayInfo%
+	
+	; Clickable link to GHL
+	yPos += Round(35 * dpi)
+	Gui, RefundDlg:Font, s%textFont% Underline c%linkColor%, Segoe UI
+	Gui, RefundDlg:Add, Text, x%contentX% y%yPos% w%contentW% gRefundDlg_OpenGHL, 🔗 Open GHL Transactions Page
+	
+	; OK button
+	btnWidth := Round(100 * dpi)
+	btnHeight := Round(32 * dpi)
+	btnX := (winWidth - btnWidth) // 2
+	yPos += Round(45 * dpi)
+	Gui, RefundDlg:Font, s%textFont% Norm, Segoe UI
+	Gui, RefundDlg:Add, Button, x%btnX% y%yPos% w%btnWidth% h%btnHeight% Default gRefundDlg_Close, OK
+	
+	; Show dialog
+	winHeight := yPos + Round(50 * dpi)
+	Gui, RefundDlg:Show, w%winWidth% h%winHeight%, Manual Refund Required
+	return
+}
+
+RefundDlg_OpenGHL:
+	global RefundDialog_URL
+	Run, %RefundDialog_URL%
+return
+
+RefundDlg_Close:
+RefundDlgGuiClose:
+RefundDlgGuiEscape:
+	Gui, RefundDlg:Destroy
+return
 
 ; ============================================================
 ; DarkMsgBox - Dark mode aware message box function
