@@ -1,18 +1,16 @@
 {
-  "version": "2.4.75",
-  "build_date": "2026-02-07",
+  "version": "2.4.77",
+  "build_date": "2026-02-08",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Print to PDF, Print settings tab, DPI scaling, contact sheet path fix",
+  "release_notes": "Local QR code generation, QR caching, WiFi-friendly display, smart dialog detection",
   "changelog": [
-    "NEW: Print to PDF - toolbar print button can save PDF to album folder + copy folder",
-    "NEW: Print Settings tab - dedicated tab for print templates, email, and PDF settings",
-    "NEW: Enable PDF toggle - persistent per-user setting with immediate save",
-    "NEW: PDF Copy Folder - optional secondary folder to copy generated PDFs",
-    "IMPROVED: DPI-scaled toolbar - buttons, spacing, and offsets scale with display DPI",
-    "IMPROVED: Room Captured dialog with image preview thumbnail",
-    "IMPROVED: Toolbar hides during Save Album As and Print dialogs",
-    "FIX: Contact sheet saves to album/XML directory instead of Program Files",
-    "FIX: Email template refresh uses GetScriptCommand for .exe/.py compatibility",
-    "FIX: GetPythonPath() call corrected from non-existent GetPythonExe()"
+    "NEW: Local QR code generation - no more Google Charts API (uses BARCODER library)",
+    "NEW: QR codes cached on startup for instant display",
+    "NEW: WiFi QR codes show friendly format (WiFi: SSID | Password: xxx)",
+    "NEW: Monitor selection for QR display (Settings + arrow keys)",
+    "IMPROVED: Flash-free QR cycling - controls update without GUI rebuild",
+    "IMPROVED: Smart dialog detection - hides toolbar on smaller ProSelect windows",
+    "IMPROVED: Instructions moved to bottom of QR display",
+    "IMPROVED: Ps button color now matches other toolbar icons"
   ]
 }

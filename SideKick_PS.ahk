@@ -2,12 +2,20 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.4.68
-; Build Date:  2026-02-05
+; Version:     2.4.77
+; Build Date:  2026-02-08
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
 ; Changelog:
+;   v2.4.77 (2026-02-08)
+;     - NEW: Local QR code generation using BARCODER library (no Google API)
+;     - NEW: QR codes cached on startup for instant display
+;     - NEW: WiFi QR codes show friendly format (WiFi: SSID | Password: xxx)
+;     - NEW: Monitor selection for QR display (Settings + arrow keys)
+;     - IMPROVED: Flash-free QR cycling - controls update without GUI rebuild
+;     - IMPROVED: Smart dialog detection - hides toolbar on smaller windows
+;     - IMPROVED: Ps button color matches other toolbar icons
 ;   v2.4.68 (2026-02-05)
 ;     - IMPROVED: Activity logs now sent after every sync (not just errors)
 ;     - IMPROVED: Quick Publish always recompiles all Python scripts
@@ -248,6 +256,15 @@ global Settings_ShowBtn_Sort := true
 global Settings_ShowBtn_Photoshop := true
 global Settings_ShowBtn_Refresh := true
 global Settings_ShowBtn_Print := true
+global Settings_ShowBtn_QRCode := true
+global Settings_QRCode_Text1 := ""
+global Settings_QRCode_Text2 := ""
+global Settings_QRCode_Text3 := ""
+global Settings_QRCode_Display := 1  ; Which monitor to show QR on (1 = primary)
+global QRDisplay_Created := false  ; Track if QR fullscreen GUI exists
+; QR code cache folder and tracking
+global QR_CacheFolder := A_Temp . "\SideKick_QR_Cache"
+global QR_CachedFiles := []  ; Array of cached file paths
 global Settings_PrintTemplate_PayPlan := "PayPlan"
 global Settings_PrintTemplate_Standard := "Terms of Sale"
 global Settings_EmailTemplateID := ""
@@ -372,6 +389,10 @@ FileAppend, % A_Now . " - Loading settings from INI...`n", %DebugLogFile%
 ; Load settings from INI
 LoadSettings()
 FileAppend, % A_Now . " - Settings loaded`n", %DebugLogFile%
+
+; Pre-generate QR codes for faster display
+GenerateQRCache()
+FileAppend, % A_Now . " - QR codes cached`n", %DebugLogFile%
 
 ; Auto-calibrate menu delay based on system speed
 CalibrateMenuDelay()
@@ -1269,6 +1290,13 @@ Return
 CreateFloatingToolbar()
 {
 	global
+	Critical  ; Prevent timer interruption during GUI creation
+	
+	; Stop position timer during rebuild to prevent conflicts
+	SetTimer, PositionToolbar, Off
+	
+	; Destroy any existing toolbar first to prevent ghost/duplicate windows
+	Gui, Toolbar:Destroy
 	
 	; Calculate toolbar width dynamically based on enabled buttons
 	; Each button = 44px wide + 7px spacing (51px per slot), plus 2px left margin
@@ -1288,6 +1316,8 @@ CreateFloatingToolbar()
 	if (Settings_ShowBtn_Refresh)
 		btnCount++
 	if (Settings_ShowBtn_Print)
+		btnCount++
+	if (Settings_ShowBtn_QRCode)
 		btnCount++
 	if (Settings_SDCardEnabled)
 		btnCount++
@@ -1353,7 +1383,7 @@ CreateFloatingToolbar()
 	; Photoshop button (Ps)
 	if (Settings_ShowBtn_Photoshop) {
 		Gui, Toolbar:Font, s%fontSizeSmall% Bold, Segoe UI
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background001E36 c33A1FD gToolbar_Photoshop vTB_Photoshop, Ps
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background001E36 c%iconColor% gToolbar_Photoshop vTB_Photoshop, Ps
 		Gui, Toolbar:Font, s%fontSize% Norm, Segoe UI
 		nextX += btnSpacing
 	}
@@ -1370,6 +1400,12 @@ CreateFloatingToolbar()
 		nextX += btnSpacing
 	}
 	
+	; QR Code button
+	if (Settings_ShowBtn_QRCode) {
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background006666 c%iconColor% gToolbar_QRCode vTB_QRCode, ▣
+		nextX += btnSpacing
+	}
+	
 	; SD Card Download button
 	if (Settings_SDCardEnabled) {
 		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download, 📥
@@ -1382,7 +1418,8 @@ CreateFloatingToolbar()
 	; Make background transparent
 	WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
 	
-	; Start position timer
+	; Re-enable interrupts and start position timer
+	Critical, Off
 	SetTimer, PositionToolbar, 200
 }
 
@@ -1395,8 +1432,9 @@ if (activeExe != "ProSelect.exe")
 	return
 }
 
-; Get active window title
+; Get active window info
 WinGetTitle, psTitle, A
+WinGetPos, psX, psY, psW, psH, A
 
 ; Don't show toolbar during splash screen - only hide if title is empty or just "ProSelect"
 if (psTitle = "" || psTitle = "ProSelect")
@@ -1406,26 +1444,35 @@ if (psTitle = "" || psTitle = "ProSelect")
 	return
 }
 
-; Skip dialog windows (Review Orders, Add Payment, etc.) - only attach to main album window
-; Main window titles contain album name and end with " - ProSelect" or similar patterns
-; Dialog windows have titles like "Review Orders", "Add Payment", "Print", etc.
-dialogTitles := ["Review Orders", "Add Payment", "Print", "Export", "Preferences", "About", "License", "Settings", "Order Summary", "Client Setup", "Save Album As", "Save As", "Save Print Output As"]
-for index, dialogTitle in dialogTitles {
-	if (psTitle = dialogTitle || InStr(psTitle, dialogTitle) = 1) {
-		; This is a dialog, don't move toolbar - just hide it or keep position
-		Gui, Toolbar:Hide
-		return
-	}
-}
-
-WinGetPos, psX, psY, psW, psH, A
 if (psX = "" || psW = "")
 {
 	Gui, Toolbar:Hide
 	return
 }
 
-; Only attach to main window (should be reasonably large, not a small dialog)
+; Find the main ProSelect window (largest one) and compare
+; If active window is significantly smaller, it's a dialog
+WinGet, psWindows, List, ahk_exe ProSelect.exe
+maxW := 0
+maxH := 0
+Loop, %psWindows%
+{
+	thisHwnd := psWindows%A_Index%
+	WinGetPos,,, thisW, thisH, ahk_id %thisHwnd%
+	if (thisW > maxW)
+		maxW := thisW
+	if (thisH > maxH)
+		maxH := thisH
+}
+
+; If this window is less than 80% of the largest window size, it's a dialog
+if (psW < maxW * 0.8 || psH < maxH * 0.8)
+{
+	Gui, Toolbar:Hide
+	return
+}
+
+; Also skip if window is too small to be main window
 if (psW < 800 || psH < 600)
 {
 	Gui, Toolbar:Hide
@@ -1487,9 +1534,10 @@ if (!TB_CalibShowing) {
 */
 
 ; Position inline with window close X button - adjust for toolbar width
-; Scale the offset for high-DPI displays (147 is the base offset at 100% scaling)
+; Scale the offset for high-DPI displays (200 is the base offset at 100% scaling)
+; Offset accounts for window close/maximize/minimize buttons to avoid overlap
 tbWidth := toolbarWidth
-closeButtonOffset := Round(147 * DPI_Scale)
+closeButtonOffset := Round(300 * DPI_Scale)
 newX := psX + psW - (tbWidth + closeButtonOffset)
 newY := psY + Round(6 * DPI_Scale)
 
@@ -2134,6 +2182,317 @@ IsRoomViewActive() {
 	; Fallback: If not calibrated, assume not in room view (user gets gray icon, must click to try)
 	; This avoids false positives from other orange icons in the toolbar
 	return false
+}
+
+; === QR Code Cache Management ===
+; Pre-generates QR codes on startup/settings change for instant display
+
+GenerateQRCache() {
+	global Settings_QRCode_Text1, Settings_QRCode_Text2, Settings_QRCode_Text3
+	global QR_CacheFolder, QR_CachedFiles
+	
+	; Create cache folder if needed
+	if (!FileExist(QR_CacheFolder))
+		FileCreateDir, %QR_CacheFolder%
+	
+	; Clear cached files array
+	QR_CachedFiles := []
+	
+	; Generate QR for each non-empty text
+	texts := [Trim(Settings_QRCode_Text1), Trim(Settings_QRCode_Text2), Trim(Settings_QRCode_Text3)]
+	
+	Loop, 3
+	{
+		text := texts[A_Index]
+		if (text = "")
+			continue
+		
+		; Create hash-based filename from text content
+		hash := QR_SimpleHash(text)
+		cacheFile := QR_CacheFolder . "\qr_" . A_Index . "_" . hash . ".png"
+		
+		; Only regenerate if file doesn't exist (text changed or first run)
+		if (!FileExist(cacheFile)) {
+			; Delete old cached files for this slot
+			FileDelete, %QR_CacheFolder%\qr_%A_Index%_*.png
+			; Generate new QR code (1000px for high quality display)
+			SaveQRFile(text, cacheFile, 1000)
+		}
+		
+		QR_CachedFiles[A_Index] := cacheFile
+	}
+}
+
+; Simple hash function for cache invalidation
+QR_SimpleHash(str) {
+	hash := 0
+	Loop, Parse, str
+		hash := (hash * 31 + Asc(A_LoopField)) & 0x7FFFFFFF
+	return Format("{:08X}", hash)
+}
+
+Toolbar_QRCode:
+; Show fullscreen QR code display - cycles through configured QR texts
+{
+	global Settings_QRCode_Text1, Settings_QRCode_Text2, Settings_QRCode_Text3
+	global QR_CurrentIndex, QR_Texts, QR_Labels, QR_Count
+	
+	; Build array of non-empty QR texts (trim whitespace - IniRead defaults to space)
+	QR_Texts := []
+	QR_Labels := []
+	qrText1 := Trim(Settings_QRCode_Text1)
+	qrText2 := Trim(Settings_QRCode_Text2)
+	qrText3 := Trim(Settings_QRCode_Text3)
+	if (qrText1 != "") {
+		QR_Texts.Push(qrText1)
+		QR_Labels.Push(qrText1)
+	}
+	if (qrText2 != "") {
+		QR_Texts.Push(qrText2)
+		QR_Labels.Push(qrText2)
+	}
+	if (qrText3 != "") {
+		QR_Texts.Push(qrText3)
+		QR_Labels.Push(qrText3)
+	}
+	
+	QR_Count := QR_Texts.Length()
+	if (QR_Count = 0) {
+		DarkMsgBox("QR Code", "No QR code text configured.`n`nGo to Settings → Shortcuts tab to add text/URLs for QR codes.", "info", {timeout: 5})
+		return
+	}
+	
+	QR_CurrentIndex := 1
+	ShowFullscreenQR(QR_CurrentIndex)
+}
+Return
+
+ShowFullscreenQR(index) {
+	global QR_Texts, QR_Labels, QR_Count, QR_CurrentIndex
+	global QRImage, QRLabel, QRCounter, QRDisplayHwnd
+	global QR_CacheFolder, QR_CachedFiles
+	global Settings_QRCode_Display
+	global QRDisplay_Created  ; Track if GUI already exists
+	
+	QR_CurrentIndex := index
+	text := Trim(QR_Texts[index])
+	
+	if (text = "") {
+		DarkMsgBox("QR Code Error", "QR text is empty.", "error", {timeout: 3})
+		return
+	}
+	
+	; Get selected monitor dimensions (Settings_QRCode_Display = monitor number)
+	monNum := Settings_QRCode_Display ? Settings_QRCode_Display : 1
+	SysGet, monCount, MonitorCount
+	if (monNum > monCount)
+		monNum := 1
+	SysGet, mon, MonitorWorkArea, %monNum%
+	screenW := monRight - monLeft
+	screenH := monBottom - monTop
+	screenX := monLeft
+	screenY := monTop
+	
+	; Get DPI scale factor (96 = 100%, 120 = 125%, 144 = 150%, 192 = 200%)
+	hDC := DllCall("GetDC", "Ptr", 0, "Ptr")
+	dpi := DllCall("GetDeviceCaps", "Ptr", hDC, "Int", 88)  ; LOGPIXELSX
+	DllCall("ReleaseDC", "Ptr", 0, "Ptr", hDC)
+	dpiScale := dpi / 96
+	
+	; Calculate QR code size (40% of screen, whichever dimension is smaller)
+	; Using real pixels since GUI has -DPIScale
+	qrSize := Round(Min(screenW, screenH) * 0.40)
+	
+	; Use cached QR code file (pre-generated on startup)
+	; Find which slot this text is in (1, 2, or 3)
+	global Settings_QRCode_Text1, Settings_QRCode_Text2, Settings_QRCode_Text3
+	slot := 0
+	if (text = Trim(Settings_QRCode_Text1))
+		slot := 1
+	else if (text = Trim(Settings_QRCode_Text2))
+		slot := 2
+	else if (text = Trim(Settings_QRCode_Text3))
+		slot := 3
+	
+	; Get cached file or generate on-the-fly as fallback
+	tempFile := ""
+	if (slot > 0 && QR_CachedFiles.HasKey(slot) && FileExist(QR_CachedFiles[slot])) {
+		tempFile := QR_CachedFiles[slot]
+	} else {
+		; Fallback: generate on-the-fly
+		tempFile := A_Temp . "\sidekick_qrcode_" . index . ".png"
+		SaveQRFile(text, tempFile, 1000)
+	}
+	
+	if (!FileExist(tempFile)) {
+		DarkMsgBox("QR Code Error", "Failed to load QR code.", "error", {timeout: 5})
+		return
+	}
+	
+	; Build display label - extract domain from URLs, parse WiFi QR codes
+	displayText := text
+	if (RegExMatch(text, "i)^WIFI:T:([^;]*);S:([^;]*);P:([^;]*);", wifiMatch)) {
+		; Parse WiFi QR code: WIFI:T:WPA;S:ssid;P:password;;
+		wifiType := wifiMatch1
+		wifiSSID := wifiMatch2
+		wifiPass := wifiMatch3
+		displayText := "WiFi: " . wifiSSID . "  |  Password: " . wifiPass
+	} else if (RegExMatch(text, "i)^https?://([^/]+)", match)) {
+		displayText := match1  ; Just the domain
+	}
+	if (StrLen(displayText) > 60)
+		displayText := SubStr(displayText, 1, 60) . "..."
+	counterText := index . " / " . QR_Count . "    ↑↓ cycle QR  •  ←→ move display  •  Esc to close"
+	
+	; Check if GUI already exists - just update controls instead of recreating
+	if (QRDisplay_Created && WinExist("SideKick QR Code")) {
+		; Update existing controls without destroying GUI (prevents flash)
+		; Note: Picture control keeps same size, just update the image
+		GuiControl, QRDisplay:, QRImage, %tempFile%
+		GuiControl, QRDisplay:, QRLabel, %displayText%
+		GuiControl, QRDisplay:, QRCounter, %counterText%
+		return
+	}
+	
+	; Calculate positions - center QR on screen (accounting for label space below)
+	labelHeight := Round(50 * dpiScale)  ; space for label text only
+	qrX := Round((screenW - qrSize) / 2)
+	qrY := Round((screenH - qrSize - labelHeight) / 2)
+	
+	; Label position below QR
+	labelY := qrY + qrSize + Round(20 * dpiScale)
+	
+	; Counter text position - bottom of screen
+	counterY := screenH - Round(40 * dpiScale)
+	
+	; Create fullscreen GUI
+	Gui, QRDisplay:Destroy
+	Gui, QRDisplay:New, +AlwaysOnTop -Caption -DPIScale +HwndQRDisplayHwnd
+	Gui, QRDisplay:Color, 000000
+	
+	; QR code image centered
+	Gui, QRDisplay:Add, Picture, x%qrX% y%qrY% w%qrSize% h%qrSize% vQRImage, %tempFile%
+	
+	; Label below QR
+	labelFontSize := Round(18 * dpiScale)
+	counterFontSize := Round(11 * dpiScale)
+	Gui, QRDisplay:Font, s%labelFontSize% cCCCCCC, Segoe UI
+	Gui, QRDisplay:Add, Text, x0 y%labelY% w%screenW% Center BackgroundTrans vQRLabel, %displayText%
+	
+	; Counter / instructions
+	Gui, QRDisplay:Font, s%counterFontSize% c666666, Segoe UI
+	Gui, QRDisplay:Add, Text, x0 y%counterY% w%screenW% Center BackgroundTrans vQRCounter, %counterText%
+	
+	; Show fullscreen on selected monitor
+	Gui, QRDisplay:Show, x%screenX% y%screenY% w%screenW% h%screenH%, SideKick QR Code
+	QRDisplay_Created := true
+	
+	; Bind hotkeys for this window
+	Hotkey, IfWinActive, SideKick QR Code
+	Hotkey, WheelUp, QRCode_Prev, On
+	Hotkey, WheelDown, QRCode_Next, On
+	Hotkey, Up, QRCode_Prev, On
+	Hotkey, Down, QRCode_Next, On
+	Hotkey, Left, QRCode_MonitorPrev, On
+	Hotkey, Right, QRCode_MonitorNext, On
+	Hotkey, MButton, QRDisplayGuiClose, On
+	Hotkey, IfWinActive
+}
+
+QRCode_Next:
+{
+	global QR_CurrentIndex, QR_Count
+	newIndex := QR_CurrentIndex + 1
+	if (newIndex > QR_Count)
+		newIndex := 1
+	ShowFullscreenQR(newIndex)
+}
+Return
+
+QRCode_Prev:
+{
+	global QR_CurrentIndex, QR_Count
+	newIndex := QR_CurrentIndex - 1
+	if (newIndex < 1)
+		newIndex := QR_Count
+	ShowFullscreenQR(newIndex)
+}
+Return
+
+QRCode_MonitorNext:
+{
+	global Settings_QRCode_Display, QRDisplay_Created, QR_CurrentIndex
+	SysGet, monCount, MonitorCount
+	if (monCount <= 1)
+		return
+	Settings_QRCode_Display := Settings_QRCode_Display + 1
+	if (Settings_QRCode_Display > monCount)
+		Settings_QRCode_Display := 1
+	; Force GUI recreation on new monitor
+	Gui, QRDisplay:Destroy
+	QRDisplay_Created := false
+	ShowFullscreenQR(QR_CurrentIndex)
+}
+Return
+
+QRCode_MonitorPrev:
+{
+	global Settings_QRCode_Display, QRDisplay_Created, QR_CurrentIndex
+	SysGet, monCount, MonitorCount
+	if (monCount <= 1)
+		return
+	Settings_QRCode_Display := Settings_QRCode_Display - 1
+	if (Settings_QRCode_Display < 1)
+		Settings_QRCode_Display := monCount
+	; Force GUI recreation on new monitor
+	Gui, QRDisplay:Destroy
+	QRDisplay_Created := false
+	ShowFullscreenQR(QR_CurrentIndex)
+}
+Return
+
+QRDisplayGuiClose:
+QRDisplayGuiEscape:
+; Clean up hotkeys and reset state
+global QRDisplay_Created
+QRDisplay_Created := false
+Hotkey, IfWinActive, SideKick QR Code
+Hotkey, WheelUp, QRCode_Prev, Off
+Hotkey, WheelDown, QRCode_Next, Off
+Hotkey, Up, QRCode_Prev, Off
+Hotkey, Down, QRCode_Next, Off
+Hotkey, Left, QRCode_MonitorPrev, Off
+Hotkey, Right, QRCode_MonitorNext, Off
+Hotkey, IfWinActive
+Gui, QRDisplay:Destroy
+Return
+
+QRCode_UrlEncode(str) {
+	old := A_FormatInteger
+	SetFormat, IntegerFast, H
+	VarSetCapacity(out, StrPut(str, "UTF-8"), 0)
+	StrPut(str, &out, "UTF-8")
+	result := ""
+	Loop
+	{
+		code := NumGet(out, A_Index - 1, "UChar")
+		if (!code)
+			break
+		if (code >= 0x30 && code <= 0x39)       ; 0-9
+			|| (code >= 0x41 && code <= 0x5A)    ; A-Z
+			|| (code >= 0x61 && code <= 0x7A)    ; a-z
+			|| (code = 0x2D)                     ; -
+			|| (code = 0x2E)                     ; .
+			|| (code = 0x5F)                     ; _
+			|| (code = 0x7E)                     ; ~
+			result .= Chr(code)
+		else {
+			hex := SubStr(code + 0x100, -1)
+			result .= "%" . hex
+		}
+	}
+	SetFormat, IntegerFast, %old%
+	return result
 }
 
 Toolbar_DownloadSD:
@@ -3319,6 +3678,11 @@ Return
 ToggleClick_ShowBtn_Print:
 Toggle_ShowBtn_Print_State := !Toggle_ShowBtn_Print_State
 UpdateToggleSlider("Settings", "ShowBtn_Print", Toggle_ShowBtn_Print_State, 590)
+Return
+
+ToggleClick_ShowBtn_QRCode:
+Toggle_ShowBtn_QRCode_State := !Toggle_ShowBtn_QRCode_State
+UpdateToggleSlider("Settings", "ShowBtn_QRCode", Toggle_ShowBtn_QRCode_State, 590)
 Return
 
 ToggleClick_EnablePDF:
@@ -5545,7 +5909,7 @@ CreateShortcutsPanel()
 	; TOOLBAR BUTTONS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y55 w480 h375 vSCButtonsGroup, Toolbar Buttons
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h415 vSCButtonsGroup, Toolbar Buttons
 	
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y78 w350 BackgroundTrans vSCDescription, Enable or disable individual toolbar buttons.
@@ -5611,17 +5975,52 @@ CreateShortcutsPanel()
 	Gui, Settings:Add, Text, x255 y354 w280 BackgroundTrans vSCLabel_Print, Quick Print  —  Auto-print with template
 	CreateToggleSlider("Settings", "ShowBtn_Print", 630, 352, Settings_ShowBtn_Print)
 	
+	; QR Code button (▣)
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y385 w30 h28 Center Background006666 cWhite vSCIcon_QRCode, ▣
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x255 y389 w280 BackgroundTrans vSCLabel_QRCode, QR Code  —  Display QR code from text
+	CreateToggleSlider("Settings", "ShowBtn_QRCode", 630, 387, Settings_ShowBtn_QRCode)
+	
 	; SD Download button (📥) — note: managed separately in File Management
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y385 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
+	Gui, Settings:Add, Text, x215 y420 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y389 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
+	Gui, Settings:Add, Text, x255 y424 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INFO NOTE
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y440 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
+	Gui, Settings:Add, Text, x210 y475 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; QR CODE TEXT FIELDS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y495 w480 h175 vSCQRCodeGroup, QR Code Text
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y520 w65 h22 BackgroundTrans vSCQRLabel1, QR Text 1:
+	Gui, Settings:Add, Edit, x280 y518 w375 h22 cBlack vSCQREdit1, %Settings_QRCode_Text1%
+	
+	Gui, Settings:Add, Text, x210 y550 w65 h22 BackgroundTrans vSCQRLabel2, QR Text 2:
+	Gui, Settings:Add, Edit, x280 y548 w375 h22 cBlack vSCQREdit2, %Settings_QRCode_Text2%
+	
+	Gui, Settings:Add, Text, x210 y580 w65 h22 BackgroundTrans vSCQRLabel3, QR Text 3:
+	Gui, Settings:Add, Edit, x280 y578 w375 h22 cBlack vSCQREdit3, %Settings_QRCode_Text3%
+	
+	; Display monitor dropdown
+	Gui, Settings:Add, Text, x210 y610 w65 h22 BackgroundTrans vSCQRLabelDisp, Display:
+	SysGet, monCount, MonitorCount
+	monList := ""
+	Loop, %monCount%
+		monList .= (A_Index > 1 ? "|" : "") . A_Index
+	Gui, Settings:Add, DropDownList, x280 y608 w60 cBlack vSCQRDisplay Choose%Settings_QRCode_Display%, %monList%
+	Gui, Settings:Add, Text, x350 y610 w200 h22 BackgroundTrans c%mutedColor% vSCQRDispHint, (which monitor to show QR)
+	
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y638 w440 BackgroundTrans vSCQRCodeHint, Tip: Use URLs, Wi-Fi info, contact details, or any text you want as a QR code.
 	
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -5751,32 +6150,71 @@ RefreshPrintEmailTemplates:
 	; Same as RefreshEmailTemplates but updates Print tab controls
 	ToolTip, Fetching email templates from GHL...
 	
+	; Log file for email template debugging
+	etLogFile := A_ScriptDir . "\email_templates_debug.log"
+	FormatTime, etTimestamp,, yyyy-MM-dd HH:mm:ss
+	FileAppend, % "`n" . etTimestamp . " [RefreshPrintEmailTemplates] === START ===`n", %etLogFile%
+	
 	; Build command using GetScriptCommand (handles .exe vs .py automatically)
 	tempFile := A_Temp . "\ghl_email_templates.json"
 	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
 	
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] A_IsCompiled=" . A_IsCompiled . "`n", %etLogFile%
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] A_ScriptDir=" . A_ScriptDir . "`n", %etLogFile%
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] scriptCmd=" . scriptCmd . "`n", %etLogFile%
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] tempFile=" . tempFile . "`n", %etLogFile%
+	
 	if (scriptCmd = "") {
 		ToolTip
+		FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] ERROR: scriptCmd is empty - script not found`n", %etLogFile%
 		DarkMsgBox("Error", "Script not found: sync_ps_invoice", "error")
 		return
 	}
 	
+	; Check if the exe/py actually exists
+	scriptPath := GetScriptPath("sync_ps_invoice")
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] scriptPath=" . scriptPath . "`n", %etLogFile%
+	if (FileExist(scriptPath))
+		FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] Script file EXISTS`n", %etLogFile%
+	else
+		FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] Script file NOT FOUND!`n", %etLogFile%
+	
 	; Delete any existing temp file
 	FileDelete, %tempFile%
 	
-	; Build and run the command
-	RunWait, %ComSpec% /c %scriptCmd% > "%tempFile%" 2>&1, , Hide
+	; Write command to temp .cmd file to avoid cmd.exe /c quoting issues with .exe vs .py
+	tempCmd := A_Temp . "\sk_email_tpl_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileAppend, % "@" . scriptCmd . " > """ . tempFile . """ 2>&1`n", %tempCmd%
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] TempCmd: " . tempCmd . "`n", %etLogFile%
+	FileRead, etCmdContent, %tempCmd%
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] CmdContent: " . etCmdContent, %etLogFile%
+	RunWait, %ComSpec% /c "%tempCmd%", , Hide
+	etExitCode := ErrorLevel
+	FileDelete, %tempCmd%
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] ExitCode=" . etExitCode . "`n", %etLogFile%
+	
+	; Check temp file exists and its size
+	FileGetSize, etTempSize, %tempFile%
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] TempFile exists=" . (FileExist(tempFile) ? "YES" : "NO") . " size=" . etTempSize . " bytes`n", %etLogFile%
 	
 	; Read and parse the result
 	FileRead, result, %tempFile%
+	
+	; Log raw output (first 500 chars)
+	etRawPreview := SubStr(result, 1, 500)
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] Raw output (" . StrLen(result) . " chars):`n" . etRawPreview . "`n", %etLogFile%
 	FileDelete, %tempFile%
 	
 	ToolTip
 	
 	if (InStr(result, "ERROR") || result = "") {
-		DarkMsgBox("Error", "Failed to fetch email templates.`n`n" . result, "error")
+		FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] FAILED: result empty=" . (result = "" ? "YES" : "NO") . " containsERROR=" . (InStr(result, "ERROR") ? "YES" : "NO") . "`n", %etLogFile%
+		DarkMsgBox("Error", "Failed to fetch email templates.`n`nCommand: " . scriptCmd . "`n`nExit code: " . etExitCode . "`n`nOutput: " . SubStr(result, 1, 300), "error")
 		return
 	}
+	
+	FileAppend, % etTimestamp . " [RefreshPrintEmailTemplates] SUCCESS`n", %etLogFile%
 	
 	; Cache the templates (format: id|name per line)
 	GHL_CachedEmailTemplates := result
@@ -6147,6 +6585,20 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_ShowBtn_Print
 	GuiControl, Settings:Hide, SCIcon_Download
 	GuiControl, Settings:Hide, SCLabel_Download
+	GuiControl, Settings:Hide, SCIcon_QRCode
+	GuiControl, Settings:Hide, SCLabel_QRCode
+	GuiControl, Settings:Hide, Toggle_ShowBtn_QRCode
+	GuiControl, Settings:Hide, SCQRCodeGroup
+	GuiControl, Settings:Hide, SCQRLabel1
+	GuiControl, Settings:Hide, SCQREdit1
+	GuiControl, Settings:Hide, SCQRLabel2
+	GuiControl, Settings:Hide, SCQREdit2
+	GuiControl, Settings:Hide, SCQRLabel3
+	GuiControl, Settings:Hide, SCQREdit3
+	GuiControl, Settings:Hide, SCQRLabelDisp
+	GuiControl, Settings:Hide, SCQRDisplay
+	GuiControl, Settings:Hide, SCQRDispHint
+	GuiControl, Settings:Hide, SCQRCodeHint
 	GuiControl, Settings:Hide, SCInfoNote
 	
 	; Hide all panels - Print
@@ -6479,6 +6931,20 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_ShowBtn_Print
 		GuiControl, Settings:Show, SCIcon_Download
 		GuiControl, Settings:Show, SCLabel_Download
+		GuiControl, Settings:Show, SCIcon_QRCode
+		GuiControl, Settings:Show, SCLabel_QRCode
+		GuiControl, Settings:Show, Toggle_ShowBtn_QRCode
+		GuiControl, Settings:Show, SCQRCodeGroup
+		GuiControl, Settings:Show, SCQRLabel1
+		GuiControl, Settings:Show, SCQREdit1
+		GuiControl, Settings:Show, SCQRLabel2
+		GuiControl, Settings:Show, SCQREdit2
+		GuiControl, Settings:Show, SCQRLabel3
+		GuiControl, Settings:Show, SCQREdit3
+		GuiControl, Settings:Show, SCQRLabelDisp
+		GuiControl, Settings:Show, SCQRDisplay
+		GuiControl, Settings:Show, SCQRDispHint
+		GuiControl, Settings:Show, SCQRCodeHint
 		GuiControl, Settings:Show, SCInfoNote
 	}
 	else if (tabName = "Print")
@@ -7596,6 +8062,12 @@ Settings_ShowBtn_Sort := Toggle_ShowBtn_Sort_State
 Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
 Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
 Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
+Settings_ShowBtn_QRCode := Toggle_ShowBtn_QRCode_State
+; QR Code text fields from Shortcuts tab
+Settings_QRCode_Text1 := SCQREdit1
+Settings_QRCode_Text2 := SCQREdit2
+Settings_QRCode_Text3 := SCQREdit3
+Settings_QRCode_Display := SCQRDisplay
 ; Quick Print template strings from Print tab edit controls
 Settings_PrintTemplate_PayPlan := PrintPayPlanEdit
 Settings_PrintTemplate_Standard := PrintStandardEdit
@@ -7675,6 +8147,12 @@ Settings_ShowBtn_Sort := Toggle_ShowBtn_Sort_State
 Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
 Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
 Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
+Settings_ShowBtn_QRCode := Toggle_ShowBtn_QRCode_State
+; QR Code text fields from Shortcuts tab
+Settings_QRCode_Text1 := SCQREdit1
+Settings_QRCode_Text2 := SCQREdit2
+Settings_QRCode_Text3 := SCQREdit3
+Settings_QRCode_Display := SCQRDisplay
 ; Quick Print template strings from Print tab edit controls
 Settings_PrintTemplate_PayPlan := PrintPayPlanEdit
 Settings_PrintTemplate_Standard := PrintStandardEdit
@@ -8167,29 +8645,67 @@ RefreshEmailTemplates:
 {
 	global GHL_CachedEmailTemplates, Settings_EmailTemplateID, Settings_EmailTemplateName, IniFilename
 	
+	; Log file for email template debugging
+	etLogFile := A_ScriptDir . "\email_templates_debug.log"
+	FormatTime, etTimestamp,, yyyy-MM-dd HH:mm:ss
+	FileAppend, % "`n" . etTimestamp . " [RefreshEmailTemplates] === START ===`n", %etLogFile%
+	
 	ToolTip, Fetching email templates from GHL...
 	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
 	
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] A_IsCompiled=" . A_IsCompiled . "`n", %etLogFile%
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] A_ScriptDir=" . A_ScriptDir . "`n", %etLogFile%
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] scriptCmd=" . scriptCmd . "`n", %etLogFile%
+	
+	; Check if the exe/py actually exists
+	scriptPath := GetScriptPath("sync_ps_invoice")
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] scriptPath=" . scriptPath . "`n", %etLogFile%
+	if (FileExist(scriptPath))
+		FileAppend, % etTimestamp . " [RefreshEmailTemplates] Script file EXISTS`n", %etLogFile%
+	else
+		FileAppend, % etTimestamp . " [RefreshEmailTemplates] Script file NOT FOUND!`n", %etLogFile%
+	
 	tempOutput := A_Temp . "\ghl_templates_" . A_TickCount . ".txt"
-	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempOutput . """ 2>&1"""
-	RunWait, %fullCmd%, , Hide
+	; Write command to temp .cmd file to avoid cmd.exe /c quoting issues with .exe vs .py
+	tempCmd := A_Temp . "\sk_email_tpl2_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileAppend, % "@" . scriptCmd . " > """ . tempOutput . """ 2>&1`n", %tempCmd%
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] TempCmd: " . tempCmd . "`n", %etLogFile%
+	FileRead, etCmdContent, %tempCmd%
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] CmdContent: " . etCmdContent, %etLogFile%
+	RunWait, %ComSpec% /c "%tempCmd%", , Hide
+	etExitCode := ErrorLevel
+	FileDelete, %tempCmd%
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] ExitCode=" . etExitCode . "`n", %etLogFile%
 	ToolTip
 	
+	; Check temp file
+	FileGetSize, etTempSize, %tempOutput%
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] TempFile exists=" . (FileExist(tempOutput) ? "YES" : "NO") . " size=" . etTempSize . " bytes`n", %etLogFile%
+	
 	FileRead, tplOutput, %tempOutput%
+	
+	; Log raw output (first 500 chars)
+	etRawPreview := SubStr(tplOutput, 1, 500)
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] Raw output (" . StrLen(tplOutput) . " chars):`n" . etRawPreview . "`n", %etLogFile%
 	FileDelete, %tempOutput%
 	
 	; Check for errors
 	if (InStr(tplOutput, "API_ERROR") || InStr(tplOutput, "ERROR|"))
 	{
-		DarkMsgBox("API Error", "Could not load email templates from GHL.`nCheck API connection.", "warning")
+		FileAppend, % etTimestamp . " [RefreshEmailTemplates] FAILED: API_ERROR or ERROR| found in output`n", %etLogFile%
+		DarkMsgBox("API Error", "Could not load email templates from GHL.`nCheck API connection.`n`nCommand: " . scriptCmd . "`nExit code: " . etExitCode . "`n`nOutput: " . SubStr(tplOutput, 1, 300), "warning")
 		return
 	}
 	
 	if (InStr(tplOutput, "NO_TEMPLATES") || tplOutput = "")
 	{
-		DarkMsgBox("No Templates", "No email templates found in GHL.`n`nCreate an email template in GHL first.", "info")
+		FileAppend, % etTimestamp . " [RefreshEmailTemplates] FAILED: empty=" . (tplOutput = "" ? "YES" : "NO") . " NO_TEMPLATES=" . (InStr(tplOutput, "NO_TEMPLATES") ? "YES" : "NO") . "`n", %etLogFile%
+		DarkMsgBox("No Templates", "No email templates found in GHL.`n`nCreate an email template in GHL first.`n`nCommand: " . scriptCmd . "`nExit code: " . etExitCode . "`nOutput: " . SubStr(tplOutput, 1, 300), "info")
 		return
 	}
+	
+	FileAppend, % etTimestamp . " [RefreshEmailTemplates] SUCCESS`n", %etLogFile%
 	
 	; Cache the raw output (id|name per line)
 	GHL_CachedEmailTemplates := tplOutput
@@ -10155,6 +10671,11 @@ LoadSettings()
 	IniRead, Settings_ShowBtn_Photoshop, %IniFilename%, Toolbar, ShowBtn_Photoshop, 1
 	IniRead, Settings_ShowBtn_Refresh, %IniFilename%, Toolbar, ShowBtn_Refresh, 1
 	IniRead, Settings_ShowBtn_Print, %IniFilename%, Toolbar, ShowBtn_Print, 1
+	IniRead, Settings_ShowBtn_QRCode, %IniFilename%, Toolbar, ShowBtn_QRCode, 1
+	IniRead, Settings_QRCode_Text1, %IniFilename%, QRCode, Text1, %A_Space%
+	IniRead, Settings_QRCode_Text2, %IniFilename%, QRCode, Text2, %A_Space%
+	IniRead, Settings_QRCode_Text3, %IniFilename%, QRCode, Text3, %A_Space%
+	IniRead, Settings_QRCode_Display, %IniFilename%, QRCode, Display, 1
 	IniRead, Settings_PrintTemplate_PayPlan, %IniFilename%, Toolbar, PrintTemplate_PayPlan, PayPlan
 	IniRead, Settings_PrintTemplate_Standard, %IniFilename%, Toolbar, PrintTemplate_Standard, Terms of Sale
 	IniRead, Settings_EmailTemplateID, %IniFilename%, Toolbar, EmailTemplateID, %A_Space%
@@ -10272,6 +10793,13 @@ SaveSettings()
 	IniWrite, %Settings_ShowBtn_Photoshop%, %IniFilename%, Toolbar, ShowBtn_Photoshop
 	IniWrite, %Settings_ShowBtn_Refresh%, %IniFilename%, Toolbar, ShowBtn_Refresh
 	IniWrite, %Settings_ShowBtn_Print%, %IniFilename%, Toolbar, ShowBtn_Print
+	IniWrite, %Settings_ShowBtn_QRCode%, %IniFilename%, Toolbar, ShowBtn_QRCode
+	IniWrite, %Settings_QRCode_Text1%, %IniFilename%, QRCode, Text1
+	IniWrite, %Settings_QRCode_Text2%, %IniFilename%, QRCode, Text2
+	IniWrite, %Settings_QRCode_Text3%, %IniFilename%, QRCode, Text3
+	IniWrite, %Settings_QRCode_Display%, %IniFilename%, QRCode, Display
+	; Regenerate QR cache if text fields changed
+	GenerateQRCache()
 	IniWrite, %Settings_PrintTemplate_PayPlan%, %IniFilename%, Toolbar, PrintTemplate_PayPlan
 	IniWrite, %Settings_PrintTemplate_Standard%, %IniFilename%, Toolbar, PrintTemplate_Standard
 	IniWrite, %Settings_EmailTemplateID%, %IniFilename%, Toolbar, EmailTemplateID
@@ -12419,3 +12947,6 @@ QuickPub2GuiEscape:
 	QuickPub2Cancelled := true
 	Gui, QuickPub2:Destroy
 Return
+
+; === QR Code Generation Library (must be at end of script) ===
+#Include %A_ScriptDir%\Lib\Qr_CodeGen.ahk

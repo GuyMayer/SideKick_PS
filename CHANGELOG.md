@@ -12,6 +12,22 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.77 (2026-02-08)
+
+### New Features
+- **Local QR Code Generation**: No more Google Charts API dependency - uses BARCODER library for local QR generation
+- **QR Code Caching**: QR codes pre-generated on startup for instant display
+- **WiFi QR Display**: WiFi QR codes show friendly format (WiFi: SSID | Password: xxx)
+- **Monitor Selection**: Choose which monitor displays QR codes via Settings dropdown or arrow keys at runtime
+
+### Improvements
+- **Flash-Free QR Cycling**: Controls update without GUI rebuild when cycling through QR codes
+- **Smart Dialog Detection**: Toolbar hides automatically when smaller ProSelect windows (dialogs) are active
+- **QR Instructions Position**: Instructions moved to bottom of QR display for cleaner appearance
+- **Ps Button Color**: Photoshop button now uses toolbar icon color setting like other buttons
+
+---
+
 ## v2.4.75 (2026-02-07)
 
 ### New Features
