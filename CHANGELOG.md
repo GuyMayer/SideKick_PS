@@ -12,6 +12,13 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.9 (2026-02-08)
+
+### Bug Fixes
+- **Sync Invoice**: Fixed 'shoot_no is not defined' error in _process_sync function
+
+---
+
 ## v2.4.78 (2026-02-08)
 
 ### Bug Fixes
