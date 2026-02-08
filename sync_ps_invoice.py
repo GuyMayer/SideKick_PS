@@ -3648,6 +3648,8 @@ def _process_sync(
         sys.exit(1)
 
     client_name = f"{ps_data.get('first_name')} {ps_data.get('last_name')}"
+    album_name = ps_data.get('album_name', '')
+    shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
     print(f"Client: {client_name}")
     print(f"Email: {ps_data.get('email')}")
 
