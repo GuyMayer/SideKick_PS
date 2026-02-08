@@ -8,6 +8,21 @@ Example: python sync_ps_invoice.py "C:/path/to/2026-01-27_180030_P26008P__1.xml"
 Note: All config loaded from SideKick_PS.ini (encrypted tokens)
 """
 
+# =============================================================================
+# VERSION - Read from version.json
+# =============================================================================
+def get_sidekick_version() -> str:
+    """Read version from version.json file."""
+    try:
+        import json, os, sys
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable)
+        version_file = os.path.join(script_dir, "version.json")
+        with open(version_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data.get("version", "Unknown")
+    except Exception:
+        return "Unknown"
+
 import subprocess
 import sys
 import json
@@ -316,6 +331,7 @@ if DEBUG_MODE:
             f.write(f"SIDEKICK DEBUG LOG - VERBOSE MODE\n")
             f.write(f"{'='*70}\n")
             f.write(f"Session Start:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"SideKick Ver:   {get_sidekick_version()}\n")
             f.write(f"Computer Name:  {computer_name}\n")
             f.write(f"Windows User:   {username}\n")
             f.write(f"Location ID:    {DEBUG_LOCATION_ID}\n")
@@ -1601,6 +1617,11 @@ def delete_client_invoices(xml_path: str) -> dict:
     # Success only if no failures
     all_success = invoices_failed == 0 and (invoices_deleted > 0 or invoices_voided > 0 or len(invoices) == 0)
     
+    # Build problem invoice details for UI (id|number format for parsing)
+    problem_invoice_details = []
+    for prob in analysis.get('need_manual_refund', []):
+        problem_invoice_details.append(f"{prob['id']}|#{prob['number']}")
+    
     return {
         'success': all_success,
         'client_name': client_name,
@@ -1613,6 +1634,7 @@ def delete_client_invoices(xml_path: str) -> dict:
         'schedules_found': len(schedules),
         'schedules_cancelled': schedules_cancelled,
         'problem_invoices': problem_invoices + failed_invoice_numbers,
+        'problem_invoice_details': problem_invoice_details,
         'needs_manual_refund': needs_manual_refund or len(problem_invoices) > 0,
         'error': f'{invoices_failed} invoice(s) could not be deleted/voided' if invoices_failed > 0 else None
     }
@@ -3573,6 +3595,8 @@ def _parse_cli_args():
                         help='GHL email template/snippet ID to use (used with --send-room-email)')
     parser.add_argument('--list-email-templates', action='store_true',
                         help='List available email templates/snippets from GHL and exit')
+    parser.add_argument('--void-invoice', type=str, default='',
+                        help='Void a GHL invoice by ID (after payment refund)')
     return parser.parse_args()
 
 
@@ -3715,6 +3739,12 @@ def main() -> None:
             print(f"Error: File not found: {args.delete_for_client}")
             sys.exit(1)
         result = delete_client_invoices(args.delete_for_client)
+        _save_and_log_result(result)
+        sys.exit(0 if result.get('success') else 1)
+
+    if args.void_invoice:
+        debug_log("CLI MODE: --void-invoice", {"invoice_id": args.void_invoice})
+        result = void_ghl_invoice(args.void_invoice)
         _save_and_log_result(result)
         sys.exit(0 if result.get('success') else 1)
 
