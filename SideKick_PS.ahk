@@ -10245,8 +10245,8 @@ Return
 SendDebugLogsSilent() {
 	global GHL_LocationID
 	
-	; Path to SideKick_Logs folder on user's Desktop
-	logsFolder := A_Desktop . "\SideKick_Logs"
+	; Path to SideKick_PS logs folder in AppData (matches Python DEBUG_LOG_FOLDER)
+	logsFolder := A_AppData . "\SideKick_PS\Logs"
 	
 	; Check if folder exists
 	if (!FileExist(logsFolder))
@@ -10311,7 +10311,14 @@ SendDebugLogsSilent() {
 		http.SetRequestHeader("Content-Type", "application/json")
 		http.send(gistJson)
 		
-		return (http.status = 201)
+		if (http.status = 201) {
+			; Delete uploaded log files to prevent re-uploading old logs
+			for i, logPath in logFiles {
+				FileDelete, %logPath%
+			}
+			return true
+		}
+		return false
 	}
 	catch {
 		return false
@@ -10326,8 +10333,8 @@ Return
 SendDebugLogs() {
 	global GHL_LocationID, IniFilename
 	
-	; Path to SideKick_Logs folder on user's Desktop
-	logsFolder := A_Desktop . "\SideKick_Logs"
+	; Path to SideKick_PS logs folder in AppData (matches Python DEBUG_LOG_FOLDER)
+	logsFolder := A_AppData . "\SideKick_PS\Logs"
 	
 	; Check if folder exists
 	if (!FileExist(logsFolder)) {
