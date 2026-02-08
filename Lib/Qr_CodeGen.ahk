@@ -47,12 +47,17 @@ If MATRIX_TO_PRINT between 1 and 7
 	Exit
 }
 
-  ; Start gdi+
-If !pToken := Gdip_Startup()
-{
-	MsgBox,262208,SideKick ~ Dev Info %A_ScriptName% %A_LineNumber%, Gdiplus failed to start. Please ensure you have gdiplus on your system
-	ExitApp
-}
+  ; Start gdi+ only if not already running (SideKick manages GDI+ globally)
+  QR_OwnedGdip := false
+  If !DllCall("GetModuleHandle", "str", "gdiplus", "Ptr")
+  {
+	If !pToken := Gdip_Startup()
+	{
+		MsgBox,262208,SideKick ~ Dev Info %A_ScriptName% %A_LineNumber%, Gdiplus failed to start. Please ensure you have gdiplus on your system
+		ExitApp
+	}
+	QR_OwnedGdip := true
+  }
 
 pBitmap := Gdip_CreateBitmap((MATRIX_TO_PRINT.MaxIndex() + 8) * PixelSize, (MATRIX_TO_PRINT.MaxIndex() + 8) * PixelSize) ; Adding 8 pixels to the width and height here as a "quiet zone" for the image. This serves to improve the printed code readability. QR Code specs require the quiet zones to surround the whole image and to be at least 4 modules wide (4 on each side = 8 total width added to the image). Don't forget to increase this number accordingly if you plan to change the pixel size of each module.
 G := Gdip_GraphicsFromImage(pBitmap)
@@ -109,7 +114,9 @@ if GdipError
 	MsgBox,262208,SideKick ~ Dev Info QR_CodeGen %A_LineNumber%,gDip File save ERROR %GdipError%
 Gdip_DisposeImage(pBitmap)
 Gdip_DeleteGraphics(G)
-Gdip_Shutdown(pToken)
+; Only shutdown GDI+ if we started it ourselves
+If (QR_OwnedGdip)
+	Gdip_Shutdown(pToken)
 
 Return
 
