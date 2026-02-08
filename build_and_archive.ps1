@@ -134,7 +134,7 @@ $pythonFiles = @(
     "validate_license",
     "fetch_ghl_contact",
     "update_ghl_contact",
-    "sync_ps_invoice_v2",
+    "sync_ps_invoice",
     "upload_ghl_media"
 )
 

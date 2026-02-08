@@ -1608,7 +1608,8 @@ if (!TB_CalibShowing) {
 tbWidth := toolbarWidth
 closeButtonOffset := Round(300 * DPI_Scale)
 newX := psX + psW - (tbWidth + closeButtonOffset)
-newY := psY + Round(6 * DPI_Scale)
+; Y offset: position toolbar at very top of window title bar area
+newY := psY
 
 ; Ensure toolbar stays within screen bounds
 SysGet, monitorCount, MonitorCount
