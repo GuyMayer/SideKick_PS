@@ -1208,11 +1208,147 @@ def get_ghl_invoice(invoice_id: str) -> dict | None:
         return None
 
 
-def list_contact_invoices(contact_id: str) -> list:
+def update_invoice_to_draft(invoice_id: str) -> dict:
+    """Try to update an invoice to 'draft' status to enable deletion.
+
+    This may allow voiding/deleting invoices that have payment restrictions.
+    Note: GHL may not allow this for paid invoices.
+
+    Args:
+        invoice_id: GHL invoice ID.
+
+    Returns:
+        dict: Result with success status.
+    """
+    url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}"
+    payload = {
+        "altId": CONFIG.get('LOCATION_ID', ''),
+        "altType": "location",
+        "status": "draft"
+    }
+    debug_log(f"UPDATE INVOICE TO DRAFT: {url}", payload)
+
+    try:
+        response = requests.put(url, headers=_get_ghl_headers(), json=payload, timeout=30)
+        debug_log(f"UPDATE TO DRAFT RESPONSE: Status={response.status_code}", {
+            "body": response.text[:1000] if response.text else "EMPTY"
+        })
+
+        if response.status_code in [200, 201, 204]:
+            debug_log(f"INVOICE UPDATED TO DRAFT: {invoice_id}")
+            return {'success': True, 'invoice_id': invoice_id}
+        else:
+            return {'success': False, 'error': f"Status update failed (HTTP {response.status_code})", 'response': response.text}
+    except requests.exceptions.RequestException as e:
+        return {'success': False, 'error': str(e)}
+
+
+def has_payment_provider_transactions(invoice: dict) -> tuple[bool, list]:
+    """Check if an invoice has payment provider transactions that need manual refund.
+
+    Payment provider transactions (GoCardless, Stripe) cannot be refunded via API
+    and must be manually refunded in GHL before the invoice can be voided.
+
+    Args:
+        invoice: Invoice data dict from GHL.
+
+    Returns:
+        tuple[bool, list]: (has_provider_payments, list of transaction details)
+    """
+    provider_payments = []
+    
+    # Check for transactions in the invoice data
+    transactions = invoice.get('transactions', [])
+    if not transactions:
+        # Also check under 'paymentTransactions' or nested structures
+        invoice_inner = invoice.get('invoice', invoice)
+        transactions = invoice_inner.get('transactions', [])
+    
+    for txn in transactions:
+        # Provider transactions have a paymentProvider field or specific source
+        provider = txn.get('paymentProvider', txn.get('provider', ''))
+        source = txn.get('source', '')
+        
+        # GoCardless, Stripe, or other payment providers
+        is_provider = bool(provider) or source in ['gocardless', 'stripe', 'square', 'paypal']
+        
+        if is_provider and txn.get('status') == 'succeeded':
+            provider_payments.append({
+                'transaction_id': txn.get('_id', txn.get('id', '')),
+                'amount': txn.get('amount', 0),
+                'provider': provider or source,
+                'date': txn.get('createdAt', txn.get('date', ''))
+            })
+    
+    return (len(provider_payments) > 0, provider_payments)
+
+
+def analyze_invoices_for_problems(invoices: list) -> dict:
+    """Analyze invoices to detect which ones will need manual handling.
+
+    Checks each invoice for payment provider transactions that require
+    manual refund before the API can void/delete them.
+
+    Args:
+        invoices: List of invoice dicts from GHL.
+
+    Returns:
+        dict: Analysis results with categorized invoices.
+    """
+    result = {
+        'total': len(invoices),
+        'can_delete': [],       # Invoices that can be auto-deleted
+        'need_manual_refund': [],  # Invoices with provider payments
+        'already_void': [],     # Already voided
+        'problem_invoice_numbers': []  # For display to user
+    }
+    
+    for inv in invoices:
+        inv_id = inv.get('_id', inv.get('id', ''))
+        inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
+        inv_status = inv.get('status', 'unknown')
+        amount_paid = inv.get('amountPaid', 0)
+        
+        if inv_status == 'void':
+            result['already_void'].append(inv_id)
+            continue
+        
+        # Fetch full invoice details to check transactions
+        invoice_data = get_ghl_invoice(inv_id)
+        if invoice_data:
+            invoice_inner = invoice_data.get('invoice', invoice_data)
+            has_provider, provider_txns = has_payment_provider_transactions(invoice_inner)
+            
+            if has_provider:
+                result['need_manual_refund'].append({
+                    'id': inv_id,
+                    'number': inv_number,
+                    'amount_paid': amount_paid,
+                    'transactions': provider_txns
+                })
+                result['problem_invoice_numbers'].append(f"#{inv_number}")
+            else:
+                result['can_delete'].append(inv_id)
+        else:
+            # Can't check, assume it's deletable
+            result['can_delete'].append(inv_id)
+    
+    debug_log("INVOICE ANALYSIS COMPLETE", {
+        "total": result['total'],
+        "can_delete": len(result['can_delete']),
+        "need_manual_refund": len(result['need_manual_refund']),
+        "already_void": len(result['already_void'])
+    })
+    
+    return result
+
+
+def list_contact_invoices(contact_id: str, contact_name: str = "") -> list:
     """List all invoices for a GHL contact.
 
     Args:
         contact_id: GHL contact ID.
+        contact_name: Contact name for fallback search.
 
     Returns:
         list: List of invoice dicts, or empty list.
@@ -1222,7 +1358,8 @@ def list_contact_invoices(contact_id: str) -> list:
         "altId": CONFIG.get('LOCATION_ID', ''),
         "altType": "location",
         "contactId": contact_id,
-        "limit": 50,
+        "limit": 100,
+        "offset": "0",
     }
     debug_log(f"LIST CONTACT INVOICES: {url}", params)
 
@@ -1236,7 +1373,31 @@ def list_contact_invoices(contact_id: str) -> list:
             data = response.json()
             invoices = data.get('invoices', data.get('data', []))
             debug_log(f"Found {len(invoices)} invoices for contact {contact_id}")
-            return invoices
+            if invoices:
+                return invoices
+
+        # Fallback: search by contact name if contactId returned nothing
+        if contact_name:
+            debug_log(f"Trying fallback search by name: {contact_name}")
+            params_name = {
+                "altId": CONFIG.get('LOCATION_ID', ''),
+                "altType": "location",
+                "search": contact_name,
+                "limit": 100,
+                "offset": "0",
+            }
+            response = requests.get(url, headers=_get_ghl_headers(), params=params_name, timeout=30)
+            debug_log(f"LIST INVOICES BY NAME RESPONSE: Status={response.status_code}", {
+                "body": response.text[:3000] if response.text else "EMPTY"
+            })
+            if response.status_code == 200:
+                data = response.json()
+                invoices = data.get('invoices', data.get('data', []))
+                # Filter to only include invoices for this contact
+                if contact_id:
+                    invoices = [inv for inv in invoices if inv.get('contactDetails', {}).get('id') == contact_id]
+                debug_log(f"Found {len(invoices)} invoices by name search for {contact_name}")
+                return invoices
         return []
     except requests.exceptions.RequestException as e:
         debug_log(f"LIST INVOICES ERROR: {e}")
@@ -1258,6 +1419,7 @@ def list_contact_schedules(contact_id: str) -> list:
         "altType": "location",
         "contactId": contact_id,
         "limit": 50,
+        "offset": "0",
     }
     debug_log(f"LIST CONTACT SCHEDULES: {url}", params)
 
@@ -1297,25 +1459,50 @@ def delete_client_invoices(xml_path: str) -> dict:
     if not ps_data:
         return {'success': False, 'error': 'Failed to parse XML file'}
 
-    contact_id = ps_data.get('ghl_contact_id')
     client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
     album_name = ps_data.get('album_name', '')
+    email = ps_data.get('email', '')
     shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+
+    # Strategy 1: Extract GHL contact ID from album name first (most reliable)
+    contact_id = None
+    if album_name:
+        import re
+        # Look for 20+ char alphanumeric ID in album name
+        matches = re.findall(r'[A-Za-z0-9]{20,}', album_name)
+        if matches:
+            contact_id = matches[-1]  # Use last match (usually the ID at end)
+            debug_log(f"Found contact ID in album name", {"contact_id": contact_id, "album_name": album_name})
+
+    # Strategy 2: Use ghl_contact_id from XML if album name didn't have it
+    if not contact_id:
+        xml_contact_id = ps_data.get('ghl_contact_id')
+        if xml_contact_id and len(xml_contact_id) >= 15 and xml_contact_id.isalnum():
+            contact_id = xml_contact_id
+            debug_log(f"Using contact ID from XML", {"contact_id": contact_id})
+
+    # Strategy 3: Search by email to find contact ID
+    if not contact_id and email:
+        debug_log(f"Searching for contact by email", {"email": email})
+        found_id = find_ghl_contact(email, None)
+        if found_id:
+            contact_id = found_id
+            debug_log(f"Found contact ID by email search", {"contact_id": contact_id, "email": email})
 
     debug_log("DELETE CLIENT INFO", {
         "client_name": client_name, "shoot_no": shoot_no,
-        "contact_id": contact_id, "album_name": album_name
+        "contact_id": contact_id, "album_name": album_name, "email": email
     })
     print(f"\n🗑️ Delete invoices for: {client_name} ({shoot_no})")
     print(f"  Contact ID: {contact_id}")
 
     if not contact_id:
         debug_log("DELETE ABORTED - No contact ID found")
-        return {'success': False, 'error': 'No GHL Contact ID found in XML', 'client_name': client_name}
+        return {'success': False, 'error': 'No GHL Contact ID found in XML or by email search', 'client_name': client_name}
 
-    # List all invoices for this contact
+    # List all invoices for this contact (with name fallback)
     print(f"  Searching for invoices...")
-    invoices = list_contact_invoices(contact_id)
+    invoices = list_contact_invoices(contact_id, client_name)
     debug_log(f"INVOICES FOUND: {len(invoices)}", [inv.get('_id', inv.get('id', '')) for inv in invoices])
     print(f"  Found {len(invoices)} invoice(s)")
 
@@ -1330,13 +1517,29 @@ def delete_client_invoices(xml_path: str) -> dict:
         print(f"  No invoices or schedules found for this client.")
         return {
             'success': True, 'client_name': client_name, 'shoot_no': shoot_no,
+            'contact_id': contact_id,
             'invoices_deleted': 0, 'schedules_cancelled': 0,
             'message': 'No invoices or schedules found'
         }
 
+    # UPFRONT ANALYSIS: Check which invoices have payment provider transactions
+    print(f"  Analyzing invoices for payment provider transactions...")
+    analysis = analyze_invoices_for_problems(invoices)
+    problem_invoices = analysis.get('problem_invoice_numbers', [])
+    
+    if analysis.get('need_manual_refund'):
+        print(f"  ⚠ {len(analysis['need_manual_refund'])} invoice(s) have payment provider transactions")
+        for prob in analysis['need_manual_refund']:
+            print(f"    • #{prob['number']} - £{prob['amount_paid']:.2f} via provider")
+        print(f"  These require manual refund in GHL before API can void them.")
+    
     # Delete/void all invoices
     invoices_deleted = 0
     invoices_voided = 0
+    invoices_failed = 0
+    failed_invoice_numbers = []
+    needs_manual_refund = False
+    
     for inv in invoices:
         inv_id = inv.get('_id', inv.get('id', ''))
         inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
@@ -1359,6 +1562,12 @@ def delete_client_invoices(xml_path: str) -> dict:
             invoices_deleted += 1
         elif result.get('voided'):
             invoices_voided += 1
+        elif not result.get('success'):
+            invoices_failed += 1
+            failed_invoice_numbers.append(f"#{inv_number}")
+            if result.get('needs_provider_refund') or result.get('needs_refund'):
+                needs_manual_refund = True
+            debug_log(f"INVOICE DELETE FAILED: #{inv_number}", result)
 
     # Cancel all schedules
     schedules_cancelled = 0
@@ -1380,43 +1589,78 @@ def delete_client_invoices(xml_path: str) -> dict:
     debug_log("DELETE CLIENT INVOICES COMPLETE", {
         "client_name": client_name, "shoot_no": shoot_no,
         "invoices_deleted": invoices_deleted, "invoices_voided": invoices_voided,
+        "invoices_failed": invoices_failed,
         "schedules_cancelled": schedules_cancelled
     })
-    print(f"\n✓ Done: {invoices_deleted} deleted, {invoices_voided} voided, {schedules_cancelled} schedules cancelled")
+    
+    if invoices_failed > 0:
+        print(f"\n⚠ Done with errors: {invoices_deleted} deleted, {invoices_voided} voided, {invoices_failed} failed, {schedules_cancelled} schedules")
+    else:
+        print(f"\n✓ Done: {invoices_deleted} deleted, {invoices_voided} voided, {schedules_cancelled} schedules cancelled")
 
+    # Success only if no failures
+    all_success = invoices_failed == 0 and (invoices_deleted > 0 or invoices_voided > 0 or len(invoices) == 0)
+    
     return {
-        'success': True,
+        'success': all_success,
         'client_name': client_name,
         'shoot_no': shoot_no,
         'contact_id': contact_id,
         'invoices_found': len(invoices),
         'invoices_deleted': invoices_deleted,
         'invoices_voided': invoices_voided,
+        'invoices_failed': invoices_failed,
         'schedules_found': len(schedules),
         'schedules_cancelled': schedules_cancelled,
+        'problem_invoices': problem_invoices + failed_invoice_numbers,
+        'needs_manual_refund': needs_manual_refund or len(problem_invoices) > 0,
+        'error': f'{invoices_failed} invoice(s) could not be deleted/voided' if invoices_failed > 0 else None
     }
 
 
-def void_ghl_invoice(invoice_id: str) -> dict:
+def void_ghl_invoice(invoice_id: str, try_draft_first: bool = True) -> dict:
     """Void an invoice in GHL (sets status to void without deleting).
 
     Args:
         invoice_id: GHL invoice ID to void.
+        try_draft_first: If True, attempt to update to draft status first (may bypass restrictions).
 
     Returns:
         dict: Result with success status.
     """
+    # Strategy 1: Try updating to draft status first (may bypass payment restrictions)
+    if try_draft_first:
+        debug_log(f"TRYING DRAFT STATUS FIRST: {invoice_id}")
+        draft_result = update_invoice_to_draft(invoice_id)
+        if draft_result.get('success'):
+            debug_log(f"INVOICE UPDATED TO DRAFT - now attempting void")
+    
     url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/void"
-    debug_log(f"VOID INVOICE REQUEST: {url}")
+    # GHL requires altId/altType in request body for void endpoint
+    payload = {"altId": CONFIG.get('LOCATION_ID', ''), "altType": "location"}
+    debug_log(f"VOID INVOICE REQUEST: {url}", payload)
 
     try:
-        response = requests.post(url, headers=_get_ghl_headers(), timeout=30)
+        response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
         debug_log(f"VOID INVOICE RESPONSE: Status={response.status_code}", {
             "body": response.text[:1000] if response.text else "EMPTY"
         })
 
         if response.status_code in [200, 201, 204]:
             return {'success': True, 'voided': True}
+        elif response.status_code == 400:
+            # Check for payment provider refund requirement
+            if 'refunded first' in response.text.lower() or 'payment provider' in response.text.lower():
+                debug_log("VOID BLOCKED - Payment provider refund required")
+                return {
+                    'success': False, 
+                    'error': 'Invoice has payment provider transactions. Refund in GHL Payments first.',
+                    'needs_provider_refund': True
+                }
+            return {'success': False, 'error': f"Void failed: {response.text}"}
+        elif response.status_code == 403:
+            debug_log("VOID INVOICE 403 - API KEY LACKS PERMISSION")
+            return {'success': False, 'error': 'API key lacks invoice.void permission', 'permission_error': True}
         else:
             return {'success': False, 'error': f"Void failed (HTTP {response.status_code})", 'response': response.text}
     except requests.exceptions.RequestException as e:
@@ -1686,6 +1930,16 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
             debug_log(f"INVOICE DELETED SUCCESSFULLY: {invoice_id}")
             print(f"  ✓ Invoice deleted successfully")
             return {'success': True, 'invoice_id': invoice_id, 'deleted': True, 'schedules_cancelled': schedules_cancelled}
+        elif response.status_code == 403:
+            debug_log(f"DELETE INVOICE 403 - API KEY LACKS PERMISSION", {"invoice_id": invoice_id})
+            print(f"  ✗ API key lacks permission to delete invoices")
+            print(f"    Enable 'invoices.write' scope in GHL Private Integrations")
+            return {
+                'success': False, 
+                'error': 'API key lacks invoice delete permission - update GHL Private Integration scopes',
+                'invoice_id': invoice_id,
+                'permission_error': True
+            }
         elif response.status_code == 400:
             # May need to void payments first
             error_text = response.text.lower()

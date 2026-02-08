@@ -1,16 +1,10 @@
 {
-  "version": "2.4.77",
+  "version": "2.4.78",
   "build_date": "2026-02-08",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Local QR code generation, QR caching, WiFi-friendly display, smart dialog detection",
+  "release_notes": "Toolbar tooltips fix, timer-based hover detection",
   "changelog": [
-    "NEW: Local QR code generation - no more Google Charts API (uses BARCODER library)",
-    "NEW: QR codes cached on startup for instant display",
-    "NEW: WiFi QR codes show friendly format (WiFi: SSID | Password: xxx)",
-    "NEW: Monitor selection for QR display (Settings + arrow keys)",
-    "IMPROVED: Flash-free QR cycling - controls update without GUI rebuild",
-    "IMPROVED: Smart dialog detection - hides toolbar on smaller ProSelect windows",
-    "IMPROVED: Instructions moved to bottom of QR display",
-    "IMPROVED: Ps button color now matches other toolbar icons"
+    "FIX: Toolbar tooltips now work reliably using timer-based hover detection",
+    "IMPROVED: MouseGetPos used for accurate button detection under cursor"
   ]
 }

@@ -12,6 +12,14 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.4.78 (2026-02-08)
+
+### Bug Fixes
+- **Toolbar Tooltips**: Fixed tooltips not appearing on hover - now uses timer-based detection (100ms interval)
+- **Hover Detection**: Uses MouseGetPos for accurate button detection under cursor
+
+---
+
 ## v2.4.77 (2026-02-08)
 
 ### New Features
