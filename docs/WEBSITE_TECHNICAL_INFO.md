@@ -85,6 +85,18 @@ git commit -m "Your commit message"
 git push origin main
 ```
 
+### Website-Only Push (Skip Build Hook)
+The repo has a pre-push hook that triggers a full program build. To push **only website changes** without building:
+
+```powershell
+cd C:\Stash\SideKick_PS
+git add docs/
+git commit -m "Website update"
+git push origin main --no-verify
+```
+
+The `--no-verify` flag skips the pre-push hook entirely.
+
 ### Verify Deployment
 - Check https://github.com/GuyMayer/SideKick_PS/actions for deployment status
 - Clear browser cache or use incognito to see changes
