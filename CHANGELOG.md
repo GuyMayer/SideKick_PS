@@ -12,6 +12,28 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.1 (2026-02-09)
+
+### New Features
+- **Detailed Sync Error Dialog**: When invoice sync fails (e.g., GHL contact not found), shows comprehensive error MsgBox with:
+  - Available data (client name, shoot no, email, album)
+  - What's missing/invalid with specific fix instructions
+  - Version info for diagnostics (SideKick version, helper version, helper build date)
+- **Log Folder Link**: Settings > About now shows clickable log folder path next to Send Logs button
+- **Timestamped Log Files**: Each session creates a new log file (e.g., `sidekick_20260209_143022.log`)
+- **7-Day Log Retention**: Logs are automatically cleaned up after 7 days on startup
+
+### Improvements
+- **Helper Version Logging**: Startup debug log now includes sync_ps_invoice helper info (path, version, file modified date, file size)
+- **Version Mismatch Detection**: Helper version info helps identify when users have mismatched component versions
+- **Email-First Contact Search**: GHL contact lookup now searches by email first (more reliable), then falls back to job number custom field
+- **Log Files Preserved**: Invoice sync now appends to log instead of overwriting - preserves startup info
+
+### Bug Fixes
+- **Log File Location**: Moved logs from script directory (Program Files - protected) to AppData\Roaming\SideKick_PS\Logs (writable)
+
+---
+
 ## v2.5.0 (2026-02-08)
 
 ### New Features

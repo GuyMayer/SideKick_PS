@@ -1103,7 +1103,7 @@ def _search_ghl_contacts(filters: list, search_type: str) -> str | None:
 
 
 def find_ghl_contact(email: str, client_id: str) -> dict | None:
-    """Find GHL contact by client_id or email.
+    """Find GHL contact by email or client_id.
 
     Args:
         email: Contact email address.
@@ -1114,7 +1114,15 @@ def find_ghl_contact(email: str, client_id: str) -> dict | None:
     """
     debug_log("FIND GHL CONTACT CALLED", {"email": email, "client_id": client_id})
 
-    # Search by client_id in custom field (session_job_no) - PRIMARY method
+    # Search by email first - PRIMARY method (most reliable)
+    if email:
+        filters = [{"field": "email", "operator": "eq", "value": email}]
+        contact_id = _search_ghl_contacts(filters, "EMAIL")
+        if contact_id:
+            print(f"✓ Found contact by email: {email}")
+            return contact_id
+
+    # Fallback: search by client_id in custom field (session_job_no)
     if client_id:
         filters = [{
             "field": "customFields." + CUSTOM_FIELDS['session_job_no'],
@@ -1126,16 +1134,8 @@ def find_ghl_contact(email: str, client_id: str) -> dict | None:
             print(f"✓ Found contact by Client ID: {client_id}")
             return contact_id
 
-    # Fallback: search by email using V2 API
-    if email:
-        filters = [{"field": "email", "operator": "eq", "value": email}]
-        contact_id = _search_ghl_contacts(filters, "EMAIL")
-        if contact_id:
-            print(f"✓ Found contact by email: {email}")
-            return contact_id
-
     debug_log(f"CONTACT NOT FOUND", {"client_id": client_id, "email": email})
-    print(f"✗ Contact not found - Client ID: {client_id}, Email: {email}")
+    print(f"✗ Contact not found - Email: {email}, Client ID: {client_id}")
     return None
 
 

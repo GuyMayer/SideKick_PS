@@ -15,7 +15,6 @@
 | Item | Details |
 |------|---------|
 | **Hosting Platform** | GitHub Pages |
-| **Repository** | https://github.com/GuyMayer/SideKick_PS |
 | **Branch** | `main` |
 | **Published From** | `/docs` folder |
 | **Custom Domain** | sidekick.zoom-photo.uk |
