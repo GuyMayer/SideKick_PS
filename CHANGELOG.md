@@ -12,6 +12,20 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.2 (2026-02-09)
+
+### New Features
+- **Phosphor Thin Icon Font**: Bundled thin outline icon font for consistent toolbar appearance across all Windows versions
+- **Icon Font Auto-Detection**: Automatically detects and uses best available icon font (Phosphor Thin > Segoe Fluent > Font Awesome)
+- **Font Fallback Chain**: If Phosphor Thin unavailable, falls back to Segoe Fluent Icons (Win11) or Font Awesome Solid
+
+### Improvements
+- **Thinner Toolbar Icons**: Switched from bold Font Awesome Solid to thin outline Phosphor icons
+- **Cross-Platform Icons**: Icons now display consistently regardless of Windows version or installed fonts
+- **Font Bundled with Installer**: Phosphor-Thin.ttf included in installer, auto-installed to user fonts
+
+---
+
 ## v2.5.1 (2026-02-09)
 
 ### New Features
