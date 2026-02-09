@@ -1,6 +1,6 @@
 # SideKick PS — User Manual
 
-**Version 2.4.72** | February 2026 | © Zoom Photography
+**Version 2.5.3** | February 2026 | © Zoom Photography
 
 ---
 
@@ -18,13 +18,14 @@
 10. [Room Capture Email](#room-capture-email)
 11. [Open GHL Contact](#open-ghl-contact)
 12. [Quick Print](#quick-print)
-13. [SD Card Download](#sd-card-download)
-14. [Settings](#settings)
-15. [Keyboard Shortcuts](#keyboard-shortcuts)
-16. [System Tray](#system-tray)
-17. [Licensing & Activation](#licensing--activation)
-18. [Troubleshooting](#troubleshooting)
-19. [Support](#support)
+13. [Print to PDF](#print-to-pdf)
+14. [SD Card Download](#sd-card-download)
+15. [Settings](#settings)
+16. [Keyboard Shortcuts](#keyboard-shortcuts)
+17. [System Tray](#system-tray)
+18. [Licensing & Activation](#licensing--activation)
+19. [Troubleshooting](#troubleshooting)
+20. [Support](#support)
 
 ---
 
@@ -86,7 +87,7 @@ When ProSelect is open, a floating toolbar appears docked to the ProSelect title
 | **Sort Order** | 🔀 (yellow) | Toggle between random and filename sort order |
 | **Photoshop** | PS (pink) | Send selected image to Photoshop (Ctrl+T) |
 | **Refresh** | 🔄 (cyan) | Update album (Ctrl+U) |
-| **Quick Print** | 🖨 (orange) | Auto-print with configured template |
+| **Quick Print** | 🖨 (orange) | Auto-print with configured template (or Print to PDF if enabled) |
 | **SD Download** | 📥 (orange) | Download photos from SD card *(only shown if enabled)* |
 | **Settings** | ⚙ (purple) | Open SideKick PS settings |
 
@@ -96,6 +97,12 @@ When ProSelect is open, a floating toolbar appears docked to the ProSelect title
 - It **stays hidden** when ProSelect dialogs are open (Client Setup, Print, etc.)
 - It **reappears** when you return to the main ProSelect window
 - Icon colours can be changed in **Settings → Hotkeys → Icon Color**
+
+### Repositioning the Toolbar
+
+- **Ctrl+Click and drag** the ⋮ (grab handle) on the left side of the toolbar to move it
+- The toolbar position is saved relative to the ProSelect window
+- To reset to the default position, go to **Settings → Shortcuts → Toolbar Appearance** and click **Reset Position**
 
 ---
 
@@ -382,6 +389,50 @@ This is useful for quickly checking appointment history, notes, or communication
 
 ---
 
+## Print to PDF
+
+**Toolbar button:** 🖨 Quick Print *(when PDF mode is enabled)*
+
+Save a PDF of the current order to the album folder instead of printing.
+
+### Enabling Print to PDF
+
+1. Open **Settings → Print**
+2. Toggle **Enable PDF** to ON
+3. Optionally configure a **PDF Copy Folder** where PDFs are automatically copied
+
+### How it Works
+
+1. Click the **Quick Print** button on the toolbar (same button, different mode)
+2. A **"HANDS OFF"** warning appears — do not touch the mouse or keyboard
+3. SideKick PS automates the ProSelect Print dialog:
+   - Opens the Print dialog
+   - Selects the configured template
+   - Chooses "Print to PDF"
+   - Saves to the album folder
+4. The PDF is named after the album (e.g., `Smith_abc123.pdf`)
+5. If a PDF Copy Folder is configured, the file is automatically copied there
+6. The copy folder is created automatically if it doesn't exist
+
+### Settings
+
+Configure in **Settings → Print**:
+
+| Setting | Description |
+|---|---|
+| **Enable PDF** | Toggle between normal print and PDF mode |
+| **PDF Copy Folder** | Secondary folder where PDFs are automatically copied |
+
+### Tips
+
+- The automation waits for ProSelect's "Task In Progress" window to close before copying
+- Great for creating order PDFs for emailing to clients
+- Use with Quick Print templates for consistent output
+
+> **⚠ Important:** Do not touch the mouse or keyboard during PDF generation. The "HANDS OFF" warning will display until the process completes.
+
+---
+
 ## SD Card Download
 
 **Toolbar button:** 📥 SD Download *(must be enabled in Settings)*
@@ -469,6 +520,15 @@ Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+
 | **Open Settings** | Shortcut to settings (default: Ctrl+Shift+W) |
 | **Icon Color** | Toolbar icon colour: White, Black, Yellow, or Custom |
 
+### Print Tab
+
+| Setting | Description |
+|---|---|
+| **Enable PDF** | Toggle the toolbar print button between normal print and PDF mode |
+| **PDF Copy Folder** | Secondary folder where generated PDFs are automatically copied |
+| **Quick Print Templates** | Same as Shortcuts tab — template names for payment plan and standard orders |
+| **Room Capture Email** | Same as Shortcuts tab — email template selection |
+
 ### Shortcuts Tab
 
 Configure toolbar buttons and quick print templates.
@@ -518,6 +578,8 @@ Configure toolbar buttons and quick print templates.
 | **Auto-send activity logs** | Send diagnostic logs after each sync |
 | **Enable debug logging** | Detailed logging for troubleshooting (auto-disables after 24hrs) |
 | **Send Logs** | Manually upload logs for support |
+| **Log Folder** | Clickable path to the log folder (`%APPDATA%\SideKick_PS\Logs`) |
+| **User Manual** | Opens this documentation in your browser |
 
 ### Import / Export Settings
 
@@ -604,6 +666,10 @@ SideKick PS includes a **14-day free trial** with full functionality. No credit 
 - Check that the ProSelect order has items
 - Make sure the album has a Client ID (import the client first)
 - Check your internet connection
+- **New in v2.5.1:** When sync fails, a detailed error dialog shows:
+  - Available data (client name, shoot no, email, album)
+  - What's missing/invalid with specific fix instructions
+  - Version info for diagnostics
 
 ### Payment calculator doesn't appear
 
@@ -633,6 +699,12 @@ If you're experiencing issues:
 
 Debug logging automatically disables after 24 hours.
 
+**Log file location:** `%APPDATA%\SideKick_PS\Logs`
+
+- Each session creates a timestamped log file (e.g., `sidekick_20260209_143022.log`)
+- Logs are automatically cleaned up after 7 days
+- Click the **Log Folder** link in Settings → About to open the folder
+
 ---
 
 ## Support
@@ -642,4 +714,4 @@ Debug logging automatically disables after 24 hours.
 
 ---
 
-*SideKick PS v2.4.72 — Built for photographers, by a photographer.*
+*SideKick PS v2.5.3 — Built for photographers, by a photographer.*
