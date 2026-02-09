@@ -173,37 +173,46 @@ global IconFont := DetectIconFont()
 FileAppend, % A_Now . " - Icon Font: " . IconFont . "`n", %DebugLogFile%
 
 ; Set icon codepoints based on detected font
-global Icon_User, Icon_Invoice, Icon_Globe, Icon_Camera, Icon_Refresh, Icon_Print, Icon_QRCode, Icon_Download, Icon_Settings
+global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_IDCard, Icon_Camera, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_QRCode, Icon_Download, Icon_Settings
 if (InStr(IconFont, "Phosphor")) {
 	; Phosphor Icons codepoints (thin outline icons)
 	Icon_User := 0xEC28
+	Icon_AddFriend := 0xEC22  ; UserPlus
 	Icon_Invoice := 0xE66E
 	Icon_Globe := 0xE7B6
+	Icon_IDCard := 0xE844
 	Icon_Camera := 0xE21A
 	Icon_Refresh := 0xE074
 	Icon_Print := 0xEACC
+	Icon_PDFDoc := 0xE65E  ; FilePdf / FileText
 	Icon_QRCode := 0xEAE8
 	Icon_Download := 0xE59A
 	Icon_Settings := 0xE79A
 } else if (InStr(IconFont, "Font Awesome")) {
 	; Font Awesome 6 codepoints (solid icons)
 	Icon_User := 0xF007
+	Icon_AddFriend := 0xF234  ; user-plus
 	Icon_Invoice := 0xF570
 	Icon_Globe := 0xF0AC
+	Icon_IDCard := 0xF2C2
 	Icon_Camera := 0xF030
 	Icon_Refresh := 0xF021
 	Icon_Print := 0xF02F
+	Icon_PDFDoc := 0xF1C1  ; file-pdf
 	Icon_QRCode := 0xF029
 	Icon_Download := 0xF019
 	Icon_Settings := 0xF013
 } else {
 	; Segoe Fluent/MDL2 codepoints (thin outline icons)
 	Icon_User := 0xE77B
+	Icon_AddFriend := 0xE8FA  ; AddFriend (person + plus)
 	Icon_Invoice := 0xE8A5
 	Icon_Globe := 0xE774
+	Icon_IDCard := 0xE779
 	Icon_Camera := 0xE722
 	Icon_Refresh := 0xE72C
 	Icon_Print := 0xE749
+	Icon_PDFDoc := 0xE9F9  ; ReadingMode / Document with lines
 	Icon_QRCode := 0xED14
 	Icon_Download := 0xE896
 	Icon_Settings := 0xE713
@@ -257,6 +266,7 @@ global FBPE_URL := ""
 global GHL_ContactID := ""
 global GHL_API_Key := ""        ; V2 Private Integration Token
 global GHL_LocationID := ""     ; GHL Location ID
+global GHL_AgencyDomain := ""   ; GHL Agency domain (e.g. app.yourcompany.com)
 global Client_Notes := "ZoomPhotography2026"  ; Encryption key for Notes_Plus/Minus
 
 ; Settings variables
@@ -1481,6 +1491,8 @@ CreateFloatingToolbar()
 		btnCount++
 	if (Settings_ShowBtn_Print)
 		btnCount++
+	if (Settings_EnablePDF)
+		btnCount++
 	if (Settings_ShowBtn_QRCode)
 		btnCount++
 	if (Settings_SDCardEnabled)
@@ -1529,7 +1541,7 @@ CreateFloatingToolbar()
 	; Client button (person icon)
 	if (Settings_ShowBtn_Client) {
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client +HwndTB_Client_Hwnd, % Chr(Icon_User)
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client +HwndTB_Client_Hwnd, % Chr(Icon_AddFriend)
 		ToolbarTooltips[TB_Client_Hwnd] := "Get Client from GHL"
 		nextX += btnSpacing
 	}
@@ -1545,7 +1557,7 @@ CreateFloatingToolbar()
 	; Open GHL button (globe icon)
 	if (Settings_ShowBtn_OpenGHL) {
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL +HwndTB_OpenGHL_Hwnd, % Chr(Icon_Globe)
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL +HwndTB_OpenGHL_Hwnd, % Chr(Icon_IDCard)
 		ToolbarTooltips[TB_OpenGHL_Hwnd] := "Open GHL Contact"
 		nextX += btnSpacing
 	}
@@ -1591,7 +1603,16 @@ CreateFloatingToolbar()
 	if (Settings_ShowBtn_Print) {
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
 		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background444444 c%iconColor% gToolbar_QuickPrint vTB_Print +HwndTB_Print_Hwnd, % Chr(Icon_Print)
-		ToolbarTooltips[TB_Print_Hwnd] := "Quick Print"
+		defaultPrinter := GetDefaultPrinterName()
+		ToolbarTooltips[TB_Print_Hwnd] := "Quick Print (" . defaultPrinter . ")"
+		nextX += btnSpacing
+	}
+	
+	; PDF Doc button (PDF icon) - always creates PDF
+	if (Settings_EnablePDF) {
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundMaroon c%iconColor% gToolbar_PDFDoc vTB_PDFDoc +HwndTB_PDFDoc_Hwnd, % Chr(Icon_PDFDoc)
+		ToolbarTooltips[TB_PDFDoc_Hwnd] := "Print to PDF"
 		nextX += btnSpacing
 	}
 	
@@ -1959,12 +1980,7 @@ Send, ^u
 Return
 
 Toolbar_QuickPrint:
-; Quick Print - if PDF mode enabled, route to PrintToPDF; otherwise normal print
-if (Settings_EnablePDF) {
-	Gosub, Toolbar_PrintToPDF
-	Return
-}
-; Normal Quick Print - opens ProSelect print dialog, sets template based on payment plan, prints
+; Quick Print - always uses default printer (PDF button for PDF output)
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
 if ErrorLevel
@@ -2009,6 +2025,13 @@ if (!templateFound) {
 Sleep, 100
 ; Click Print (Button32)
 ControlClick, Button32, ahk_class #32770
+Return
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; PDF DOC BUTTON - Always prints to PDF (ignores Settings_EnablePDF toggle)
+; ═══════════════════════════════════════════════════════════════════════════════
+Toolbar_PDFDoc:
+Gosub, Toolbar_PrintToPDF
 Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -2200,12 +2223,59 @@ Toolbar_PrintToPDF:
 	pdfName := albumName . ".pdf"
 	pdfFullPath := albumFolder . "\" . pdfName
 	
+	; Activate and wait for the Save As dialog
+	WinActivate, %saveWinTitle%
+	WinWaitActive, %saveWinTitle%, , 3
+	Sleep, 300
+	
 	; Set the filename in the Save As dialog
 	ControlSetText, Edit1, %pdfFullPath%, %saveWinTitle%
-	Sleep, 200
+	Sleep, 300
 	
-	; Click Save (Button2 in this dialog)
+	; Focus and click Save (Button2 in this dialog)
+	ControlFocus, Button2, %saveWinTitle%
+	Sleep, 100
 	ControlClick, Button2, %saveWinTitle%
+	Sleep, 300
+	
+	; Fallback: if dialog still open, try Enter key
+	if WinExist(saveWinTitle) {
+		WinActivate, %saveWinTitle%
+		Sleep, 100
+		Send, {Enter}
+	}
+	Sleep, 500
+	
+	; Handle "Confirm Save As" dialog if file already exists
+	; Click No and append _1, _2, etc. to filename
+	fileSuffix := 0
+	Loop, 10 {
+		if WinExist("Confirm Save As") {
+			fileSuffix++
+			; Click No to cancel overwrite
+			ControlClick, Button2, Confirm Save As
+			Sleep, 300
+			
+			; Build new filename with suffix
+			pdfNameBase := albumName . "_" . fileSuffix . ".pdf"
+			pdfFullPath := albumFolder . "\" . pdfNameBase
+			
+			; Wait for Save dialog to be ready again
+			WinWait, %saveWinTitle%, , 3
+			WinActivate, %saveWinTitle%
+			Sleep, 300
+			
+			; Set new filename and click Save
+			ControlSetText, Edit1, %pdfFullPath%, %saveWinTitle%
+			Sleep, 200
+			ControlFocus, Button2, %saveWinTitle%
+			Sleep, 100
+			ControlClick, Button2, %saveWinTitle%
+			Sleep, 500
+		} else {
+			break
+		}
+	}
 	
 	; Wait for Save dialog to close
 	WinWaitClose, %saveWinTitle%, , 15
@@ -2310,6 +2380,19 @@ GetAlbumFolder() {
 	albumPath := RTrim(albumPath, "\")
 	
 	return albumPath
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; GetDefaultPrinterName() - Returns the name of the default printer
+; Uses WMI via COM for fast access without spawning PowerShell
+; ═══════════════════════════════════════════════════════════════════════════════
+GetDefaultPrinterName() {
+	try {
+		objWMI := ComObjGet("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
+		for printer in objWMI.ExecQuery("SELECT Name FROM Win32_Printer WHERE Default=TRUE")
+			return printer.Name
+	}
+	return "Unknown"
 }
 
 ; Debug keystroke progress indicator - shows what key is being sent when debug logging enabled
@@ -5374,7 +5457,7 @@ CreateGHLPanel()
 	; INVOICE SYNC GROUP BOX (y305 to y520)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y305 w480 h220 vGHLInvoiceHeader Hidden, Invoice Sync
+	Gui, Settings:Add, GroupBox, x195 y305 w480 h250 vGHLInvoiceHeader Hidden, Invoice Sync
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
@@ -5438,24 +5521,29 @@ CreateGHLPanel()
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	CreateToggleSlider("Settings", "AutoAddOppTags", 630, 478, Settings_AutoAddOppTags)
 	
+	; Set Order QR button - builds URL template using GHL Location ID
+	Gui, Settings:Font, s9 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Button, x210 y512 w150 h26 gSetOrderQRUrl vGHLSetOrderQRBtn Hidden HwndHwndSetOrderQR, 📱 Set Order QR URL
+	RegisterSettingsTooltip(HwndSetOrderQR, "SET ORDER QR URL`n`nConfigures ProSelect QR code for barcode scanner:`n  GHLC:[ACCOUNTCODE]`n`nWhen scanned, SideKick auto-opens the GHL contact.`nUses fast-typing detection (only scanner triggers it).")
+	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; CONTACT SHEET COLLECTION GROUP BOX (y560 to y650)
+	; CONTACT SHEET COLLECTION GROUP BOX (y590 to y680)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y560 w480 h95 vGHLInfo Hidden, Contact Sheet Collection
+	Gui, Settings:Add, GroupBox, x195 y590 w480 h95 vGHLInfo Hidden, Contact Sheet Collection
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Collect Contact Sheets toggle slider
-	Gui, Settings:Add, Text, x210 y585 w360 BackgroundTrans vGHLCollectCS Hidden HwndHwndCollectCS, Save local copies of contact sheets
+	Gui, Settings:Add, Text, x210 y615 w360 BackgroundTrans vGHLCollectCS Hidden HwndHwndCollectCS, Save local copies of contact sheets
 	RegisterSettingsTooltip(HwndCollectCS, "COLLECT CONTACT SHEETS`n`nSave a copy of each contact sheet JPG to a local folder.`n`nFiles are named using the ProSelect album name`nfor easy organization and reference.")
-	CreateToggleSlider("Settings", "CollectContactSheets", 630, 583, Settings_CollectContactSheets)
+	CreateToggleSlider("Settings", "CollectContactSheets", 630, 613, Settings_CollectContactSheets)
 	
 	; Contact Sheet folder path
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y620 w90 BackgroundTrans vGHLCSFolderLabel Hidden, Save Folder:
-	Gui, Settings:Add, Edit, x305 y617 w250 h25 cBlack vGHLCSFolderEdit Hidden, %Settings_ContactSheetFolder%
-	Gui, Settings:Add, Button, x560 y615 w100 h28 gBrowseContactSheetFolder vGHLCSFolderBrowse Hidden, Browse
+	Gui, Settings:Add, Text, x210 y650 w90 BackgroundTrans vGHLCSFolderLabel Hidden, Save Folder:
+	Gui, Settings:Add, Edit, x305 y647 w250 h25 cBlack vGHLCSFolderEdit Hidden, %Settings_ContactSheetFolder%
+	Gui, Settings:Add, Button, x560 y645 w100 h28 gBrowseContactSheetFolder vGHLCSFolderBrowse Hidden, Browse
 }
 
 CreateHotkeysPanel()
@@ -6727,8 +6815,12 @@ CreateAboutPanel()
 	RegisterSettingsTooltip(HwndAboutAuthor, "DEVELOPER`n`nSideKick_PS is developed and maintained by GuyMayer.`nBuilt specifically for professional photographers`nusing ProSelect and GoHighLevel CRM.")
 	
 	Gui, Settings:Font, s10 Norm c%linkColor%, Segoe UI
-	Gui, Settings:Add, Text, x380 y330 w200 BackgroundTrans gOpenSupportEmail vAboutEmailLink Hidden HwndHwndAboutEmail, guy@zoom-photo.co.uk
+	Gui, Settings:Add, Text, x380 y330 w170 BackgroundTrans gOpenSupportEmail vAboutEmailLink Hidden HwndHwndAboutEmail, guy@zoom-photo.co.uk
 	RegisterSettingsTooltip(HwndAboutEmail, "SUPPORT EMAIL`n`nClick to send an email for technical support.`n`nPlease include:`n• Your SideKick version (shown above)`n• ProSelect version`n• Description of the issue`n• Steps to reproduce the problem`n`nFor faster resolution, use 'Send Logs' in Diagnostics.")
+	
+	Gui, Settings:Font, s9 Norm c%linkColor%, Segoe UI
+	Gui, Settings:Add, Text, x560 y330 w100 BackgroundTrans gOpenUserManual vAboutManualLink Hidden HwndHwndAboutManual, 📖 User Manual
+	RegisterSettingsTooltip(HwndAboutManual, "USER MANUAL`n`nOpen the full user manual in your browser.`n`nIncludes:`n• Getting started guide`n• Feature documentation`n• Keyboard shortcuts`n• Troubleshooting tips")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; DIAGNOSTICS GROUP BOX
@@ -6998,14 +7090,14 @@ CreatePrintPanel()
 	; PDF OUTPUT GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y350 w480 h195 vPrintPDFGroup, PDF Output
+	Gui, Settings:Add, GroupBox, x195 y350 w480 h150 vPrintPDFGroup, PDF Output
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y378 w300 h22 BackgroundTrans vPrintEnablePDFLabel, Enable Print to PDF
 	CreateToggleSlider("Settings", "EnablePDF", 590, 375, Settings_EnablePDF)
 
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y400 w440 BackgroundTrans vPrintPDFDesc, When enabled, the print button saves a PDF to album folder + optional copy folder.
+	Gui, Settings:Add, Text, x210 y400 w440 BackgroundTrans vPrintPDFDesc, Shows PDF button on toolbar. Print saves PDF to album folder + optional copy.
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y440 w95 h22 BackgroundTrans vPrintPDFCopyLabel, Copy Folder:
@@ -7014,8 +7106,6 @@ CreatePrintPanel()
 
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y468 w440 BackgroundTrans vPrintPDFHint, PDF is always saved to the album folder. Leave blank to skip copying.
-
-	Gui, Settings:Add, Button, x210 y498 w200 h30 gToolbar_PrintToPDF vPrintPDFBtn, 📄 Print to PDF Now
 
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -7217,7 +7307,7 @@ CreateDeveloperPanel()
 	Gui, Settings:Add, Button, x440 y350 w100 h35 gDevOpenGitHub vDevGitHubBtn Hidden HwndHwndDevGitHub, 🌐 GitHub
 	RegisterSettingsTooltip(HwndDevGitHub, "OPEN GITHUB`n`nOpen the GitHub repository in your browser.`nView commits, issues, and pull requests.")
 	Gui, Settings:Add, Button, x550 y350 w110 h35 gDevQuickPush vDevQuickPushBtn Hidden HwndHwndDevQuickPush, ⚡ Publish
-	RegisterSettingsTooltip(HwndDevQuickPush, "QUICK PUBLISH`n`nOne-click build and push to GitHub.`nCreates release and uploads automatically.`n`nUse for rapid deployment.")
+	RegisterSettingsTooltip(HwndDevQuickPush, "QUICK PUBLISH`n`nOne-click build and push to GitHub.`nCreates release and uploads automatically.`nIncludes changelog, version.json, and user manual.`n`nUse for rapid deployment.")
 	
 	; Second row
 	Gui, Settings:Add, Button, x210 y395 w120 h35 gDevOpenFolder vDevOpenFolderBtn Hidden HwndHwndDevFolder, 📂 Open Folder
@@ -7310,6 +7400,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GHLOppTagsRefresh
 	GuiControl, Settings:Hide, AutoTagOppLabel
 	GuiControl, Settings:Hide, Toggle_AutoAddOppTags
+	GuiControl, Settings:Hide, GHLSetOrderQRBtn
 	GuiControl, Settings:Hide, GHLCollectCS
 	GuiControl, Settings:Hide, Toggle_CollectContactSheets
 	GuiControl, Settings:Hide, GHLCSFolderLabel
@@ -7372,6 +7463,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, AboutAuthorLabel
 	GuiControl, Settings:Hide, AboutAuthorValue
 	GuiControl, Settings:Hide, AboutEmailLink
+	GuiControl, Settings:Hide, AboutManualLink
 	GuiControl, Settings:Hide, AboutWhatsNewButton
 	GuiControl, Settings:Hide, AboutSendLogsButton
 	GuiControl, Settings:Hide, AboutLogPath
@@ -7618,6 +7710,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GHLOppTagsRefresh
 		GuiControl, Settings:Show, AutoTagOppLabel
 		GuiControl, Settings:Show, Toggle_AutoAddOppTags
+		GuiControl, Settings:Show, GHLSetOrderQRBtn
 		GuiControl, Settings:Show, GHLCollectCS
 		GuiControl, Settings:Show, Toggle_CollectContactSheets
 		GuiControl, Settings:Show, GHLCSFolderLabel
@@ -7782,6 +7875,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, AboutAuthorLabel
 		GuiControl, Settings:Show, AboutAuthorValue
 		GuiControl, Settings:Show, AboutEmailLink
+		GuiControl, Settings:Show, AboutManualLink
 		GuiControl, Settings:Show, AboutWhatsNewButton
 		GuiControl, Settings:Show, AboutSendLogsButton
 		GuiControl, Settings:Show, AboutLogPath
@@ -8175,7 +8269,7 @@ DevQuickPush:
 	FileAppend, echo Waiting for installer to be released...`n, %gitBatch%
 	FileAppend, timeout /t 5 /nobreak >nul`n, %gitBatch%
 	FileAppend, echo Adding changelog and version files...`n, %gitBatch%
-	FileAppend, git add version.json CHANGELOG.md 2>nul`n, %gitBatch%
+	FileAppend, git add version.json CHANGELOG.md SideKick_PS_Manual.md 2>nul`n, %gitBatch%
 	FileAppend, echo Adding all other files...`n, %gitBatch%
 	FileAppend, :retry_add`n, %gitBatch%
 	FileAppend, git add -A 2>nul`n, %gitBatch%
@@ -9160,6 +9254,78 @@ if (!ErrorLevel && newLocID != "")
 	ToolTip, Location ID updated!
 	SetTimer, RemoveSettingsTooltip, -1500
 }
+Return
+
+SetOrderQRUrl:
+	global GHL_LocationID, Settings_QRCode_Text1
+	if (GHL_LocationID = "") {
+		DarkMsgBox("Set Order QR", "GHL Location ID is not configured.`n`nPlease set your Location ID first.", "warning")
+		Return
+	}
+	; Build short QR code with GHLC: prefix + [ACCOUNTCODE] placeholder
+	; SideKick monitors for "GHLC:" typed quickly (scanner) and opens GHL contact
+	qrUrl := "GHLC:[ACCOUNTCODE]"
+	Settings_QRCode_Text1 := qrUrl
+	; Save to INI
+	IniWrite, %qrUrl%, %IniFilename%, QRCode, Text1
+	
+	; Copy URL to clipboard for easy paste
+	Clipboard := qrUrl
+	
+	; Check if ProSelect is running
+	if !WinExist("ahk_exe ProSelect.exe") {
+		DarkMsgBox("Set Order QR", "QR code template set to:`n`nGHLC:[ACCOUNTCODE]`n`nWhen scanned, SideKick will auto-open the GHL contact page.`n`nProSelect is not running. Open ProSelect and go to:`nResources → Setup QR Codes...", "info")
+		Return
+	}
+	
+	; Open ProSelect QR Codes window
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	Sleep, 200
+	
+	; Open Resources menu using menu bar click
+	; Menu order: File, Edit, Images, Products, Slideshow, Orders, Production, Resources, View, Help
+	WinMenuSelectItem, ahk_exe ProSelect.exe, , Resources, Setup QR Codes...
+	Sleep, 500
+	
+	; Wait for QR Codes window
+	WinWait, QR Codes, , 3
+	if ErrorLevel {
+		DarkMsgBox("Set Order QR", "QR Codes window did not open.`n`nURL copied to clipboard - paste manually.", "warning")
+		Return
+	}
+	
+	WinActivate, QR Codes
+	Sleep, 300
+	
+	; Set Title field to "GHL Client QR" (Edit1)
+	ControlSetText, Edit1, GHL Client QR, QR Codes
+	Sleep, 300
+	
+	; Set QR Message field to the URL (RICHEDIT50W1 is the rich text control)
+	ControlSetText, RICHEDIT50W1, %qrUrl%, QR Codes
+	Sleep, 300
+	
+	; Click Save Changes button (Button1)
+	ControlClick, Button1, QR Codes
+	Sleep, 750
+	
+	; Click Close button (Button2) - try multiple methods
+	ControlClick, Button2, QR Codes
+	Sleep, 300
+	
+	; Fallback: if window still exists, send Escape or click again
+	if WinExist("QR Codes") {
+		WinActivate, QR Codes
+		Sleep, 100
+		ControlFocus, Button2, QR Codes
+		Sleep, 100
+		Send, {Enter}
+	}
+	Sleep, 300
+	
+	ToolTip, ✅ GHL Client QR code configured!
+	SetTimer, RemoveToolTip, -3000
 Return
 
 BrowseInvoiceFolder:
@@ -10286,7 +10452,9 @@ RunGHLSetupWizard:
 		Return
 	
 	; Open GHL login page
-	Run, https://app.thefullybookedphotographer.com/v2/location/
+	; Open GHL login page (use generic app.gohighlevel.com or user's existing domain)
+	ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+	Run, https://%ghlDomain%/v2/location/
 	Sleep, 5000  ; Give Chrome time to open and load page
 	
 	; Step 4: Wait for user to log in, then read URL
@@ -10295,14 +10463,19 @@ RunGHLSetupWizard:
 		if (result != "Yes")
 			Return
 		
-		; Try to read Chrome URL
+		; Try to read Chrome URL (also extracts domain into GHL_ExtractedDomain)
 		locationId := GetChromeLocationID()
 		
 		if (locationId != "") {
-			result := DarkMsgBox("✅ Location ID Found!", "Found Location ID:`n`n" . locationId . "`n`nIs this correct?", "YesNo")
+			; Show extracted domain if found
+			domainInfo := (GHL_ExtractedDomain != "") ? "`n`nAgency Domain: " . GHL_ExtractedDomain : ""
+			result := DarkMsgBox("✅ Location ID Found!", "Found Location ID:`n`n" . locationId . domainInfo . "`n`nIs this correct?", "YesNo")
 			if (result = "Yes")
 			{
 				GHL_LocationID := locationId
+				; Save extracted domain if available
+				if (GHL_ExtractedDomain != "")
+					GHL_AgencyDomain := GHL_ExtractedDomain
 				GuiControl, Settings:, GHLLocIDDisplay, %locationId%
 				SaveSettings()
 				Break
@@ -10317,7 +10490,8 @@ RunGHLSetupWizard:
 GHLWizardApiKeyStep:
 	; Step 5: Guide to create API key - Open page first, then show instructions
 	locID := GHL_LocationID
-	apiUrl := "https://app.thefullybookedphotographer.com/v2/location/" . locID . "/settings/private-integrations"
+	ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+	apiUrl := "https://" . ghlDomain . "/v2/location/" . locID . "/settings/private-integrations"
 	
 	; Open the page first
 	Run, %apiUrl%
@@ -10369,10 +10543,13 @@ GHLWizardApiKeyStep:
 }
 Return
 
-; Get Location ID from Chrome URL
+; Get Location ID and Agency Domain from Chrome URL
+; Sets global GHL_ExtractedDomain with the domain found
 GetChromeLocationID() {
+	global GHL_ExtractedDomain
 	; Try to get URL from Chrome using Acc library or window title
 	locationId := ""
+	GHL_ExtractedDomain := ""
 	
 	; Method 1: Try Chrome debug port if available
 	try {
@@ -10386,8 +10563,10 @@ GetChromeLocationID() {
 			; Parse JSON for URL
 			if RegExMatch(responseText, """url"":\s*""([^""]+)""", urlMatch) {
 				url := urlMatch1
-				if RegExMatch(url, "/location/([a-zA-Z0-9]+)", locMatch) {
-					locationId := locMatch1
+				; Extract domain from URL (e.g. https://app.yourcompany.com/v2/location/...)
+				if RegExMatch(url, "https?://([^/]+)/v2/location/([a-zA-Z0-9]+)", match) {
+					GHL_ExtractedDomain := match1
+					locationId := match2
 				}
 			}
 		}
@@ -10409,7 +10588,12 @@ GetChromeLocationID() {
 	if (locationId = "") {
 		InputBox, manualUrl, 📋 Paste URL, Could not read Chrome URL automatically.`n`nPlease copy the URL from Chrome's address bar and paste it here:,,450, 180
 		if (!ErrorLevel && manualUrl != "") {
-			if RegExMatch(manualUrl, "/location/([a-zA-Z0-9]+)", locMatch) {
+			; Extract domain and location ID from pasted URL
+			if RegExMatch(manualUrl, "https?://([^/]+)/v2/location/([a-zA-Z0-9]+)", match) {
+				GHL_ExtractedDomain := match1
+				locationId := match2
+			} else if RegExMatch(manualUrl, "/location/([a-zA-Z0-9]+)", locMatch) {
+				; Fallback: just location ID
 				locationId := locMatch1
 			}
 		}
@@ -10451,6 +10635,10 @@ CheckFirstRunGHLSetup() {
 
 OpenSupportEmail:
 Run, mailto:guy@zoom-photo.co.uk
+Return
+
+OpenUserManual:
+Run, https://github.com/GuyMayer/SideKick_PS/blob/main/SideKick_PS_Manual.md
 Return
 
 ShowWhatsNew:
@@ -11721,9 +11909,20 @@ LoadSettings()
 	IniRead, Settings_EnablePDF, %IniFilename%, Toolbar, EnablePDF, 0
 	IniRead, Settings_PDFOutputFolder, %IniFilename%, Toolbar, PDFOutputFolder, %A_Space%
 	
+	; Load GHL agency domain - check if migration needed for existing users
+	IniRead, GHL_AgencyDomain, %IniFilename%, GHL, AgencyDomain, %A_Space%
+	
+	; Migration: If user has Location ID but no saved AgencyDomain, use default silently
+	if (GHL_AgencyDomain = "") {
+		GHL_AgencyDomain := "app.thefullybookedphotographer.com"
+		; Save it so it's persistent
+		if (GHL_LocationID != "")
+			IniWrite, %GHL_AgencyDomain%, %IniFilename%, GHL, AgencyDomain
+	}
+	
 	; Build GHL payment settings URL from location ID
-	if (GHL_LocationID != "")
-		Settings_GHLPaymentSettingsURL := "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/payments/settings/receipts"
+	if (GHL_LocationID != "" && GHL_AgencyDomain != "")
+		Settings_GHLPaymentSettingsURL := "https://" . GHL_AgencyDomain . "/v2/location/" . GHL_LocationID . "/payments/settings/receipts"
 	
 	; Load license settings (secure/obfuscated)
 	licenseOK := LoadLicenseSecure()
@@ -11775,6 +11974,7 @@ SaveSettings()
 	IniWrite, %Settings_DefaultPayType%, %IniFilename%, Settings, DefaultPayType
 	IniWrite, %Settings_GHL_Enabled%, %IniFilename%, GHL, Enabled
 	IniWrite, %Settings_GHL_AutoLoad%, %IniFilename%, GHL, AutoLoad
+	IniWrite, %GHL_AgencyDomain%, %IniFilename%, GHL, AgencyDomain
 	
 	; Save hotkey settings
 	IniWrite, %Hotkey_GHLLookup%, %IniFilename%, Hotkeys, GHLLookup
@@ -12674,7 +12874,8 @@ if (contactId = "")
 }
 
 ; Build the GHL URL and open it
-ghlURL := "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/contacts/detail/" . contactId
+ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+ghlURL := "https://" . ghlDomain . "/v2/location/" . GHL_LocationID . "/contacts/detail/" . contactId
 Run, %ghlURL%
 
 ; Show brief confirmation
@@ -12719,7 +12920,8 @@ if WinExist("ProSelect ahk_exe ProSelect.exe")
 			}
 			else
 			{
-				ShowGHLClientDialog(GHL_Data, existingClientId, "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/contacts/detail/" . existingClientId)
+				ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+				ShowGHLClientDialog(GHL_Data, existingClientId, "https://" . ghlDomain . "/v2/location/" . GHL_LocationID . "/contacts/detail/" . existingClientId)
 			}
 		}
 		else
@@ -13978,6 +14180,42 @@ QuickPub2GuiEscape:
 	QuickPub2Cancelled := true
 	Gui, QuickPub2:Destroy
 Return
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; QR Code Keyboard Wedge Scanner Support
+; Triggers when a barcode scanner types the GHL URL quickly (faster than human typing)
+; K-1 option ensures only fast keyboard wedge input triggers, not manual typing
+; ═══════════════════════════════════════════════════════════════════════════════
+
+; Hotstring triggers on "GHLC:" prefix (fast typing only from scanner)
+; QR code should contain: GHLC:{ContactID}
+; Example: GHLC:vYqKlRHoxWyutMz5jh1r
+:*CK-1:GHLC::
+	global GHL_LocationID, GHL_AgencyDomain
+	
+	; Capture the contact ID (scanner will type it right after the prefix)
+	; Wait up to 2 seconds for input, end on Enter or non-alphanumeric
+	Input, contactId, T2 L50, {Enter}{Tab}{Space}
+	
+	; Remove the typed "GHLC:" from wherever it was typed
+	Send, {Backspace 5}
+	
+	; If we got a contact ID, build and open the URL
+	if (contactId != "" && GHL_LocationID != "") {
+		ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+		ghlUrl := "https://" . ghlDomain . "/v2/location/" . GHL_LocationID . "/contacts/detail/" . contactId
+		Run, %ghlUrl%
+		ToolTip, 🔗 Opening GHL Contact...
+		SetTimer, RemoveToolTip, -2000
+	} else if (GHL_LocationID = "") {
+		ToolTip, ❌ GHL Location ID not configured
+		SetTimer, RemoveToolTip, -3000
+	}
+Return
+
+; Note: Full URL scanner support removed - use GHLC: prefix format instead
+; With dynamic agency domains, we can't have a static hotstring for all possible URLs.
+; The GHLC:{contactId} format is shorter, faster to scan, and works for all agencies.
 
 ; === QR Code Generation Library (must be at end of script) ===
 #Include %A_ScriptDir%\Lib\Qr_CodeGen.ahk

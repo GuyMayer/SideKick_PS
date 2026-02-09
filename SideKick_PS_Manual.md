@@ -17,15 +17,16 @@
 9. [Room Capture](#room-capture)
 10. [Room Capture Email](#room-capture-email)
 11. [Open GHL Contact](#open-ghl-contact)
-12. [Quick Print](#quick-print)
-13. [Print to PDF](#print-to-pdf)
-14. [SD Card Download](#sd-card-download)
-15. [Settings](#settings)
-16. [Keyboard Shortcuts](#keyboard-shortcuts)
-17. [System Tray](#system-tray)
-18. [Licensing & Activation](#licensing--activation)
-19. [Troubleshooting](#troubleshooting)
-20. [Support](#support)
+12. [GHL Client QR Code](#ghl-client-qr-code)
+13. [Quick Print](#quick-print)
+14. [Print to PDF](#print-to-pdf)
+15. [SD Card Download](#sd-card-download)
+16. [Settings](#settings)
+17. [Keyboard Shortcuts](#keyboard-shortcuts)
+18. [System Tray](#system-tray)
+19. [Licensing & Activation](#licensing--activation)
+20. [Troubleshooting](#troubleshooting)
+21. [Support](#support)
 
 ---
 
@@ -76,18 +77,19 @@ On first launch you'll be prompted to:
 
 ## The Toolbar
 
-When ProSelect is open, a floating toolbar appears docked to the ProSelect title bar. It contains up to 9 buttons (configurable in Settings → Shortcuts):
+When ProSelect is open, a floating toolbar appears docked to the ProSelect title bar. It contains up to 10 buttons (configurable in Settings → Shortcuts):
 
 | Button | Icon | What it Does |
 |---|---|---|
-| **Get Client** | 👤 (blue) | Import client details from GHL into ProSelect |
+| **Get Client** | 👤+ (blue) | Import client details from GHL into ProSelect |
 | **Sync Invoice** | 📋 (green) | Export the current order and sync it to GHL as an invoice. **Ctrl+Click** to delete the last synced invoice |
-| **Open GHL** | 🌐 (teal) | Open this client's GHL contact page in your browser |
+| **Open GHL** | 🪪 (teal) | Open this client's GHL contact page in your browser |
 | **Room Capture** | 📷 (maroon) | Screenshot the ProSelect room view, with option to email |
 | **Sort Order** | 🔀 (yellow) | Toggle between random and filename sort order |
 | **Photoshop** | PS (pink) | Send selected image to Photoshop (Ctrl+T) |
 | **Refresh** | 🔄 (cyan) | Update album (Ctrl+U) |
-| **Quick Print** | 🖨 (orange) | Auto-print with configured template (or Print to PDF if enabled) |
+| **Quick Print** | 🖨 (grey) | Auto-print with default printer and configured template |
+| **Print to PDF** | 📄 (maroon) | Print to PDF, save to album folder + optional copy folder *(only shown if Enable PDF is on)* |
 | **SD Download** | 📥 (orange) | Download photos from SD card *(only shown if enabled)* |
 | **Settings** | ⚙ (purple) | Open SideKick PS settings |
 
@@ -373,7 +375,7 @@ Email the room capture image directly to the client via GHL.
 
 ## Open GHL Contact
 
-**Toolbar button:** 🌐 Open GHL
+**Toolbar button:** 🪪 Open GHL
 
 Quickly open the current client's GHL contact page in your browser.
 
@@ -389,30 +391,85 @@ This is useful for quickly checking appointment history, notes, or communication
 
 ---
 
+## GHL Client QR Code
+
+**Settings:** GHL Integration → 📱 Set Order QR URL
+
+ProSelect can display QR codes on the projection screen during viewing sessions. With this feature, you can set up a QR code that links directly to the client's GHL contact page.
+
+### How it Works
+
+1. Open **Settings → GHL Integration**
+2. Click the **📱 Set Order QR URL** button
+3. SideKick PS automatically:
+   - Opens ProSelect's **Resources → Setup QR Codes...** dialog
+   - Creates a QR code titled "GHL Client QR"
+   - Sets the QR message to: `GHLC:[ACCOUNTCODE]`
+   - Clicks Save Changes and Close
+
+### The [ACCOUNTCODE] Placeholder
+
+ProSelect replaces `[ACCOUNTCODE]` with the actual client/account code when generating the QR code.
+
+### Barcode Scanner Support
+
+SideKick monitors for keyboard input from barcode scanners (keyboard wedge devices). When the scanner types `GHLC:{contactId}` very quickly:
+
+1. SideKick detects the fast input (faster than human typing)
+2. Builds the full GHL contact URL using your Location ID and Agency Domain
+3. Opens the contact page in your default browser
+4. The scanned text is automatically removed (no clutter in your current app)
+
+> **Note:** The fast-typing detection (`K-1` option) ensures this only triggers from scanner input, not manual typing.
+
+### Dynamic Agency Domain
+
+SideKick automatically detects your GHL agency domain (e.g., `app.yourcompany.com`) when you run the GHL Setup Wizard. The domain is extracted from your GHL login URL and stored in the INI file.
+
+This means the scanner support and all GHL URLs will use your specific agency domain, not a hardcoded URL.
+
+### Use Case
+
+During a viewing session, display the QR code on screen. Scan it with your barcode scanner to instantly open the client's GHL contact page — great for checking appointment history, notes, or contact details without leaving ProSelect.
+
+---
+
 ## Print to PDF
 
-**Toolbar button:** 🖨 Quick Print *(when PDF mode is enabled)*
+**Toolbar button:** � Print to PDF (maroon) *(only shown when Enable PDF is on)*
 
 Save a PDF of the current order to the album folder instead of printing.
+
+### Quick Print vs Print to PDF
+
+SideKick PS now has **two separate buttons**:
+
+| Button | Behaviour |
+|---|---|
+| **Quick Print** (grey) | Always uses your default printer |
+| **Print to PDF** (maroon) | Always creates a PDF file |
+
+The Print to PDF button only appears when **Enable PDF** is toggled on in Settings.
 
 ### Enabling Print to PDF
 
 1. Open **Settings → Print**
-2. Toggle **Enable PDF** to ON
+2. Toggle **Enable PDF** to ON — this shows the PDF button on the toolbar
 3. Optionally configure a **PDF Copy Folder** where PDFs are automatically copied
 
 ### How it Works
 
-1. Click the **Quick Print** button on the toolbar (same button, different mode)
+1. Click the **Print to PDF** button on the toolbar
 2. A **"HANDS OFF"** warning appears — do not touch the mouse or keyboard
 3. SideKick PS automates the ProSelect Print dialog:
    - Opens the Print dialog
    - Selects the configured template
-   - Chooses "Print to PDF"
+   - Sets Microsoft Print to PDF as the printer
    - Saves to the album folder
 4. The PDF is named after the album (e.g., `Smith_abc123.pdf`)
-5. If a PDF Copy Folder is configured, the file is automatically copied there
-6. The copy folder is created automatically if it doesn't exist
+5. If the file already exists, it auto-appends `_1`, `_2`, etc. instead of overwriting
+6. If a PDF Copy Folder is configured, the file is automatically copied there
+7. The copy folder is created automatically if it doesn't exist
 
 ### Settings
 
@@ -420,7 +477,7 @@ Configure in **Settings → Print**:
 
 | Setting | Description |
 |---|---|
-| **Enable PDF** | Toggle between normal print and PDF mode |
+| **Enable PDF** | Shows the PDF button on the toolbar |
 | **PDF Copy Folder** | Secondary folder where PDFs are automatically copied |
 
 ### Tips
@@ -428,6 +485,7 @@ Configure in **Settings → Print**:
 - The automation waits for ProSelect's "Task In Progress" window to close before copying
 - Great for creating order PDFs for emailing to clients
 - Use with Quick Print templates for consistent output
+- The Quick Print tooltip shows your default printer name
 
 > **⚠ Important:** Do not touch the mouse or keyboard during PDF generation. The "HANDS OFF" warning will display until the process completes.
 
@@ -509,6 +567,7 @@ Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+
 | **Financials only** | Exclude image line items from invoices |
 | **Create contact sheet** | Upload a contact sheet JPG with invoices |
 | **Contact/Opportunity tags** | Tags to apply during invoice sync |
+| **📱 Set Order QR URL** | Configures ProSelect QR code for barcode scanner: `GHLC:[ACCOUNTCODE]`. When scanned, SideKick auto-opens the GHL contact in your browser. |
 | **Save local copies** | Save contact sheet copies to a local folder |
 
 ### Hotkeys Tab
