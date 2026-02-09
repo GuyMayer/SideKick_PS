@@ -121,13 +121,20 @@ if (DllCall("GetLastError") = 183) { ; ERROR_ALREADY_EXISTS
     DetectHiddenWindows, Off
 }
 
-; DEBUG: Create startup log file
-global DebugLogFile := A_ScriptDir . "\startup_debug.log"
-FileDelete, %DebugLogFile%
+; DEBUG: Create timestamped log file in AppData (writable even in Program Files install)
+global DebugLogFolder := A_AppData . "\SideKick_PS\Logs"
+FileCreateDir, %DebugLogFolder%
+
+; Use timestamped filename so logs are preserved across restarts
+FormatTime, logTimestamp, , yyyyMMdd_HHmmss
+global DebugLogFile := DebugLogFolder . "\sidekick_" . logTimestamp . ".log"
 FileAppend, % "=== SideKick_PS Startup Log ===" . "`n", %DebugLogFile%
 FileAppend, % "Started: " . A_Now . "`n", %DebugLogFile%
 FileAppend, % "Script: " . A_ScriptFullPath . "`n", %DebugLogFile%
 FileAppend, % "A_IsAdmin: " . A_IsAdmin . "`n`n", %DebugLogFile%
+
+; Clean up old logs (older than 7 days)
+CleanupOldLogs(DebugLogFolder, 7)
 
 ; ============================================================================
 ; Request Admin Elevation if needed (required when ProSelect runs as admin)
@@ -197,6 +204,12 @@ FileAppend, % A_Now . " - Loading version from JSON...`n", %DebugLogFile%
 ; Load version from version.json at startup
 LoadVersionFromJson()
 FileAppend, % A_Now . " - Version: " . ScriptVersion . "`n", %DebugLogFile%
+
+; Log sync helper info
+global HelperPath := ""
+global HelperVersion := ""
+global HelperModified := ""
+LogHelperInfo()
 
 ; GHL Integration variables
 global FBPE_URL := ""
@@ -1126,6 +1139,34 @@ SetTimer, RemoveToolTip, Off
 ToolTip
 Return
 
+; Clean up log files older than specified days
+; Keeps recent logs for troubleshooting, removes old ones to save space
+CleanupOldLogs(logFolder, maxAgeDays) {
+	global DebugLogFile
+	
+	; Calculate cutoff date (7 days ago)
+	cutoffDate := A_Now
+	cutoffDate += -%maxAgeDays%, Days
+	FormatTime, cutoffDateStr, %cutoffDate%, yyyyMMdd
+	
+	; Loop through all .log files in folder
+	Loop, Files, %logFolder%\*.log
+	{
+		; Skip the current session's log file
+		if (A_LoopFileLongPath = DebugLogFile)
+			continue
+		
+		; Get file modification time
+		FileGetTime, fileDate, %A_LoopFileLongPath%, M
+		FormatTime, fileDateStr, %fileDate%, yyyyMMdd
+		
+		; Delete if older than cutoff
+		if (fileDateStr < cutoffDateStr) {
+			FileDelete, %A_LoopFileLongPath%
+		}
+	}
+}
+
 ; Load version info from version.json (single source of truth)
 ; Called at script startup - no hardcoded versions in the script!
 LoadVersionFromJson() {
@@ -1157,6 +1198,46 @@ LoadVersionFromJson() {
 		BuildDate := match1
 	else
 		BuildDate := "Unknown"
+}
+
+; Log sync_ps_invoice helper file info for debugging
+; Helps identify version mismatches when users don't update all files
+LogHelperInfo() {
+	global DebugLogFile, HelperPath, HelperVersion, HelperModified, ScriptVersion
+	
+	; Check for .exe first (production), then .py (dev)
+	exePath := A_ScriptDir . "\sync_ps_invoice.exe"
+	pyPath := A_ScriptDir . "\sync_ps_invoice.py"
+	
+	if (FileExist(exePath)) {
+		HelperPath := exePath
+		; Get file modification time
+		FileGetTime, modTime, %exePath%, M
+		FormatTime, HelperModified, %modTime%, yyyy-MM-dd HH:mm:ss
+		; Version matches main app (same version.json)
+		HelperVersion := ScriptVersion
+		FileAppend, % A_Now . " - Helper EXE: " . exePath . "`n", %DebugLogFile%
+		FileAppend, % A_Now . " - Helper Modified: " . HelperModified . "`n", %DebugLogFile%
+		FileAppend, % A_Now . " - Helper Version: " . HelperVersion . "`n", %DebugLogFile%
+		
+		; Get file size for additional verification
+		FileGetSize, fileSize, %exePath%, K
+		FileAppend, % A_Now . " - Helper Size: " . fileSize . " KB`n", %DebugLogFile%
+	} else if (FileExist(pyPath)) {
+		HelperPath := pyPath
+		FileGetTime, modTime, %pyPath%, M
+		FormatTime, HelperModified, %modTime%, yyyy-MM-dd HH:mm:ss
+		HelperVersion := ScriptVersion . " (dev)"
+		FileAppend, % A_Now . " - Helper PY: " . pyPath . " (dev mode)`n", %DebugLogFile%
+		FileAppend, % A_Now . " - Helper Modified: " . HelperModified . "`n", %DebugLogFile%
+	} else {
+		HelperPath := ""
+		HelperVersion := "NOT FOUND"
+		HelperModified := ""
+		FileAppend, % A_Now . " - WARNING: sync_ps_invoice helper not found!`n", %DebugLogFile%
+		FileAppend, % A_Now . " - Looked for: " . exePath . "`n", %DebugLogFile%
+		FileAppend, % A_Now . " - And: " . pyPath . "`n", %DebugLogFile%
+	}
 }
 
 ; ============================================================
@@ -2874,8 +2955,8 @@ if (GetKeyState("Ctrl", "P")) {
 }
 
 ; DEBUG: Clear and start invoice log
-FileDelete, %DebugLogFile%
-FileAppend, % "=== Invoice Sync Debug Log ===" . "`n", %DebugLogFile%
+; Don't delete - append to preserve startup info
+FileAppend, % "`n`n=== Invoice Sync Debug Log ===" . "`n", %DebugLogFile%
 FileAppend, % "Started: " . A_Now . "`n`n", %DebugLogFile%
 
 ; Proceed with ProSelect export flow - exports XML then syncs it
@@ -4407,12 +4488,15 @@ global SyncProgress_ProcessId := 0
 global SyncProgress_XmlPath := ""
 global SyncProgress_LastContent := ""
 global SyncProgress_NoUpdateCount := 0
+global SyncProgress_ErrorMessage := ""
 
 ShowSyncProgressGUI(xmlPath) {
 	global Settings_DarkMode, DPI_Scale, SyncProgress_ProcessId, SyncProgress_XmlPath
 	global SyncProgress_Title, SyncProgress_Bar, SyncProgress_Status
+	global SyncProgress_ErrorMessage
 	
 	SyncProgress_XmlPath := xmlPath
+	SyncProgress_ErrorMessage := ""  ; Reset error message for new sync
 	
 	; Theme colors
 	if (Settings_DarkMode) {
@@ -4495,13 +4579,15 @@ SyncProgress_UpdateTimer:
 						GuiControl, SyncProgress:, SyncProgress_Bar, 100
 					} else {
 						GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Failed
+						; Store error message for showing after GUI closes
+						global SyncProgress_ErrorMessage := message
 					}
 					
 					; Auto-send logs if enabled (on BOTH success and error)
 					if (Settings_AutoSendLogs)
 						SetTimer, AutoSendLogsOnComplete, -500
 					
-					; Close after 2 seconds
+					; Close after 2 seconds (error MsgBox will show after close)
 					SetTimer, SyncProgress_Close, -2000
 				}
 			}
@@ -4533,10 +4619,89 @@ SyncProgress_UpdateTimer:
 Return
 
 SyncProgress_Close:
+	global SyncProgress_ErrorMessage, ScriptVersion, HelperVersion, HelperModified
 	Gui, SyncProgress:Destroy
 	; Delete progress file
 	progressFile := A_Temp . "\sidekick_sync_progress.txt"
 	FileDelete, %progressFile%
+	
+	; Show detailed error MsgBox if there was an error
+	if (SyncProgress_ErrorMessage != "") {
+		; Read the result JSON to get more details
+		resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+		if (FileExist(resultFile)) {
+			FileRead, resultJson, %resultFile%
+			; Parse JSON for client details
+			clientName := ""
+			email := ""
+			albumName := ""
+			shootNo := ""
+			contactId := ""
+			errorMsg := SyncProgress_ErrorMessage
+			
+			; Extract fields from JSON
+			if (RegExMatch(resultJson, """client_name""\s*:\s*""([^""]*)""", m))
+				clientName := m1
+			if (RegExMatch(resultJson, """email""\s*:\s*""([^""]*)""", m))
+				email := m1
+			if (RegExMatch(resultJson, """album_name""\s*:\s*""([^""]*)""", m))
+				albumName := m1
+			if (RegExMatch(resultJson, """shoot_no""\s*:\s*""([^""]*)""", m))
+				shootNo := m1
+			if (RegExMatch(resultJson, """contact_id""\s*:\s*""([^""]*)""", m))
+				contactId := m1
+			if (RegExMatch(resultJson, """error""\s*:\s*""([^""]*)""", m))
+				errorMsg := m1
+			
+			; Build detailed error message
+			msg := "Invoice sync failed:`n`n"
+			msg .= "ERROR: " . errorMsg . "`n`n"
+			msg .= "══════════════════════════════`n"
+			msg .= "AVAILABLE DATA:`n"
+			msg .= "══════════════════════════════`n"
+			if (clientName != "")
+				msg .= "  Client Name:  " . clientName . "`n"
+			if (shootNo != "")
+				msg .= "  Shoot No:     " . shootNo . "`n"
+			if (email != "")
+				msg .= "  Email:        " . email . "`n"
+			if (albumName != "")
+				msg .= "  Album:        " . albumName . "`n"
+			
+			msg .= "`n══════════════════════════════`n"
+			msg .= "MISSING/INVALID:`n"
+			msg .= "══════════════════════════════`n"
+			
+			; Check what's missing based on error type
+			if (InStr(errorMsg, "not found") || InStr(errorMsg, "No GHL Contact ID")) {
+				if (contactId != "")
+					msg .= "  ✗ Contact ID '" . contactId . "' not found in GHL`n"
+				else
+					msg .= "  ✗ GHL Contact ID not in XML`n"
+				msg .= "`nTO FIX:`n"
+				msg .= "  1. Import this client from GHL first`n"
+				msg .= "  2. Or link the order to a GHL contact`n"
+				msg .= "  3. Then re-export the invoice"
+			} else if (InStr(errorMsg, "authentication") || InStr(errorMsg, "401")) {
+				msg .= "  ✗ GHL API key invalid or expired`n"
+				msg .= "`nTO FIX: Update API key in SideKick Settings"
+			} else {
+				msg .= "  ✗ " . errorMsg . "`n"
+			}
+			
+			; Add version info for diagnostics
+			msg .= "`n`n══════════════════════════════`n"
+			msg .= "VERSION INFO:`n"
+			msg .= "══════════════════════════════`n"
+			msg .= "  SideKick:     v" . ScriptVersion . "`n"
+			msg .= "  Helper:       v" . HelperVersion . "`n"
+			if (HelperModified != "")
+				msg .= "  Helper Built: " . HelperModified . "`n"
+			
+			DarkMsgBox("Invoice Sync Failed", msg, "error")
+		}
+		SyncProgress_ErrorMessage := ""
+	}
 Return
 
 SyncProgressGuiClose:
@@ -6297,6 +6462,12 @@ CreateAboutPanel()
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Button, x210 y455 w100 h28 gSendLogsNow vAboutSendLogsButton Hidden HwndHwndAboutSendLogs, 📤 Send Logs
 	RegisterSettingsTooltip(HwndAboutSendLogs, "SEND DIAGNOSTIC LOGS`n`nManually send current logs to support.`nUse this when reporting an issue or if requested by support.`n`nLogs include:`n• Recent actions and errors`n• Script configuration (no passwords)`n• System information`n`nThis helps diagnose problems quickly.")
+	
+	; Show log folder path next to Send Logs button
+	logFolder := A_AppData . "\SideKick_PS\Logs"
+	Gui, Settings:Font, s8 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x320 y461 w280 h20 BackgroundTrans vAboutLogPath Hidden gOpenLogFolder HwndHwndAboutLogPath, 📁 %logFolder%
+	RegisterSettingsTooltip(HwndAboutLogPath, "LOG FOLDER`n`nClick to open the folder containing diagnostic logs.`n`nLogs are automatically cleaned up after 7 days.")
 }
 
 CreateShortcutsPanel()
@@ -6908,6 +7079,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, AboutEmailLink
 	GuiControl, Settings:Hide, AboutWhatsNewButton
 	GuiControl, Settings:Hide, AboutSendLogsButton
+	GuiControl, Settings:Hide, AboutLogPath
 	GuiControl, Settings:Hide, AboutDiagnostics
 	GuiControl, Settings:Hide, AboutAutoSendText
 	GuiControl, Settings:Hide, Toggle_AutoSendLogs
@@ -7314,6 +7486,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, AboutEmailLink
 		GuiControl, Settings:Show, AboutWhatsNewButton
 		GuiControl, Settings:Show, AboutSendLogsButton
+		GuiControl, Settings:Show, AboutLogPath
 		; Diagnostics GroupBox
 		GuiControl, Settings:Show, AboutDiagnostics
 		GuiControl, Settings:Show, AboutAutoSendText
@@ -10445,6 +10618,18 @@ SendDebugLogsSilent() {
 ; Send debug logs to developer via GitHub Gist
 SendLogsNow:
 	SendDebugLogs()
+Return
+
+; Open the log folder in Windows Explorer
+OpenLogFolder:
+	logFolder := A_AppData . "\SideKick_PS\Logs"
+	if (FileExist(logFolder)) {
+		Run, explorer.exe "%logFolder%"
+	} else {
+		; Create folder if it doesn't exist and open it
+		FileCreateDir, %logFolder%
+		Run, explorer.exe "%logFolder%"
+	}
 Return
 
 SendDebugLogs() {
