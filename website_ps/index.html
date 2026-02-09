@@ -31,16 +31,7 @@
         .gradient-accent { background: linear-gradient(135deg, #e67e22 0%, #f39c12 100%); }
         .card-hover { transition: transform 0.3s ease, box-shadow 0.3s ease; }
         .card-hover:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(230, 126, 34, 0.15); }
-        .screenshot-placeholder {
-            background: linear-gradient(135deg, #2d2d2d 0%, #3d3d3d 100%);
-            border: 2px dashed #555;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #888;
-            font-size: 0.875rem;
-            border-radius: 0.75rem;
-        }
+
         .btn-primary {
             background: linear-gradient(135deg, #e67e22 0%, #f39c12 100%);
             transition: all 0.3s ease;
@@ -228,13 +219,7 @@
             </div>
 
             <!-- Feature 1: Invoice Sync -->
-            <div class="grid md:grid-cols-2 gap-12 items-center mb-24">
-                <div>
-                    <!-- SCREENSHOT: Invoice sync progress or completed GHL invoice -->
-                    <div class="screenshot-placeholder aspect-[16/10] w-full">
-                        <span>📸 feature-invoice-sync.png<br>Invoice sync in action</span>
-                    </div>
-                </div>
+            <div class="max-w-2xl mb-24">
                 <div>
                     <div class="feature-icon bg-green-500/10 text-green-400 mb-4">📋</div>
                     <h3 class="text-2xl font-bold text-white mb-3">Invoice Sync</h3>
@@ -296,13 +281,7 @@
             </div>
 
             <!-- Feature 3: Client Import -->
-            <div class="grid md:grid-cols-2 gap-12 items-center mb-24">
-                <div>
-                    <!-- SCREENSHOT: Client data imported into ProSelect -->
-                    <div class="screenshot-placeholder aspect-[16/10] w-full">
-                        <span>📸 feature-client-import.png<br>Client import from GHL</span>
-                    </div>
-                </div>
+            <div class="max-w-2xl mb-24">
                 <div>
                     <div class="feature-icon bg-purple-500/10 text-purple-400 mb-4">👤</div>
                     <h3 class="text-2xl font-bold text-white mb-3">GHL Client Lookup</h3>
@@ -325,8 +304,8 @@
             </div>
 
             <!-- Feature 4: Room Capture -->
-            <div class="grid md:grid-cols-2 gap-12 items-center">
-                <div class="order-2 md:order-1">
+            <div class="max-w-2xl">
+                <div>
                     <div class="feature-icon bg-red-500/10 text-red-400 mb-4">📷</div>
                     <h3 class="text-2xl font-bold text-white mb-3">Room Capture & Auto-Email</h3>
                     <p class="text-gray-300 mb-6">Forgot the room photo? Clients unsure if wall art will fit can stall a sale. Capture the ProSelect room view and email it directly—showing exactly how their artwork looks in their space. Hesitation gone, sale closed.</p>
@@ -348,12 +327,6 @@
                             Diffuse doubt instantly: "Not sure if it'll fit? Peace of mind included."
                         </li>
                     </ul>
-                </div>
-                <div class="order-1 md:order-2">
-                    <!-- SCREENSHOT: Room capture result -->
-                    <div class="screenshot-placeholder aspect-[16/10] w-full">
-                        <span>📸 feature-room-capture.png<br>Room capture example</span>
-                    </div>
                 </div>
             </div>
 
@@ -462,8 +435,8 @@
             </div>
 
             <!-- Feature 7: File Management (Coming Soon) -->
-            <div class="grid md:grid-cols-2 gap-12 items-center mt-24">
-                <div class="order-2 md:order-1">
+            <div class="max-w-2xl mt-24">
+                <div>
                     <div class="feature-icon bg-gray-500/10 text-gray-400 mb-4">📁</div>
                     <div class="inline-flex items-center gap-2 bg-brand-accent/10 border border-brand-accent/30 rounded-full px-3 py-1 text-xs text-brand-accent mb-4">
                         <span class="w-1.5 h-1.5 rounded-full bg-brand-accent animate-pulse"></span>
@@ -489,12 +462,6 @@
                             Open album folder with one click
                         </li>
                     </ul>
-                </div>
-                <div class="order-1 md:order-2">
-                    <!-- Placeholder for file management -->
-                    <div class="screenshot-placeholder aspect-[16/10] w-full opacity-60">
-                        <span>📁 Coming Soon</span>
-                    </div>
                 </div>
             </div>
         </div>
