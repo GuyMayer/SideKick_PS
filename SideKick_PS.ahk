@@ -10156,59 +10156,27 @@ ShowWhatsNewDialog()
 		return
 	}
 	
-	; Parse versions array - find each version block
-	; Look for pattern: { "version": "X.X.X", "build_date": "...", "release_notes": "...", "changelog": [...] }
-	searchPos := 1
+	; Parse version info from JSON
+	; First: parse the current version at root level (always present)
+	version := ""
+	buildDate := ""
+	releaseNotes := ""
+	changelog := []
 	
-	; Find the "versions" array
-	if (!InStr(jsonText, """versions"""))
-		return
-	
-	searchPos := 1
-	
-	; Parse each version object - AHK v1 style regex
-	Loop {
-		foundPos := RegExMatch(jsonText, """version""\s*:\s*""(\d+\.\d+\.\d+)""", verMatch, searchPos)
-		if (!foundPos)
-			break
-		
+	; Look for version at start of JSON (root level object)
+	if (RegExMatch(jsonText, """version""\s*:\s*""(\d+\.\d+\.\d+)""", verMatch)) {
 		version := verMatch1
-		blockStart := foundPos
 		
-		; Find the end of this version object (count braces)
-		depth := 0
-		blockEnd := blockStart
-		inBlock := false
-		Loop {
-			blockEnd++
-			if (blockEnd > StrLen(jsonText))
-				break
-			char := SubStr(jsonText, blockEnd, 1)
-			if (char = "{") {
-				depth++
-				inBlock := true
-			} else if (char = "}") {
-				depth--
-				if (inBlock && depth = 0)
-					break
-			}
-		}
-		
-		block := SubStr(jsonText, blockStart, blockEnd - blockStart + 1)
-		
-		; Extract build_date
-		buildDate := ""
-		if (RegExMatch(block, """build_date""\s*:\s*""([^""]+)""", dateMatch))
+		; Extract build_date at root level
+		if (RegExMatch(jsonText, """build_date""\s*:\s*""([^""]+)""", dateMatch))
 			buildDate := dateMatch1
 		
-		; Extract release_notes
-		releaseNotes := ""
-		if (RegExMatch(block, """release_notes""\s*:\s*""([^""]+)""", notesMatch))
+		; Extract release_notes at root level
+		if (RegExMatch(jsonText, """release_notes""\s*:\s*""([^""]+)""", notesMatch))
 			releaseNotes := notesMatch1
 		
-		; Extract changelog array items
-		changelog := []
-		if (RegExMatch(block, """changelog""\s*:\s*\[([^\]]+)\]", clArrayMatch)) {
+		; Extract changelog array at root level
+		if (RegExMatch(jsonText, """changelog""\s*:\s*\[([^\]]+)\]", clArrayMatch)) {
 			clContent := clArrayMatch1
 			clPos := 1
 			Loop {
@@ -10221,7 +10189,118 @@ ShowWhatsNewDialog()
 		}
 		
 		WhatsNewVersions.Push({version: version, date: buildDate, notes: releaseNotes, changelog: changelog})
-		searchPos := blockEnd + 1
+	}
+	
+	; Second: also parse historical "versions" array if present
+	versionsArrayPos := InStr(jsonText, """versions""")
+	if (versionsArrayPos) {
+		; Find the opening bracket of the versions array
+		arrayStart := InStr(jsonText, "[", false, versionsArrayPos)
+		if (!arrayStart)
+			arrayStart := versionsArrayPos
+		
+		; Find the closing bracket of the versions array
+		arrayEnd := StrLen(jsonText)
+		bracketDepth := 0
+		foundStart := false
+		Loop, Parse, % SubStr(jsonText, arrayStart)
+		{
+			if (A_LoopField = "[") {
+				bracketDepth++
+				foundStart := true
+			} else if (A_LoopField = "]") {
+				bracketDepth--
+				if (foundStart && bracketDepth = 0) {
+					arrayEnd := arrayStart + A_Index - 1
+					break
+				}
+			}
+		}
+		
+		; Extract just the versions array content
+		versionsArrayText := SubStr(jsonText, arrayStart, arrayEnd - arrayStart + 1)
+		
+		; Now parse each version object within this array
+		searchPos := 1
+		
+		Loop {
+			; Find next version in array
+			foundPos := RegExMatch(versionsArrayText, """version""\s*:\s*""(\d+\.\d+\.\d+)""", verMatch, searchPos)
+			if (!foundPos)
+				break
+			
+			version := verMatch1
+			
+			; Skip if this version was already added (root level)
+			isDuplicate := false
+			for i, existingVer in WhatsNewVersions {
+				if (existingVer.version = version) {
+					isDuplicate := true
+					break
+				}
+			}
+			if (isDuplicate) {
+				searchPos := foundPos + 10
+				continue
+			}
+			
+			; Find the opening brace before this "version" key
+			bracePos := foundPos
+			Loop {
+				bracePos--
+				if (bracePos < 1)
+					break
+				if (SubStr(versionsArrayText, bracePos, 1) = "{")
+					break
+			}
+			blockStart := bracePos
+			
+			; Find matching closing brace
+			depth := 0
+			blockEnd := blockStart
+			Loop {
+				char := SubStr(versionsArrayText, blockEnd, 1)
+				if (char = "{")
+					depth++
+				else if (char = "}") {
+					depth--
+					if (depth = 0)
+						break
+				}
+				blockEnd++
+				if (blockEnd > StrLen(versionsArrayText))
+					break
+			}
+			
+			block := SubStr(versionsArrayText, blockStart, blockEnd - blockStart + 1)
+			
+			; Extract build_date
+			buildDate := ""
+			if (RegExMatch(block, """build_date""\s*:\s*""([^""]+)""", dateMatch))
+				buildDate := dateMatch1
+			
+			; Extract release_notes
+			releaseNotes := ""
+			if (RegExMatch(block, """release_notes""\s*:\s*""([^""]+)""", notesMatch))
+				releaseNotes := notesMatch1
+			
+			; Extract changelog array items
+			changelog := []
+			if (RegExMatch(block, """changelog""\s*:\s*\[([^\]]+)\]", clArrayMatch)) {
+				clContent := clArrayMatch1
+				clPos := 1
+				Loop {
+					clFoundPos := RegExMatch(clContent, """([^""]+)""", clItem, clPos)
+					if (!clFoundPos)
+						break
+					changelog.Push(clItem1)
+					clPos := clFoundPos + StrLen(clItem)
+				}
+			}
+			
+			WhatsNewVersions.Push({version: version, date: buildDate, notes: releaseNotes, changelog: changelog})
+			searchPos := blockEnd + 1
+		}
 	}
 	
 	if (WhatsNewVersions.Length() = 0) {

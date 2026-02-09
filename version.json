@@ -9,6 +9,108 @@
     "NEW: Timestamped log files preserved for 7 days",
     "IMPROVED: Email-first contact search in GHL (more reliable)",
     "IMPROVED: Helper version logging for diagnostics",
-    "FIX: Logs now write to AppData instead of protected Program Files folder"
+    "FIX: Logs now write to AppData instead of protected Program Files folder",
+    "FIX: What's New button now shows version history"
+  ],
+  "versions": [
+    {
+      "version": "2.5.0",
+      "build_date": "2026-02-08",
+      "release_notes": "Toolbar grab handle - Ctrl+Click drag to reposition, persistent position saved",
+      "changelog": [
+        "NEW: Toolbar grab handle - Ctrl+Click and drag to reposition",
+        "NEW: Position is saved relative to ProSelect window (persistent)",
+        "NEW: Reset Position button in Settings > Shortcuts > Toolbar Appearance",
+        "FIX: Toolbar tooltips now appear on hover"
+      ]
+    },
+    {
+      "version": "2.4.77",
+      "build_date": "2026-02-08",
+      "release_notes": "Local QR code generation, monitor selection for QR display",
+      "changelog": [
+        "NEW: Local QR Code Generation - no more Google Charts API dependency",
+        "NEW: QR Code Caching - pre-generated on startup for instant display",
+        "NEW: Monitor Selection - choose which monitor displays QR codes",
+        "IMPROVED: Flash-Free QR Cycling - controls update without GUI rebuild",
+        "IMPROVED: Smart Dialog Detection - toolbar hides for ProSelect dialogs"
+      ]
+    },
+    {
+      "version": "2.4.75",
+      "build_date": "2026-02-07",
+      "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
+      "changelog": [
+        "NEW: Print to PDF - save PDF to album folder with optional copy to secondary folder",
+        "NEW: Print Settings Tab - dedicated settings for print templates and PDF output",
+        "IMPROVED: DPI-Scaled Toolbar - all dimensions scale with display DPI",
+        "FIX: Contact sheet saves to album directory instead of Program Files"
+      ]
+    },
+    {
+      "version": "2.4.72",
+      "build_date": "2026-02-07",
+      "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
+      "changelog": [
+        "NEW: Room Capture Email Template Picker - choose from GHL templates",
+        "NEW: Shortcuts Tab - configure toolbar buttons and quick print templates",
+        "NEW: Invoice Deletion - Ctrl+Click Sync Invoice button to delete",
+        "IMPROVED: Contact and Opportunity Tagging during invoice sync"
+      ]
+    },
+    {
+      "version": "2.4.28",
+      "build_date": "2026-01-31",
+      "release_notes": "DPI scaling for DarkMsgBox dialogs",
+      "changelog": [
+        "IMPROVED: Full high-DPI display support for DarkMsgBox",
+        "FIX: Button sizing and positioning scales with DPI"
+      ]
+    },
+    {
+      "version": "2.4.27",
+      "build_date": "2026-01-31",
+      "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
+      "changelog": [
+        "IMPROVED: Payment schedules show as invoice line items with dates",
+        "IMPROVED: VAT/Tax summary on invoices (Subtotal ex VAT, VAT, Total)",
+        "IMPROVED: Only past payments recorded as transactions",
+        "FIX: Export workflow with extended sleep and Cancel button",
+        "FIX: Dark mode consistency for all dialogs"
+      ]
+    },
+    {
+      "version": "2.4.26",
+      "build_date": "2026-01-31",
+      "release_notes": "Date calculation bug fixes",
+      "changelog": [
+        "FIX: DateDiff errors - replaced with AHK v1 compatible EnvSub",
+        "FIX: License expiry calculation",
+        "FIX: Trial period validation"
+      ]
+    },
+    {
+      "version": "2.4.25",
+      "build_date": "2026-01-31",
+      "release_notes": "DarkMsgBox function, Import/Export settings",
+      "changelog": [
+        "NEW: DarkMsgBox - universal dark mode message box",
+        "NEW: Import/Export Settings - share settings between computers",
+        "NEW: Contact Sheet toggle in Invoice tab",
+        "IMPROVED: Dark mode title bar support",
+        "FIX: Installer and Python script references"
+      ]
+    },
+    {
+      "version": "2.4.0",
+      "build_date": "2026-01-08",
+      "release_notes": "Major GHL integration release",
+      "changelog": [
+        "NEW: GHL Client lookup from Chrome URLs",
+        "NEW: Auto-populate ProSelect from GHL data",
+        "NEW: Invoice sync to GHL with media upload",
+        "NEW: Payment plan calculator"
+      ]
+    }
   ]
 }
