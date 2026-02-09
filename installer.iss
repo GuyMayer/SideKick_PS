@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.1"
+#define MyAppVersion "2.5.2"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -65,6 +65,13 @@ Source: "Release\SideKick_PS.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; App icon
 Source: "Release\SideKick_PS.ico"; DestDir: "{app}"; Flags: ignoreversion
+
+; Phosphor Thin - bundled icon font (MIT licensed, thin outline style)
+; Installs to user fonts folder (no admin required)
+Source: "Release\fonts\Phosphor-Thin.ttf"; DestDir: "{autofonts}"; FontInstall: "Phosphor Thin"; Flags: onlyifdoesntexist uninsneveruninstall
+
+; Font Awesome 6 Free Solid - fallback icon font (OFL licensed)
+Source: "Release\fonts\fa-solid-900.ttf"; DestDir: "{autofonts}"; FontInstall: "Font Awesome 6 Free Solid"; Flags: onlyifdoesntexist uninsneveruninstall
 
 ; Logo images for Settings GUI
 Source: "Release\SideKick_Logo_2025_Dark.png"; DestDir: "{app}"; Flags: ignoreversion
@@ -139,6 +146,14 @@ begin
     end;
   end;
 end;
+
+
+
+
+
+
+
+
 
 
 

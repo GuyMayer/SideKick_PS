@@ -1,23 +1,30 @@
 {
-  "version": "2.5.1",
+  "version": "2.5.2",
   "build_date": "2026-02-09",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
+  "release_notes": "Phosphor Thin icon font bundled - thin outline icons across all Windows versions",
   "changelog": [
-    "NEW: Detailed error dialog when invoice sync fails - shows available data and what's missing",
-    "NEW: Clickable log folder path in Settings > About",
-    "NEW: Timestamped log files preserved for 7 days",
-    "IMPROVED: Email-first contact search in GHL (more reliable)",
-    "IMPROVED: Helper version logging for diagnostics",
-    "FIX: Logs now write to AppData instead of protected Program Files folder",
-    "FIX: What's New button now shows version history"
+    "NEW: Phosphor Thin icon font bundled for consistent thin outline toolbar icons",
+    "NEW: Icon font auto-detection with fallback chain (Phosphor > Segoe Fluent > Font Awesome)",
+    "IMPROVED: Thinner toolbar icons - switched from bold Font Awesome to thin Phosphor",
+    "IMPROVED: Icons display consistently regardless of Windows version"
   ],
   "versions": [
     {
-      "version": "2.5.0",
-      "build_date": "2026-02-08",
-      "release_notes": "Toolbar grab handle - Ctrl+Click drag to reposition, persistent position saved",
+      "version": "2.5.1",
+      "build_date": "2026-02-09",
+      "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
+        "NEW: Detailed error dialog when invoice sync fails - shows available data and what's missing",
+        "NEW: Clickable log folder path in Settings > About",
+        "NEW: Timestamped log files preserved for 7 days",
+        "IMPROVED: Email-first contact search in GHL (more reliable)",
+        "IMPROVED: Helper version logging for diagnostics",
+        "FIX: Logs now write to AppData instead of protected Program Files folder",
+        "FIX: What's New button now shows version history"
+      ]
+    },
+    {
         "NEW: Toolbar grab handle - Ctrl+Click and drag to reposition",
         "NEW: Position is saved relative to ProSelect window (persistent)",
         "NEW: Reset Position button in Settings > Shortcuts > Toolbar Appearance",

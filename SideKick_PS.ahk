@@ -168,6 +168,47 @@ DllCall("SetThreadDpiAwarenessContext", "ptr", -2, "ptr")  ; DPI_AWARENESS_CONTE
 global DPI_Scale := A_ScreenDPI / 96
 FileAppend, % A_Now . " - DPI Scale: " . DPI_Scale . "`n", %DebugLogFile%
 
+; Detect icon font - Phosphor Thin (bundled) > Segoe Fluent (Win11) > Font Awesome
+global IconFont := DetectIconFont()
+FileAppend, % A_Now . " - Icon Font: " . IconFont . "`n", %DebugLogFile%
+
+; Set icon codepoints based on detected font
+global Icon_User, Icon_Invoice, Icon_Globe, Icon_Camera, Icon_Refresh, Icon_Print, Icon_QRCode, Icon_Download, Icon_Settings
+if (InStr(IconFont, "Phosphor")) {
+	; Phosphor Icons codepoints (thin outline icons)
+	Icon_User := 0xEC28
+	Icon_Invoice := 0xE66E
+	Icon_Globe := 0xE7B6
+	Icon_Camera := 0xE21A
+	Icon_Refresh := 0xE074
+	Icon_Print := 0xEACC
+	Icon_QRCode := 0xEAE8
+	Icon_Download := 0xE59A
+	Icon_Settings := 0xE79A
+} else if (InStr(IconFont, "Font Awesome")) {
+	; Font Awesome 6 codepoints (solid icons)
+	Icon_User := 0xF007
+	Icon_Invoice := 0xF570
+	Icon_Globe := 0xF0AC
+	Icon_Camera := 0xF030
+	Icon_Refresh := 0xF021
+	Icon_Print := 0xF02F
+	Icon_QRCode := 0xF029
+	Icon_Download := 0xF019
+	Icon_Settings := 0xF013
+} else {
+	; Segoe Fluent/MDL2 codepoints (thin outline icons)
+	Icon_User := 0xE77B
+	Icon_Invoice := 0xE8A5
+	Icon_Globe := 0xE774
+	Icon_Camera := 0xE722
+	Icon_Refresh := 0xE72C
+	Icon_Print := 0xE749
+	Icon_QRCode := 0xED14
+	Icon_Download := 0xE896
+	Icon_Settings := 0xE713
+}
+
 ; Log monitor information
 SysGet, MonitorCount, MonitorCount
 SysGet, MonitorPrimary, MonitorPrimary
@@ -331,6 +372,17 @@ global Settings_AutoUpdate := true    ; Enable automatic silent updates
 global Settings_AutoSendLogs := true  ; Auto-send activity logs after every sync
 global Settings_DebugLogging := false  ; Enable debug logging (defaults OFF, auto-disables after 24hrs)
 global Settings_DebugLoggingTimestamp := ""  ; When debug logging was enabled
+
+; Debug Progress GUI state (for Print to PDF workflow debugging)
+global DebugProgress_Active := false    ; True while debug progress GUI is showing
+global DebugProgress_NextClicked := false  ; Set to true when user clicks Next Step
+global DebugProgress_StopClicked := false  ; Set to true when user clicks Stop/Broken
+global DebugProgress_StepNum := 0       ; Current step number
+global DebugProgress_TotalSteps := 0    ; Total steps in workflow
+global DebugProg_StepCounter := ""      ; GUI control variable for step counter text
+global DebugProg_StepText := ""         ; GUI control variable for step description text
+global DebugProg_NextBtn := ""          ; GUI control variable for Next button
+
 global Update_DownloadReady := false  ; True when installer is downloaded and ready
 global Update_DownloadPath := ""      ; Path to downloaded installer
 global Update_UserDeclined := false   ; User said "Later" - ask again on exit
@@ -1472,39 +1524,38 @@ CreateFloatingToolbar()
 	; Dynamic x position - each visible button advances by btnSpacing (after grab handle)
 	nextX := grabHandleWidth + btnMargin
 	
-	; Use Segoe Fluent Icons for thin outline style (Windows 10/11)
-	; Fallback to Segoe MDL2 Assets if Fluent not available
+	; Use detected icon font (Phosphor Thin or fallback)
 	
 	; Client button (person icon)
 	if (Settings_ShowBtn_Client) {
-		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client +HwndTB_Client_Hwnd, % Chr(0xE77B)
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundBlue c%iconColor% gToolbar_GetClient vTB_Client +HwndTB_Client_Hwnd, % Chr(Icon_User)
 		ToolbarTooltips[TB_Client_Hwnd] := "Get Client from GHL"
 		nextX += btnSpacing
 	}
 	
 	; Invoice button (document icon)
 	if (Settings_ShowBtn_Invoice) {
-		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice +HwndTB_Invoice_Hwnd, % Chr(0xE8A5)
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice +HwndTB_Invoice_Hwnd, % Chr(Icon_Invoice)
 		ToolbarTooltips[TB_Invoice_Hwnd] := "Sync Invoice to GHL"
 		nextX += btnSpacing
 	}
 	
 	; Open GHL button (globe icon)
 	if (Settings_ShowBtn_OpenGHL) {
-		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL +HwndTB_OpenGHL_Hwnd, % Chr(0xE774)
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundTeal c%iconColor% gToolbar_OpenGHL vTB_OpenGHL +HwndTB_OpenGHL_Hwnd, % Chr(Icon_Globe)
 		ToolbarTooltips[TB_OpenGHL_Hwnd] := "Open GHL Contact"
 		nextX += btnSpacing
 	}
 	
 	; Camera button - two versions for state indication (only one visible at a time)
 	if (Settings_ShowBtn_Camera) {
-		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_CameraOn +HwndTB_CameraOn_Hwnd, % Chr(0xE722)
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_CaptureRoom vTB_CameraOff Hidden +HwndTB_CameraOff_Hwnd, % Chr(0xE722)
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundYellow cBlack gToolbar_CaptureRoom vTB_CameraCalib Hidden +HwndTB_CameraCalib_Hwnd, % Chr(0xE722)
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundMaroon c%iconColor% gToolbar_CaptureRoom vTB_CameraOn +HwndTB_CameraOn_Hwnd, % Chr(Icon_Camera)
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_CaptureRoom vTB_CameraOff Hidden +HwndTB_CameraOff_Hwnd, % Chr(Icon_Camera)
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundYellow cBlack gToolbar_CaptureRoom vTB_CameraCalib Hidden +HwndTB_CameraCalib_Hwnd, % Chr(Icon_Camera)
 		ToolbarTooltips[TB_CameraOn_Hwnd] := "Capture Room Photo"
 		ToolbarTooltips[TB_CameraOff_Hwnd] := "Capture Room Photo"
 		ToolbarTooltips[TB_CameraCalib_Hwnd] := "Capture Room Photo"
@@ -1530,39 +1581,39 @@ CreateFloatingToolbar()
 	
 	; Refresh button (sync icon)
 	if (Settings_ShowBtn_Refresh) {
-		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh +HwndTB_Refresh_Hwnd, % Chr(0xE72C)
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh +HwndTB_Refresh_Hwnd, % Chr(Icon_Refresh)
 		ToolbarTooltips[TB_Refresh_Hwnd] := "Refresh Album"
 		nextX += btnSpacing
 	}
 	
 	; Quick Print button (print icon)
 	if (Settings_ShowBtn_Print) {
-		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background444444 c%iconColor% gToolbar_QuickPrint vTB_Print +HwndTB_Print_Hwnd, % Chr(0xE749)
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background444444 c%iconColor% gToolbar_QuickPrint vTB_Print +HwndTB_Print_Hwnd, % Chr(Icon_Print)
 		ToolbarTooltips[TB_Print_Hwnd] := "Quick Print"
 		nextX += btnSpacing
 	}
 	
 	; QR Code button (grid icon)
 	if (Settings_ShowBtn_QRCode) {
-		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background006666 c%iconColor% gToolbar_QRCode vTB_QRCode +HwndTB_QRCode_Hwnd, % Chr(0xED14)
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background006666 c%iconColor% gToolbar_QRCode vTB_QRCode +HwndTB_QRCode_Hwnd, % Chr(Icon_QRCode)
 		ToolbarTooltips[TB_QRCode_Hwnd] := "Show QR Code"
 		nextX += btnSpacing
 	}
 	
 	; SD Card Download button (download icon)
 	if (Settings_SDCardEnabled) {
-		Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download +HwndTB_Download_Hwnd, % Chr(0xE896)
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download +HwndTB_Download_Hwnd, % Chr(Icon_Download)
 		ToolbarTooltips[TB_Download_Hwnd] := "Download from SD Card"
 		nextX += btnSpacing
 	}
 	
 	; Settings button (gear icon)
-	Gui, Toolbar:Font, s%fontSize%, Segoe Fluent Icons
-	Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings +HwndTB_Settings_Hwnd, % Chr(0xE713)
+	Gui, Toolbar:Font, s%fontSize%, %IconFont%
+	Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings +HwndTB_Settings_Hwnd, % Chr(Icon_Settings)
 	ToolbarTooltips[TB_Settings_Hwnd] := "Settings"
 	
 	; Register mouse move handler for toolbar tooltips
@@ -1965,7 +2016,7 @@ Return
 ; handles the Save As dialog, saves to album folder + optional copy folder
 ; ═══════════════════════════════════════════════════════════════════════════════
 Toolbar_PrintToPDF:
-	global Settings_PDFOutputFolder
+	global Settings_PDFOutputFolder, Settings_DebugLogging
 	
 	; Check ProSelect is running
 	if !WinExist("ahk_exe ProSelect.exe") {
@@ -1973,29 +2024,51 @@ Toolbar_PrintToPDF:
 		Return
 	}
 	
+	; Start debug progress GUI if debug logging enabled (11 steps total)
+	DebugProgress_Show(11)
+	
 	; Step 1: Get the album folder from ProSelect via Save Album As dialog
+	if (!DebugProgress_Update(1, "Get album folder via Save Album As dialog`n(Sends Ctrl+Shift+S to ProSelect)"))
+		Return
+	
 	albumFolder := GetAlbumFolder()
 	if (albumFolder = "") {
+		DebugProgress_Close()
 		DarkMsgBox("Print to PDF", "Could not determine album folder.`n`nMake sure an album is open in ProSelect.", "error")
 		Return
 	}
 	
 	; Step 2: Save original default printer
+	if (!DebugProgress_Update(2, "Saving original default printer`nFolder: " . albumFolder))
+		Return
+	
 	origPrinter := ""
 	RunWait, powershell -NoProfile -Command "(Get-CimInstance Win32_Printer -Filter 'Default=True').Name | Set-Content '%A_Temp%\sidekick_orig_printer.txt'",, Hide
 	FileRead, origPrinter, %A_Temp%\sidekick_orig_printer.txt
 	origPrinter := Trim(origPrinter, " `t`r`n")
 	FileDelete, %A_Temp%\sidekick_orig_printer.txt
 	
-	; Step 3: Set Microsoft Print to PDF as default (faster via RUNDLL32)
+	; Step 3: Set Microsoft Print to PDF as default
+	if (!DebugProgress_Update(3, "Setting Microsoft Print to PDF as default`nOriginal printer: " . origPrinter)) {
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	
 	RunWait, RUNDLL32 PRINTUI.DLL`,PrintUIEntry /y /n "Microsoft Print to PDF",, Hide
 	Sleep, 500
 	
 	; Step 4: Activate ProSelect and send Ctrl+P
+	if (!DebugProgress_Update(4, "Activating ProSelect and sending Ctrl+P`nWill open Print Order/Invoice Report dialog")) {
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	
 	WinActivate, ahk_exe ProSelect.exe
 	WinWaitActive, ahk_exe ProSelect.exe, , 2
 	if ErrorLevel {
-		; Restore printer before bailing
+		DebugProgress_Close()
 		if (origPrinter != "")
 			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
 		Return
@@ -2003,8 +2076,15 @@ Toolbar_PrintToPDF:
 	Send, ^p
 	
 	; Step 5: Wait for the ProSelect Print Order/Invoice Report dialog
+	if (!DebugProgress_Update(5, "Waiting for Print Order/Invoice Report dialog`n(up to 5 seconds)")) {
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	
 	WinWait, Print Order/Invoice Report, , 5
 	if ErrorLevel {
+		DebugProgress_Close()
 		ToolTip, Print dialog did not open
 		SetTimer, RemoveToolTip, -2000
 		if (origPrinter != "")
@@ -2021,9 +2101,16 @@ Toolbar_PrintToPDF:
 		if InStr(rJson, """schedule_created"": true")
 			hasPayPlan := true
 	}
+	searchTerm := hasPayPlan ? Settings_PrintTemplate_PayPlan : Settings_PrintTemplate_Standard
+	
+	if (!DebugProgress_Update(6, "Selecting print template`nTemplate: " . searchTerm . "`nPayment plan: " . (hasPayPlan ? "Yes" : "No"))) {
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	
 	Control, Check,, Button20, Print Order/Invoice Report
 	Sleep, 100
-	searchTerm := hasPayPlan ? Settings_PrintTemplate_PayPlan : Settings_PrintTemplate_Standard
 	ControlGet, cbList, List,, ComboBox5, Print Order/Invoice Report
 	Loop, Parse, cbList, `n
 	{
@@ -2035,13 +2122,26 @@ Toolbar_PrintToPDF:
 	Sleep, 100
 	
 	; Step 7: Click Print in ProSelect dialog — this opens the Windows Print dialog
+	if (!DebugProgress_Update(7, "Clicking Print button (Button32)`nThis opens the Windows Print dialog")) {
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	
 	ControlFocus, Button32, Print Order/Invoice Report
 	Sleep, 200
 	Send, {Enter}
 	
 	; Step 8: Wait for the Windows "ProSelect - Print" dialog
+	if (!DebugProgress_Update(8, "Waiting for Windows Print dialog`n(ProSelect - Print, up to 10 seconds)")) {
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	
 	WinWait, ProSelect - Print, , 10
 	if ErrorLevel {
+		DebugProgress_Close()
 		ToolTip, Windows Print dialog did not appear
 		SetTimer, RemoveToolTip, -3000
 		if (origPrinter != "")
@@ -2050,56 +2150,82 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 1000
 	
-	; Select "Microsoft Print to PDF" in the printer dropdown
-	; The modern Win11 print dialog has the printer combo as the first focusable element
+	; Step 9: Click Print button in Windows Print dialog
+	; PDF printer is already set as default so it should be pre-selected
+	; Focus starts on Printer dropdown, need 6 tabs to reach Print button
+	if (!DebugProgress_Update(9, "Clicking Print button in Windows Print dialog`n(6x Tab from Printer dropdown, then Space)")) {
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	
+	; Activate and wait for focus to ensure keystrokes go to this window
 	WinActivate, ProSelect - Print
-	Sleep, 300
-	
-	; Tab to printer dropdown (should be first control), open it, go to top, search for PDF
-	Send, {Tab}{Space}
+	WinWaitActive, ProSelect - Print, , 3
+	if ErrorLevel {
+		ToolTip, Could not activate Print dialog
+		SetTimer, RemoveToolTip, -2000
+	}
 	Sleep, 500
-	; Go to top of printer list and search down for PDF
-	Send, {Home}
-	Sleep, 200
 	
-	; Read current selection - loop through list items looking for PDF
-	pdfFound := false
-	Loop, 20 {
-		Sleep, 150
-		; Copy current item text via clipboard
-		ClipSaved := ClipboardAll
-		Clipboard := ""
-		Send, ^c
-		ClipWait, 0.5
-		currentItem := Clipboard
-		Clipboard := ClipSaved
-		ClipSaved := ""
-		if (InStr(currentItem, "PDF")) {
-			pdfFound := true
+	; Use regular Send (not ControlSend) - modern Win11 dialogs need this
+	; 6 tabs from Printer dropdown to reach Print button
+	Send, {Tab}
+	Sleep, 100
+	Send, {Tab}
+	Sleep, 100
+	Send, {Tab}
+	Sleep, 100
+	Send, {Tab}
+	Sleep, 100
+	Send, {Tab}
+	Sleep, 100
+	Send, {Tab}
+	Sleep, 500
+	; Re-activate window before sending Space
+	WinActivate, ProSelect - Print
+	WinWaitActive, ProSelect - Print, , 2
+	Sleep, 200
+	; Now send Space to click Print button (Space is more reliable for focused buttons)
+	Send, {Space}
+	Sleep, 1000
+	
+	; Step 10: Wait for Save As dialog and save PDF
+	if (!DebugProgress_Update(10, "Waiting for Save As dialog`n(checking multiple window titles, up to 20 seconds)")) {
+		if (origPrinter != "")
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+		Return
+	}
+	
+	; Try multiple possible Save dialog titles
+	saveWinTitle := ""
+	Loop, 40 {
+		; Check various possible window titles
+		if WinExist("Save Print Output As") {
+			saveWinTitle := "Save Print Output As"
 			break
 		}
-		Send, {Down}
+		if WinExist("Save As") {
+			saveWinTitle := "Save As"
+			break
+		}
+		if WinExist("ahk_class #32770") {
+			; Generic Windows dialog - check if it has a Save button
+			IfWinExist, ahk_class #32770
+			{
+				ControlGet, hasEdit, Enabled,, Edit1, ahk_class #32770
+				if (hasEdit) {
+					saveWinTitle := "ahk_class #32770"
+					break
+				}
+			}
+		}
+		Sleep, 500
 	}
 	
-	; Confirm selection
-	Send, {Enter}
-	Sleep, 500
-	
-	if (!pdfFound) {
-		ToolTip, Could not find PDF printer in list
-		SetTimer, RemoveToolTip, -3000
-	}
-	
-	; Click Print button in the Windows print dialog
-	WinActivate, ProSelect - Print
-	Sleep, 300
-	; 6 tabs from the printer selection to reach the Print button, then Enter
-	Send, {Tab}{Tab}{Tab}{Tab}{Tab}{Tab}{Enter}
-	
-	; Step 9: Wait for Save As dialog
-	WinWait, Save Print Output As, , 15
-	if ErrorLevel {
-		ToolTip, PDF Save dialog did not appear
+	if (saveWinTitle = "") {
+		DebugProgress_Close()
+		ToolTip, PDF Save dialog did not appear (waited 20 seconds)
 		SetTimer, RemoveToolTip, -3000
 		if (origPrinter != "")
 			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
@@ -2107,31 +2233,51 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 300
 	
-	; Step 10: Build filename from album folder name
+	; Build filename from album folder name
 	SplitPath, albumFolder, albumName
 	pdfName := albumName . ".pdf"
 	pdfFullPath := albumFolder . "\" . pdfName
 	
 	; Set the filename in the Save As dialog
-	ControlSetText, Edit1, %pdfFullPath%, Save Print Output As
+	ControlSetText, Edit1, %pdfFullPath%, %saveWinTitle%
 	Sleep, 200
 	
 	; Click Save
-	ControlClick, Button1, Save Print Output As
+	ControlClick, Button1, %saveWinTitle%
 	
 	; Wait for Save to complete
-	WinWaitClose, Save Print Output As, , 15
+	WinWaitClose, %saveWinTitle%, , 15
 	Sleep, 500
 	
-	; Step 10: Copy to secondary folder if configured
+	; Step 11: Copy to secondary folder and restore printer
+	copyStatus := ""
 	if (Settings_PDFOutputFolder != "" && FileExist(Settings_PDFOutputFolder)) {
 		if FileExist(pdfFullPath) {
 			copyDest := Settings_PDFOutputFolder . "\" . pdfName
 			FileCopy, %pdfFullPath%, %copyDest%, 1
 			if ErrorLevel
-				ToolTip, ⚠ PDF saved to album but copy to %Settings_PDFOutputFolder% failed
+				copyStatus := "Copy FAILED to " . Settings_PDFOutputFolder
 			else
+				copyStatus := "Also copied to " . Settings_PDFOutputFolder
+		} else {
+			copyStatus := "PDF file not found at " . pdfFullPath
+		}
+	} else {
+		copyStatus := "No secondary folder configured"
+	}
+	
+	if (!DebugProgress_Update(11, "Complete! Restoring original printer`nPDF: " . pdfFullPath . "`n" . copyStatus)) {
+		; User stopped at final step - still restore printer
+	}
+	
+	; Show final result (non-debug mode)
+	if (Settings_PDFOutputFolder != "" && FileExist(Settings_PDFOutputFolder)) {
+		if FileExist(pdfFullPath) {
+			copyDest := Settings_PDFOutputFolder . "\" . pdfName
+			if FileExist(copyDest)
 				ToolTip, ✅ PDF saved to album folder + copied to %Settings_PDFOutputFolder%
+			else
+				ToolTip, ⚠ PDF saved to album but copy to %Settings_PDFOutputFolder% failed
 		} else {
 			ToolTip, ⚠ PDF file not found at %pdfFullPath%
 		}
@@ -2140,9 +2286,11 @@ Toolbar_PrintToPDF:
 	}
 	SetTimer, RemoveToolTip, -4000
 	
-	; Step 11: Restore original default printer
+	; Restore original default printer
 	if (origPrinter != "")
 		RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+	
+	DebugProgress_Close()
 Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -2223,6 +2371,121 @@ DebugKeystroke(keystrokeDesc) {
 
 DebugKeystrokeClose:
 Progress, Off
+Return
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; DEBUG PROGRESS GUI - Step-by-step workflow debugging with Next/Stop buttons
+; Shows current step, waits for user to click Next before proceeding
+; GUI is always-on-top but does NOT steal focus - keystrokes go to target window
+; ═══════════════════════════════════════════════════════════════════════════════
+
+; Show the debug progress GUI
+; totalSteps: Number of steps in the workflow
+DebugProgress_Show(totalSteps) {
+	global DebugProgress_Active, DebugProgress_NextClicked, DebugProgress_StopClicked
+	global DebugProgress_StepNum, DebugProgress_TotalSteps, Settings_DebugLogging
+	global DebugProg_StepCounter, DebugProg_StepText, DebugProg_NextBtn  ; GUI control variables
+	
+	if (!Settings_DebugLogging)
+		return
+	
+	DebugProgress_Active := true
+	DebugProgress_NextClicked := false
+	DebugProgress_StopClicked := false
+	DebugProgress_StepNum := 0
+	DebugProgress_TotalSteps := totalSteps
+	
+	; Create GUI - ToolWindow so no taskbar entry, AlwaysOnTop to stay visible
+	; -SysMenu removes close button, user must click Stop to abort
+	Gui, DebugProg:New, +AlwaysOnTop +ToolWindow -SysMenu +Owner
+	Gui, DebugProg:Color, 2D2D30
+	Gui, DebugProg:Font, s10 cWhite, Segoe UI
+	
+	; Title
+	Gui, DebugProg:Font, s12 cE67E22 Bold
+	Gui, DebugProg:Add, Text, x15 y10 w370, 🔧 Print to PDF - Debug Mode
+	
+	; Step counter
+	Gui, DebugProg:Font, s10 cAAAAAA Normal
+	Gui, DebugProg:Add, Text, x15 y40 w370 vDebugProg_StepCounter, Step 0 of %totalSteps%
+	
+	; Current step description
+	Gui, DebugProg:Font, s11 cFFFFFF
+	Gui, DebugProg:Add, Text, x15 y65 w370 h50 vDebugProg_StepText, Initializing...
+	
+	; Buttons - no v-variable needed, just g-label for click handler
+	Gui, DebugProg:Font, s10 cFFFFFF Bold
+	Gui, DebugProg:Add, Button, x15 y125 w175 h35 gDebugProg_NextClick vDebugProg_NextBtn, ▶ Next Step
+	Gui, DebugProg:Add, Button, x200 y125 w175 h35 gDebugProg_StopClick, ⛔ Stop / Broken
+	
+	; Show GUI in bottom-right corner (above taskbar)
+	SysGet, MonWork, MonitorWorkArea
+	guiW := 400
+	guiH := 175
+	guiX := MonWorkRight - guiW - 20
+	guiY := MonWorkBottom - guiH - 20
+	
+	Gui, DebugProg:Show, x%guiX% y%guiY% w%guiW% h%guiH% NoActivate, SideKick Debug Progress
+}
+
+; Update step text and wait for user to click Next or Stop
+; stepNum: Current step number
+; stepText: Description of what this step does
+; Returns: true to continue, false if user clicked Stop
+DebugProgress_Update(stepNum, stepText) {
+	global DebugProgress_Active, DebugProgress_NextClicked, DebugProgress_StopClicked
+	global DebugProgress_StepNum, DebugProgress_TotalSteps, Settings_DebugLogging
+	global DebugProg_StepCounter, DebugProg_StepText  ; GUI control variables
+	
+	if (!Settings_DebugLogging || !DebugProgress_Active)
+		return true
+	
+	DebugProgress_StepNum := stepNum
+	DebugProgress_NextClicked := false
+	
+	; Update GUI text
+	GuiControl, DebugProg:, DebugProg_StepCounter, Step %stepNum% of %DebugProgress_TotalSteps%
+	GuiControl, DebugProg:, DebugProg_StepText, %stepText%
+	
+	; Flash the GUI briefly to draw attention
+	Gui, DebugProg:Flash
+	
+	; Wait for user to click Next or Stop
+	Loop {
+		if (DebugProgress_StopClicked) {
+			DebugProgress_Close()
+			return false
+		}
+		if (DebugProgress_NextClicked) {
+			DebugProgress_NextClicked := false
+			return true
+		}
+		Sleep, 50
+	}
+}
+
+; Close the debug progress GUI
+DebugProgress_Close() {
+	global DebugProgress_Active
+	DebugProgress_Active := false
+	Gui, DebugProg:Destroy
+}
+
+; Button click handlers
+DebugProg_NextClick:
+	global DebugProgress_NextClicked
+	DebugProgress_NextClicked := true
+Return
+
+DebugProg_StopClick:
+	global DebugProgress_StopClicked
+	DebugProgress_StopClicked := true
+Return
+
+DebugProgGuiClose:
+	; Treat closing GUI same as Stop
+	global DebugProgress_StopClicked
+	DebugProgress_StopClicked := true
 Return
 
 ; Calibrate menu delay based on system performance
@@ -5636,6 +5899,65 @@ GetLicenseStatusColor() {
 }
 
 ; ============================================================
+; Icon Font Detection
+; ============================================================
+
+DetectIconFont() {
+	; Returns the best available icon font for the system
+	; Phosphor Thin is bundled with the installer (thin outline icons)
+	
+	; Primary: Phosphor Thin (bundled, thin outline)
+	if (FontExists("Phosphor Thin"))
+		return "Phosphor Thin"
+	
+	; Fallback: Segoe Fluent Icons (Windows 11, thin outline)
+	if (FontExists("Segoe Fluent Icons"))
+		return "Segoe Fluent Icons"
+	
+	; Fallback: Font Awesome 6 Free Solid (bundled, solid/bold)
+	if (FontExists("Font Awesome 6 Free Solid"))
+		return "Font Awesome 6 Free Solid"
+	
+	; If nothing found, default to Phosphor Thin (bundled)
+	return "Phosphor Thin"
+}
+
+FontExists(fontName) {
+	; Check if a font is installed by trying to create a dummy GUI with it
+	; Returns true if font exists, false otherwise
+	
+	hDC := DllCall("GetDC", "Ptr", 0, "Ptr")
+	
+	; Try to create a font with the given name
+	VarSetCapacity(LOGFONT, 92, 0)
+	NumPut(16, LOGFONT, 0, "Int")  ; lfHeight
+	StrPut(fontName, &LOGFONT + 28, 32, "UTF-16")  ; lfFaceName
+	
+	hFont := DllCall("CreateFontIndirect", "Ptr", &LOGFONT, "Ptr")
+	
+	if (!hFont) {
+		DllCall("ReleaseDC", "Ptr", 0, "Ptr", hDC)
+		return false
+	}
+	
+	; Select the font and get the text metrics
+	hOldFont := DllCall("SelectObject", "Ptr", hDC, "Ptr", hFont, "Ptr")
+	
+	; Get the actual font face name that was used
+	VarSetCapacity(actualName, 64, 0)
+	DllCall("GetTextFace", "Ptr", hDC, "Int", 32, "Ptr", &actualName)
+	actualFontName := StrGet(&actualName, "UTF-16")
+	
+	; Clean up
+	DllCall("SelectObject", "Ptr", hDC, "Ptr", hOldFont)
+	DllCall("DeleteObject", "Ptr", hFont)
+	DllCall("ReleaseDC", "Ptr", 0, "Ptr", hDC)
+	
+	; Compare requested vs actual font name
+	return (actualFontName = fontName)
+}
+
+; ============================================================
 ; License Enforcement Functions
 ; ============================================================
 
@@ -6419,11 +6741,11 @@ CreateAboutPanel()
 	Gui, Settings:Add, Text, x210 y260 w120 BackgroundTrans vAboutDownloadStatus Hidden,
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x340 y255 w110 h28 gShowWhatsNew vAboutWhatsNewButton Hidden HwndHwndAboutWhatsNew, 📋 What's New
+	Gui, Settings:Add, Button, x210 y255 w110 h28 gShowWhatsNew vAboutWhatsNewButton Hidden HwndHwndAboutWhatsNew, 📋 What's New
 	RegisterSettingsTooltip(HwndAboutWhatsNew, "WHAT'S NEW`n`nView the changelog and release notes.`nSee what features, fixes, and improvements`nare included in each version.`n`nHelpful for understanding what changed after an update.")
-	Gui, Settings:Add, Button, x455 y255 w100 h28 gAboutReinstall vAboutReinstallBtn Hidden HwndHwndAboutReinstall, Reinstall
+	Gui, Settings:Add, Button, x325 y255 w100 h28 gAboutReinstall vAboutReinstallBtn Hidden HwndHwndAboutReinstall, Reinstall
 	RegisterSettingsTooltip(HwndAboutReinstall, "REINSTALL SIDEKICK`n`nDownload and reinstall the current version.`nUseful if files are corrupted or missing.`n`nThis will replace all SideKick files with fresh copies`nfrom the update server. Your settings are preserved.")
-	Gui, Settings:Add, Button, x560 y255 w100 h28 gAboutUpdateNow vAboutCheckNowBtn Hidden HwndHwndAboutCheckNow, Check Now
+	Gui, Settings:Add, Button, x430 y255 w100 h28 gAboutUpdateNow vAboutCheckNowBtn Hidden HwndHwndAboutCheckNow, Check Now
 	RegisterSettingsTooltip(HwndAboutCheckNow, "CHECK FOR UPDATES`n`nManually check the update server for new versions.`nIf a newer version is found, you'll be prompted to install.`n`nProgress will show in the bar to the left during download.")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
@@ -6709,7 +7031,7 @@ CreatePrintPanel()
 	; PDF OUTPUT GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y350 w480 h180 vPrintPDFGroup, PDF Output
+	Gui, Settings:Add, GroupBox, x195 y350 w480 h195 vPrintPDFGroup, PDF Output
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y378 w300 h22 BackgroundTrans vPrintEnablePDFLabel, Enable Print to PDF
@@ -6719,14 +7041,14 @@ CreatePrintPanel()
 	Gui, Settings:Add, Text, x210 y400 w440 BackgroundTrans vPrintPDFDesc, When enabled, the print button saves a PDF to album folder + optional copy folder.
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y425 w95 h22 BackgroundTrans vPrintPDFCopyLabel, Copy Folder:
-	Gui, Settings:Add, Edit, x310 y423 w280 h22 cBlack vPrintPDFCopyEdit, %Settings_PDFOutputFolder%
-	Gui, Settings:Add, Button, x595 y422 w60 h24 gBrowsePDFOutputFolder vPrintPDFCopyBrowse, Browse
+	Gui, Settings:Add, Text, x210 y440 w95 h22 BackgroundTrans vPrintPDFCopyLabel, Copy Folder:
+	Gui, Settings:Add, Edit, x310 y438 w280 h22 cBlack vPrintPDFCopyEdit, %Settings_PDFOutputFolder%
+	Gui, Settings:Add, Button, x595 y437 w60 h24 gBrowsePDFOutputFolder vPrintPDFCopyBrowse, Browse
 
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y453 w440 BackgroundTrans vPrintPDFHint, PDF is always saved to the album folder. Leave blank to skip copying.
+	Gui, Settings:Add, Text, x210 y468 w440 BackgroundTrans vPrintPDFHint, PDF is always saved to the album folder. Leave blank to skip copying.
 
-	Gui, Settings:Add, Button, x210 y480 w200 h30 gToolbar_PrintToPDF vPrintPDFBtn, 📄 Print to PDF Now
+	Gui, Settings:Add, Button, x210 y498 w200 h30 gToolbar_PrintToPDF vPrintPDFBtn, 📄 Print to PDF Now
 
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -6933,6 +7255,12 @@ CreateDeveloperPanel()
 	; Second row
 	Gui, Settings:Add, Button, x210 y395 w120 h35 gDevOpenFolder vDevOpenFolderBtn Hidden HwndHwndDevFolder, 📂 Open Folder
 	RegisterSettingsTooltip(HwndDevFolder, "OPEN FOLDER`n`nOpen the script folder in Windows Explorer.`nQuick access to source files and resources.")
+	Gui, Settings:Add, Button, x340 y395 w140 h35 gDevPushWebsite vDevPushWebBtn Hidden HwndHwndDevPushWeb, 🌍 Push Website
+	RegisterSettingsTooltip(HwndDevPushWeb, "PUSH WEBSITE`n`nSync website_ps to docs folder and push to GitHub.`nOnly commits website files (no scripts).`n`nSite goes live in ~1-2 minutes.")
+	
+	; Progress bar for Push Website (hidden by default)
+	Gui, Settings:Add, Progress, x340 y435 w140 h8 vDevWebProgress Hidden BackgroundBlack c4FC3F7, 0
+	Gui, Settings:Add, Text, x340 y435 w140 h8 vDevWebProgressStatus Hidden BackgroundTrans Center c4FC3F7,
 }
 
 ShowSettingsTab(tabName)
@@ -7248,6 +7576,9 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, DevGitHubBtn
 	GuiControl, Settings:Hide, DevQuickPushBtn
 	GuiControl, Settings:Hide, DevOpenFolderBtn
+	GuiControl, Settings:Hide, DevPushWebBtn
+	GuiControl, Settings:Hide, DevWebProgress
+	GuiControl, Settings:Hide, DevWebProgressStatus
 	
 	; Show selected tab
 	if (tabName = "General")
@@ -7603,6 +7934,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, DevGitHubBtn
 		GuiControl, Settings:Show, DevQuickPushBtn
 		GuiControl, Settings:Show, DevOpenFolderBtn
+		GuiControl, Settings:Show, DevPushWebBtn
 	}
 	
 	Settings_CurrentTab := tabName
@@ -7696,6 +8028,46 @@ Return
 
 DevOpenFolder:
 	Run, explorer.exe "%A_ScriptDir%"
+Return
+
+DevPushWebsite:
+	; Sync website_ps to docs and push website only
+	GuiControl, Settings:Show, DevWebProgress
+	GuiControl, Settings:, DevWebProgress, 0
+	GuiControl, Settings:Disable, DevPushWebBtn
+	
+	; Step 1: Sync files (33%)
+	GuiControl, Settings:, DevWebProgress, 25
+	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && copy /y website_ps\index.html docs\index.html >nul 2>&1 && xcopy /s /y /q website_ps\images\* docs\images\ >nul 2>&1", , Hide
+	
+	; Step 2: Stage files (50%)
+	GuiControl, Settings:, DevWebProgress, 50
+	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git add website_ps/index.html docs/index.html website_ps/images/* docs/images/* 2>nul", , Hide
+	
+	; Step 3: Check for changes and commit (75%)
+	GuiControl, Settings:, DevWebProgress, 75
+	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git diff --cached --quiet" , , Hide
+	hasChanges := ErrorLevel
+	
+	if (hasChanges) {
+		; Step 4: Commit and push (100%)
+		RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git commit -m "Update website" && git push origin main" , , Hide
+		pushResult := ErrorLevel
+		GuiControl, Settings:, DevWebProgress, 100
+		Sleep, 300
+		GuiControl, Settings:Hide, DevWebProgress
+		GuiControl, Settings:Enable, DevPushWebBtn
+		if (pushResult)
+			DarkMsgBox("Push Website", "❌ Website push failed.`n`nCheck the terminal for details.", "error")
+		else
+			DarkMsgBox("Push Website", "✓ Website synced and pushed to GitHub.`n`nChanges live in ~1-2 minutes.", "success", {timeout: 5})
+	} else {
+		GuiControl, Settings:, DevWebProgress, 100
+		Sleep, 300
+		GuiControl, Settings:Hide, DevWebProgress
+		GuiControl, Settings:Enable, DevPushWebBtn
+		DarkMsgBox("Push Website", "No changes to push.`n`nWebsite files are already up to date.", "info", {timeout: 3})
+	}
 Return
 
 DevReloadScript:

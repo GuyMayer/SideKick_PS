@@ -103,6 +103,17 @@ Write-Host "`n[1/8] Cleaning Release folder..." -ForegroundColor Yellow
 if (Test-Path $ReleaseDir) { Remove-Item $ReleaseDir -Recurse -Force }
 New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
 
+# Copy bundled fonts (Phosphor Thin for toolbar icons)
+Write-Host "  Copying bundled fonts..." -ForegroundColor Gray
+New-Item -ItemType Directory -Path "$ReleaseDir\fonts" -Force | Out-Null
+$userFonts = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+if (Test-Path "$userFonts\Phosphor-Thin.ttf") {
+    Copy-Item "$userFonts\Phosphor-Thin.ttf" "$ReleaseDir\fonts\" -Force
+}
+if (Test-Path "$userFonts\fa-solid-900.ttf") {
+    Copy-Item "$userFonts\fa-solid-900.ttf" "$ReleaseDir\fonts\" -Force
+}
+
 # Create archive folder
 Write-Host "`n[2/8] Creating archive folder..." -ForegroundColor Yellow
 if (Test-Path $ArchiveDir) { 
