@@ -12,6 +12,24 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.3 (2026-02-09)
+
+### New Features
+- **Print to PDF Hands-Off Mode**: Shows warning GUI during PDF generation - "HANDS OFF - Do not touch mouse or keyboard"
+- **Auto-Create Copy Folder**: PDF copy folder is created automatically if it doesn't exist
+
+### Improvements
+- **Print to PDF Reliability**: Click inside Print dialog to force focus before sending keystrokes
+- **PDF Filename Fix**: PDF now named after album (parent folder) instead of subfolder name
+- **Task In Progress Wait**: Waits for ProSelect "Task In Progress" window to close before copying PDF
+- **Removed Debug Step GUI**: Print to PDF runs automatically without step-by-step prompts
+
+### Bug Fixes
+- **Save Button Fix**: Now clicks correct Save button (Button2) in Save dialog
+- **Focus Stability**: Removed GUI Flash that was stealing focus during automation
+
+---
+
 ## v2.5.2 (2026-02-09)
 
 ### New Features

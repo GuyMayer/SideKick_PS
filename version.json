@@ -1,13 +1,16 @@
 {
-  "version": "2.5.2",
+  "version": "2.5.3",
   "build_date": "2026-02-09",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Phosphor Thin icon font bundled - thin outline icons across all Windows versions",
+  "release_notes": "Print to PDF improvements - hands-off mode, better reliability and focus handling",
   "changelog": [
-    "NEW: Phosphor Thin icon font bundled for consistent thin outline toolbar icons",
-    "NEW: Icon font auto-detection with fallback chain (Phosphor > Segoe Fluent > Font Awesome)",
-    "IMPROVED: Thinner toolbar icons - switched from bold Font Awesome to thin Phosphor",
-    "IMPROVED: Icons display consistently regardless of Windows version"
+    "NEW: Print to PDF hands-off mode with warning GUI during automation",
+    "NEW: PDF copy folder auto-created if it doesn't exist",
+    "IMPROVED: Print to PDF focus handling - clicks dialog to ensure keyboard focus",
+    "IMPROVED: PDF named after album folder instead of subfolder",
+    "IMPROVED: Waits for ProSelect Task In Progress window before copying PDF",
+    "FIX: Correct Save button clicked in Save dialog",
+    "FIX: Removed GUI Flash that was stealing focus"
   ],
   "versions": [
     {

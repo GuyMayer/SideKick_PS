@@ -2016,7 +2016,7 @@ Return
 ; handles the Save As dialog, saves to album folder + optional copy folder
 ; ═══════════════════════════════════════════════════════════════════════════════
 Toolbar_PrintToPDF:
-	global Settings_PDFOutputFolder, Settings_DebugLogging
+	global Settings_PDFOutputFolder
 	
 	; Check ProSelect is running
 	if !WinExist("ahk_exe ProSelect.exe") {
@@ -2024,67 +2024,52 @@ Toolbar_PrintToPDF:
 		Return
 	}
 	
-	; Start debug progress GUI if debug logging enabled (11 steps total)
-	DebugProgress_Show(11)
+	; Show hands-off warning GUI
+	Gui, PDFProgress:New, +AlwaysOnTop +ToolWindow +HwndPDFProgressHwnd
+	Gui, PDFProgress:Color, 1E1E1E
+	Gui, PDFProgress:Font, s12 cFFFFFF, Segoe UI
+	Gui, PDFProgress:Add, Text, x20 y20 w260 Center, 📄 Printing to PDF...
+	Gui, PDFProgress:Font, s10 cFFCC00, Segoe UI
+	Gui, PDFProgress:Add, Text, x20 y55 w260 Center, ⚠️ HANDS OFF
+	Gui, PDFProgress:Font, s9 cCCCCCC, Segoe UI
+	Gui, PDFProgress:Add, Text, x20 y80 w260 Center, Do not touch mouse or keyboard
+	Gui, PDFProgress:Show, w300 h115, Print to PDF
+	DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", PDFProgressHwnd, "Int", 20, "Int*", 1, "Int", 4)
 	
-	; Step 1: Get the album folder from ProSelect via Save Album As dialog
-	if (!DebugProgress_Update(1, "Get album folder via Save Album As dialog`n(Sends Ctrl+Shift+S to ProSelect)"))
-		Return
-	
+	; Get the album folder from ProSelect via Save Album As dialog
 	albumFolder := GetAlbumFolder()
 	if (albumFolder = "") {
-		DebugProgress_Close()
+		Gui, PDFProgress:Destroy
 		DarkMsgBox("Print to PDF", "Could not determine album folder.`n`nMake sure an album is open in ProSelect.", "error")
 		Return
 	}
 	
-	; Step 2: Save original default printer
-	if (!DebugProgress_Update(2, "Saving original default printer`nFolder: " . albumFolder))
-		Return
-	
+	; Save original default printer
 	origPrinter := ""
 	RunWait, powershell -NoProfile -Command "(Get-CimInstance Win32_Printer -Filter 'Default=True').Name | Set-Content '%A_Temp%\sidekick_orig_printer.txt'",, Hide
 	FileRead, origPrinter, %A_Temp%\sidekick_orig_printer.txt
 	origPrinter := Trim(origPrinter, " `t`r`n")
 	FileDelete, %A_Temp%\sidekick_orig_printer.txt
 	
-	; Step 3: Set Microsoft Print to PDF as default
-	if (!DebugProgress_Update(3, "Setting Microsoft Print to PDF as default`nOriginal printer: " . origPrinter)) {
-		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-		Return
-	}
-	
+	; Set Microsoft Print to PDF as default
 	RunWait, RUNDLL32 PRINTUI.DLL`,PrintUIEntry /y /n "Microsoft Print to PDF",, Hide
 	Sleep, 500
 	
-	; Step 4: Activate ProSelect and send Ctrl+P
-	if (!DebugProgress_Update(4, "Activating ProSelect and sending Ctrl+P`nWill open Print Order/Invoice Report dialog")) {
-		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-		Return
-	}
-	
+	; Activate ProSelect and send Ctrl+P
 	WinActivate, ahk_exe ProSelect.exe
 	WinWaitActive, ahk_exe ProSelect.exe, , 2
 	if ErrorLevel {
-		DebugProgress_Close()
+		Gui, PDFProgress:Destroy
 		if (origPrinter != "")
 			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
 		Return
 	}
 	Send, ^p
 	
-	; Step 5: Wait for the ProSelect Print Order/Invoice Report dialog
-	if (!DebugProgress_Update(5, "Waiting for Print Order/Invoice Report dialog`n(up to 5 seconds)")) {
-		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-		Return
-	}
-	
+	; Wait for the ProSelect Print Order/Invoice Report dialog
 	WinWait, Print Order/Invoice Report, , 5
 	if ErrorLevel {
-		DebugProgress_Close()
+		Gui, PDFProgress:Destroy
 		ToolTip, Print dialog did not open
 		SetTimer, RemoveToolTip, -2000
 		if (origPrinter != "")
@@ -2093,7 +2078,7 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 1000
 	
-	; Step 6: Auto-select template (same logic as QuickPrint)
+	; Auto-select template (same logic as QuickPrint)
 	resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
 	hasPayPlan := false
 	if FileExist(resultFile) {
@@ -2102,12 +2087,6 @@ Toolbar_PrintToPDF:
 			hasPayPlan := true
 	}
 	searchTerm := hasPayPlan ? Settings_PrintTemplate_PayPlan : Settings_PrintTemplate_Standard
-	
-	if (!DebugProgress_Update(6, "Selecting print template`nTemplate: " . searchTerm . "`nPayment plan: " . (hasPayPlan ? "Yes" : "No"))) {
-		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-		Return
-	}
 	
 	Control, Check,, Button20, Print Order/Invoice Report
 	Sleep, 100
@@ -2121,27 +2100,15 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 100
 	
-	; Step 7: Click Print in ProSelect dialog — this opens the Windows Print dialog
-	if (!DebugProgress_Update(7, "Clicking Print button (Button32)`nThis opens the Windows Print dialog")) {
-		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-		Return
-	}
-	
+	; Click Print in ProSelect dialog — this opens the Windows Print dialog
 	ControlFocus, Button32, Print Order/Invoice Report
 	Sleep, 200
 	Send, {Enter}
 	
-	; Step 8: Wait for the Windows "ProSelect - Print" dialog
-	if (!DebugProgress_Update(8, "Waiting for Windows Print dialog`n(ProSelect - Print, up to 10 seconds)")) {
-		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-		Return
-	}
-	
+	; Wait for the Windows "ProSelect - Print" dialog
 	WinWait, ProSelect - Print, , 10
 	if ErrorLevel {
-		DebugProgress_Close()
+		Gui, PDFProgress:Destroy
 		ToolTip, Windows Print dialog did not appear
 		SetTimer, RemoveToolTip, -3000
 		if (origPrinter != "")
@@ -2150,54 +2117,47 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 1000
 	
-	; Step 9: Click Print button in Windows Print dialog
+	; Click Print button in Windows Print dialog
 	; PDF printer is already set as default so it should be pre-selected
-	; Focus starts on Printer dropdown, need 6 tabs to reach Print button
-	if (!DebugProgress_Update(9, "Clicking Print button in Windows Print dialog`n(6x Tab from Printer dropdown, then Space)")) {
-		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-		Return
-	}
-	
-	; Activate and wait for focus to ensure keystrokes go to this window
+	; Activate and click inside the window to force focus
 	WinActivate, ProSelect - Print
 	WinWaitActive, ProSelect - Print, , 3
 	if ErrorLevel {
 		ToolTip, Could not activate Print dialog
 		SetTimer, RemoveToolTip, -2000
 	}
-	Sleep, 500
+	
+	; Click inside the dialog window to ensure it has keyboard focus
+	WinGetPos, winX, winY, winW, winH, ProSelect - Print
+	clickX := winX + (winW // 2)
+	clickY := winY + 100  ; Click upper area, avoid buttons
+	Click, %clickX%, %clickY%
+	Sleep, 300
 	
 	; Use regular Send (not ControlSend) - modern Win11 dialogs need this
-	; 6 tabs from Printer dropdown to reach Print button
+	; 8 tabs from Printer dropdown to reach Print button
 	Send, {Tab}
-	Sleep, 100
+	Sleep, 300
 	Send, {Tab}
-	Sleep, 100
+	Sleep, 300
 	Send, {Tab}
-	Sleep, 100
+	Sleep, 300
 	Send, {Tab}
-	Sleep, 100
+	Sleep, 300
 	Send, {Tab}
-	Sleep, 100
+	Sleep, 300
 	Send, {Tab}
-	Sleep, 500
-	; Re-activate window before sending Space
-	WinActivate, ProSelect - Print
-	WinWaitActive, ProSelect - Print, , 2
-	Sleep, 200
-	; Now send Space to click Print button (Space is more reliable for focused buttons)
-	Send, {Space}
+	Sleep, 300
+	Send, {Tab}
+	Sleep, 300
+	Send, {Tab}
+	Sleep, 300
+	
+	; Send Enter to activate Print button
+	Send, {Enter}
 	Sleep, 1000
 	
-	; Step 10: Wait for Save As dialog and save PDF
-	if (!DebugProgress_Update(10, "Waiting for Save As dialog`n(checking multiple window titles, up to 20 seconds)")) {
-		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-		Return
-	}
-	
-	; Try multiple possible Save dialog titles
+	; Wait for Save As dialog
 	saveWinTitle := ""
 	Loop, 40 {
 		; Check various possible window titles
@@ -2224,7 +2184,7 @@ Toolbar_PrintToPDF:
 	}
 	
 	if (saveWinTitle = "") {
-		DebugProgress_Close()
+		Gui, PDFProgress:Destroy
 		ToolTip, PDF Save dialog did not appear (waited 20 seconds)
 		SetTimer, RemoveToolTip, -3000
 		if (origPrinter != "")
@@ -2233,8 +2193,10 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 300
 	
-	; Build filename from album folder name
-	SplitPath, albumFolder, albumName
+	; Build filename from album name (parent folder of album file location)
+	; Album file may be in subfolder like "Unprocessed", so go up one level
+	SplitPath, albumFolder, , parentFolder
+	SplitPath, parentFolder, albumName
 	pdfName := albumName . ".pdf"
 	pdfFullPath := albumFolder . "\" . pdfName
 	
@@ -2242,16 +2204,28 @@ Toolbar_PrintToPDF:
 	ControlSetText, Edit1, %pdfFullPath%, %saveWinTitle%
 	Sleep, 200
 	
-	; Click Save
-	ControlClick, Button1, %saveWinTitle%
+	; Click Save (Button2 in this dialog)
+	ControlClick, Button2, %saveWinTitle%
 	
-	; Wait for Save to complete
+	; Wait for Save dialog to close
 	WinWaitClose, %saveWinTitle%, , 15
+	Sleep, 300
+	
+	; Wait for ProSelect "Task In Progress" window to appear and close (PDF generation)
+	SetTitleMatchMode, 2
+	WinWait, Task In Progress ahk_exe ProSelect.exe, , 5
+	if !ErrorLevel
+		WinWaitClose, Task In Progress ahk_exe ProSelect.exe, , 30
+	SetTitleMatchMode, 1
 	Sleep, 500
 	
-	; Step 11: Copy to secondary folder and restore printer
+	; Copy to secondary folder if configured
 	copyStatus := ""
-	if (Settings_PDFOutputFolder != "" && FileExist(Settings_PDFOutputFolder)) {
+	if (Settings_PDFOutputFolder != "") {
+		; Create folder if it doesn't exist
+		if (!FileExist(Settings_PDFOutputFolder))
+			FileCreateDir, %Settings_PDFOutputFolder%
+		
 		if FileExist(pdfFullPath) {
 			copyDest := Settings_PDFOutputFolder . "\" . pdfName
 			FileCopy, %pdfFullPath%, %copyDest%, 1
@@ -2262,16 +2236,10 @@ Toolbar_PrintToPDF:
 		} else {
 			copyStatus := "PDF file not found at " . pdfFullPath
 		}
-	} else {
-		copyStatus := "No secondary folder configured"
 	}
 	
-	if (!DebugProgress_Update(11, "Complete! Restoring original printer`nPDF: " . pdfFullPath . "`n" . copyStatus)) {
-		; User stopped at final step - still restore printer
-	}
-	
-	; Show final result (non-debug mode)
-	if (Settings_PDFOutputFolder != "" && FileExist(Settings_PDFOutputFolder)) {
+	; Show final result
+	if (Settings_PDFOutputFolder != "") {
 		if FileExist(pdfFullPath) {
 			copyDest := Settings_PDFOutputFolder . "\" . pdfName
 			if FileExist(copyDest)
@@ -2290,7 +2258,7 @@ Toolbar_PrintToPDF:
 	if (origPrinter != "")
 		RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
 	
-	DebugProgress_Close()
+	Gui, PDFProgress:Destroy
 Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -2447,8 +2415,7 @@ DebugProgress_Update(stepNum, stepText) {
 	GuiControl, DebugProg:, DebugProg_StepCounter, Step %stepNum% of %DebugProgress_TotalSteps%
 	GuiControl, DebugProg:, DebugProg_StepText, %stepText%
 	
-	; Flash the GUI briefly to draw attention
-	Gui, DebugProg:Flash
+	; Note: Removed Flash - it can steal focus from dialogs we're trying to interact with
 	
 	; Wait for user to click Next or Stop
 	Loop {
