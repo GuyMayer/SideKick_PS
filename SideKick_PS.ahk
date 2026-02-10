@@ -1966,17 +1966,24 @@ Toolbar_ToggleSort:
 Return
 
 Toolbar_Photoshop:
-; Use menu to Transfer to Photoshop (avoids triggering other hotkeys)
+; Transfer to Photoshop, wait for edit, then refresh
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
-WinMenuSelectItem, ahk_exe ProSelect.exe, , Images, Transfer to Editor...
+Send, ^t
+Sleep, 500
+; Show popup and wait for user to finish editing
+DarkMsgBox("Edit Preview", "Edit preview file and save.`n`n" . Chr(0x1F504) . " Return to ProSelect and refresh.", "info", {timeout: 5})
+; Return to ProSelect and refresh
+WinActivate, ahk_exe ProSelect.exe
+WinWaitActive, ahk_exe ProSelect.exe, , 2
+Send, ^u
 Return
 
 Toolbar_Refresh:
-; Use menu to Refresh/Update album (avoids triggering other hotkeys)
+; Refresh/Update album
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
-WinMenuSelectItem, ahk_exe ProSelect.exe, , Images, Update Files...
+Send, ^u
 Return
 
 Toolbar_QuickPrint:
@@ -1985,8 +1992,16 @@ WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
 if ErrorLevel
 	Return
-; Use menu to open Print dialog (avoids triggering other hotkeys)
-WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
+; Use keyboard menu navigation to open Print dialog (avoids triggering other hotkeys)
+Sleep, 1000
+Send, !f        ; Alt+F to open File menu
+Sleep, 300
+Send, p         ; P to highlight Print submenu
+Sleep, 300
+Send, {Right}   ; Open the submenu
+Sleep, 300
+Send, {Enter}   ; Select first item (Order/Invoice Report...)
+Sleep, 1000
 ; Wait for the Print dialog to appear
 WinWait, ahk_class #32770, , 3
 if ErrorLevel {
@@ -2079,7 +2094,7 @@ Toolbar_PrintToPDF:
 	RunWait, RUNDLL32 PRINTUI.DLL`,PrintUIEntry /y /n "Microsoft Print to PDF",, Hide
 	Sleep, 500
 	
-	; Activate ProSelect and use menu to Print (avoids triggering other hotkeys)
+	; Activate ProSelect and use keyboard menu navigation to Print
 	WinActivate, ahk_exe ProSelect.exe
 	WinWaitActive, ahk_exe ProSelect.exe, , 2
 	if ErrorLevel {
@@ -2088,7 +2103,15 @@ Toolbar_PrintToPDF:
 			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",,Hide
 		Return
 	}
-	WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
+	Sleep, 300
+	Send, !f        ; Alt+F to open File menu
+	Sleep, 300
+	Send, p         ; P to highlight Print submenu
+	Sleep, 300
+	Send, {Right}   ; Open the submenu
+	Sleep, 300
+	Send, {Enter}   ; Select first item (Order/Invoice Report...)
+	Sleep, 1000
 	
 	; Wait for the ProSelect Print Order/Invoice Report dialog
 	WinWait, Print Order/Invoice Report, , 5
@@ -2156,14 +2179,10 @@ Toolbar_PrintToPDF:
 	clickX := winX + (winW // 2)
 	clickY := winY + 100  ; Click upper area, avoid buttons
 	Click, %clickX%, %clickY%
-	Sleep, 300
+	Sleep, 1000
 	
 	; Use regular Send (not ControlSend) - modern Win11 dialogs need this
-	; 8 tabs from Printer dropdown to reach Print button
-	Send, {Tab}
-	Sleep, 300
-	Send, {Tab}
-	Sleep, 300
+	; 6 tabs from Printer dropdown to reach Print button
 	Send, {Tab}
 	Sleep, 300
 	Send, {Tab}
@@ -2280,7 +2299,7 @@ Toolbar_PrintToPDF:
 	
 	; Wait for Save dialog to close
 	WinWaitClose, %saveWinTitle%, , 15
-	Sleep, 300
+	Sleep, 1000
 	
 	; Wait for ProSelect "Task In Progress" window to appear and close (PDF generation)
 	SetTitleMatchMode, 2
@@ -12747,7 +12766,14 @@ IfWinNotExist, ahk_exe ProSelect.exe
 ;ToolTip, Printing Accounts copy
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe
-WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
+Sleep, 1000
+Send, !f        ; Alt+F to open File menu
+Sleep, 300
+Send, p         ; P to highlight Print submenu
+Sleep, 300
+Send, {Right}   ; Open the submenu
+Sleep, 300
+Send, {Enter}   ; Select first item (Order/Invoice Report...)
 sleep, 2000
 WinActivate, Print Order Report
 WinWaitActive, Print Order Report
@@ -12775,7 +12801,14 @@ SoundPlay %A_ScriptDir%\KbdSpacebar.wav
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe
 WinActivate, ahk_exe ProSelect.exe
-WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
+Sleep, 1000
+Send, !f        ; Alt+F to open File menu
+Sleep, 300
+Send, p         ; P to highlight Print submenu
+Sleep, 300
+Send, {Right}   ; Open the submenu
+Sleep, 300
+Send, {Enter}   ; Select first item (Order/Invoice Report...)
 sleep, 2000
 WinActivate, Print Order Report
 WinWaitActive, Print Order Report
@@ -12798,7 +12831,14 @@ WinWaitClose, Task in Progress...,10
 ; Production copy
 
 WinActivate, ahk_exe ProSelect.exe
-WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
+Sleep, 1000
+Send, !f        ; Alt+F to open File menu
+Sleep, 300
+Send, p         ; P to highlight Print submenu
+Sleep, 300
+Send, {Right}   ; Open the submenu
+Sleep, 300
+Send, {Enter}   ; Select first item (Order/Invoice Report...)
 sleep, 2000
 WinActivate, Print Order Report
 WinWaitActive, Print Order Report
