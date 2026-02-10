@@ -12,6 +12,14 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.4 (2026-02-10)
+
+### Bug Fixes
+- **Toolbar Height DPI Scaling**: Fixed toolbar height not scaling on high-DPI displays (buttons were clipped at bottom)
+- **PDF Button Toggle**: PDF toolbar button now appears/disappears immediately when toggled in Settings (previously required Apply/Close)
+
+---
+
 ## v2.5.3 (2026-02-09)
 
 ### New Features
@@ -36,6 +44,8 @@ AI INSTRUCTIONS - When publishing a new version:
 ### Bug Fixes
 - **Save Button Fix**: Now clicks correct Save button (Button2) in Save dialog
 - **Focus Stability**: Removed GUI Flash that was stealing focus during automation
+- **Toolbar Height DPI Scaling**: Fixed toolbar height not scaling on high-DPI displays (buttons were clipped at bottom)
+- **PDF Button Toggle**: PDF toolbar button now appears/disappears immediately when toggled in Settings (previously required Apply/Close)
 
 ---
 

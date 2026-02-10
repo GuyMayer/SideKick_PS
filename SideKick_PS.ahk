@@ -1850,7 +1850,7 @@ if (newX < 0)
 if (newY < 0)
 	newY := 0
 
-Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h43 NoActivate
+Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
 Return
 
 Toolbar_GetClient:
@@ -4281,6 +4281,9 @@ UpdateToggleSlider("Settings", "EnablePDF", Toggle_EnablePDF_State, 590)
 ; Save immediately so it persists without needing Apply/Close
 Settings_EnablePDF := Toggle_EnablePDF_State
 IniWrite, %Settings_EnablePDF%, %IniFilename%, Toolbar, EnablePDF
+; Rebuild toolbar immediately to show/hide PDF button
+Gui, Toolbar:Destroy
+CreateFloatingToolbar()
 Return
 
 ; Function to enable/disable File Management controls based on SD Card enabled state
