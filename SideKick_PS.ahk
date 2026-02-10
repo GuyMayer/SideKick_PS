@@ -338,6 +338,7 @@ global QR_CacheFolder := A_Temp . "\SideKick_QR_Cache"
 global QR_CachedFiles := []  ; Array of cached file paths
 global Settings_PrintTemplate_PayPlan := "PayPlan"
 global Settings_PrintTemplate_Standard := "Terms of Sale"
+global Settings_PrintTemplateOptions := ""  ; Cached template options from ProSelect Print dialog
 global Settings_EmailTemplateID := ""
 global Settings_EmailTemplateName := "(none selected)"
 
@@ -1967,8 +1968,9 @@ Return
 
 Toolbar_Photoshop:
 ; Transfer to Photoshop, wait for edit, then refresh
-WinActivate, ahk_exe ProSelect.exe
-WinWaitActive, ahk_exe ProSelect.exe, , 2
+; Only works when ProSelect is in focus
+IfWinNotActive, ahk_exe ProSelect.exe
+	Return
 Send, ^t
 Sleep, 500
 ; Show popup and wait for user to finish editing
@@ -1981,8 +1983,9 @@ Return
 
 Toolbar_Refresh:
 ; Refresh/Update album
-WinActivate, ahk_exe ProSelect.exe
-WinWaitActive, ahk_exe ProSelect.exe, , 2
+; Only works when ProSelect is in focus
+IfWinNotActive, ahk_exe ProSelect.exe
+	Return
 Send, ^u
 Return
 
@@ -3122,20 +3125,31 @@ Toolbar_CaptureRoom:
 	albumName := RegExReplace(albumName, "\s*-\s*ProSelect.*$", "")  ; Remove " - ProSelect" suffix
 	albumName := RegExReplace(albumName, "[\\/:*?""<>|]", "_")  ; Remove invalid filename chars
 	
-	; Get save folder from settings or use default
-	if (Settings_RoomCaptureFolder = "" || !FileExist(Settings_RoomCaptureFolder))
-	{
-		; Default to Documents folder
-		Settings_RoomCaptureFolder := A_MyDocuments . "\ProSelect Room Captures"
-		if (!FileExist(Settings_RoomCaptureFolder))
-			FileCreateDir, %Settings_RoomCaptureFolder%
+	; Get save folder from settings
+	saveFolder := Settings_RoomCaptureFolder
+	
+	; Handle "Album Folder" option - use current album's directory
+	if (saveFolder = "" || saveFolder = "Album Folder") {
+		; Get album folder from PS_AlbumPath global (set when album opens)
+		if (PS_AlbumPath != "" && FileExist(PS_AlbumPath)) {
+			SplitPath, PS_AlbumPath,, albumDir
+			saveFolder := albumDir
+		} else {
+			; Fallback to Documents folder
+			saveFolder := A_MyDocuments . "\ProSelect Room Captures"
+			if (!FileExist(saveFolder))
+				FileCreateDir, %saveFolder%
+		}
+	} else if (!FileExist(saveFolder)) {
+		; Custom folder doesn't exist, create it
+		FileCreateDir, %saveFolder%
 	}
 	
 	; Generate filename with room counter
 	roomNum := 1
 	Loop
 	{
-		outputFile := Settings_RoomCaptureFolder . "\" . albumName . "-room" . roomNum . ".jpg"
+		outputFile := saveFolder . "\" . albumName . "-room" . roomNum . ".jpg"
 		if (!FileExist(outputFile))
 			break
 		roomNum++
@@ -3382,6 +3396,18 @@ GHLWarning_Continue:
 Toolbar_GetInvoice_AfterWarning:
 FileAppend, % A_Now . " - Starting invoice export...`n", %DebugLogFile%
 
+; Show hands-off warning GUI during export automation
+Gui, InvoiceHandsOff:New, +AlwaysOnTop +ToolWindow -Caption +HwndInvoiceHandsOffHwnd
+Gui, InvoiceHandsOff:Color, 1E1E1E
+Gui, InvoiceHandsOff:Font, s14 Bold cWhite, Segoe UI
+Gui, InvoiceHandsOff:Add, Text, x20 y20 w260 Center, 📤 Exporting Invoice...
+Gui, InvoiceHandsOff:Font, s10 cFFCC00, Segoe UI
+Gui, InvoiceHandsOff:Add, Text, x20 y55 w260 Center, ⚠️ HANDS OFF
+Gui, InvoiceHandsOff:Font, s9 cCCCCCC, Segoe UI
+Gui, InvoiceHandsOff:Add, Text, x20 y80 w260 Center, Do not touch mouse or keyboard
+Gui, InvoiceHandsOff:Show, w300 h115, Exporting Invoice
+DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", InvoiceHandsOffHwnd, "Int", 20, "Int*", 1, "Int", 4)
+
 ; Suspend file watcher during export to prevent duplicate prompts
 ExportInProgress := true
 
@@ -3451,6 +3477,7 @@ if (!exportOpened)
 	{
 		FileAppend, % A_Now . " - FAILED: Export Orders dialog did not open`n", %DebugLogFile%
 		ExportInProgress := false  ; Re-enable file watcher
+		Gui, InvoiceHandsOff:Destroy
 		DarkMsgBox("SideKick PS", "Export Orders dialog did not open.`n`nTry opening it manually: Orders menu → Export Orders...", "warning")
 		Return
 	}
@@ -3476,6 +3503,7 @@ Sleep, 500
 if !WinExist("ahk_id " . exportWin)
 {
 	ExportInProgress := false  ; Re-enable file watcher
+	Gui, InvoiceHandsOff:Destroy
 	DarkMsgBox("SideKick PS", "Export Orders dialog closed unexpectedly", "warning")
 	Return
 }
@@ -3495,6 +3523,7 @@ ExportFolder := Settings_InvoiceWatchFolder
 if (ExportFolder = "" || !FileExist(ExportFolder))
 {
 	ExportInProgress := false  ; Re-enable file watcher
+	Gui, InvoiceHandsOff:Destroy
 	DarkMsgBox("Watch Folder Required", "Please set Invoice Watch Folder in Settings before exporting.", "warning")
 	Return
 }
@@ -3567,6 +3596,7 @@ if !ErrorLevel
 	if (latestXml = "")
 	{
 		ExportInProgress := false  ; Re-enable file watcher
+		Gui, InvoiceHandsOff:Destroy
 		ToolTip, No XML files found in: %ExportFolder%
 		SetTimer, RemoveToolTip, -3000
 		Return
@@ -3591,6 +3621,7 @@ if !ErrorLevel
 	{
 		FileAppend, % A_Now . " - ERROR: Missing Client ID`n", %DebugLogFile%
 		ExportInProgress := false  ; Re-enable file watcher
+		Gui, InvoiceHandsOff:Destroy
 		DarkMsgBox("Missing Client ID", "Invoice XML is missing a Client ID.`n`nPlease link this order to a GHL contact before exporting.`n`nFile: " . latestXml, "warning")
 		Return
 	}
@@ -3605,6 +3636,7 @@ if !ErrorLevel
 	{
 		FileAppend, % A_Now . " - ERROR: Script not found`n", %DebugLogFile%
 		ExportInProgress := false  ; Re-enable file watcher
+		Gui, InvoiceHandsOff:Destroy
 		DarkMsgBox("Script Missing", "Invoice exported but sync_ps_invoice not found.`n`nLooking for: " . scriptPath . "`nScript Dir: " . A_ScriptDir, "warning")
 		Return
 	}
@@ -3625,6 +3657,8 @@ if !ErrorLevel
 	FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
 	
 	FileAppend, % A_Now . " - Showing progress GUI...`n", %DebugLogFile%
+	; Close hands-off GUI before showing sync progress
+	Gui, InvoiceHandsOff:Destroy
 	; Show non-blocking progress GUI
 	ShowSyncProgressGUI(latestXml)
 	FileAppend, % A_Now . " - Progress GUI shown`n", %DebugLogFile%
@@ -3656,6 +3690,7 @@ else
 {
 	FileAppend, % A_Now . " - ERROR: Export timeout`n", %DebugLogFile%
 	ExportInProgress := false  ; Re-enable file watcher
+	Gui, InvoiceHandsOff:Destroy
 	DarkMsgBox("Export Timeout", "Export timeout - check ProSelect", "warning")
 }
 Return
@@ -4315,6 +4350,7 @@ UpdateFilesControlsState(enabled) {
 	GuiControl, Settings:%cmd%, FilesCardDriveEdit
 	GuiControl, Settings:%cmd%, FilesDownloadEdit
 	GuiControl, Settings:%cmd%, FilesArchiveEdit
+	GuiControl, Settings:%cmd%, FilesFolderTemplateEdit
 	GuiControl, Settings:%cmd%, FilesPrefixEdit
 	GuiControl, Settings:%cmd%, FilesSuffixEdit
 	GuiControl, Settings:%cmd%, FilesEditorEdit
@@ -4323,6 +4359,7 @@ UpdateFilesControlsState(enabled) {
 	GuiControl, Settings:%cmd%, FilesCardDriveBrowse
 	GuiControl, Settings:%cmd%, FilesDownloadBrowse
 	GuiControl, Settings:%cmd%, FilesArchiveBrowse
+	GuiControl, Settings:%cmd%, FilesFolderTemplateBrowse
 	GuiControl, Settings:%cmd%, FilesEditorBrowse
 	GuiControl, Settings:%cmd%, FilesSyncFromLBBtn
 	
@@ -4345,6 +4382,7 @@ UpdateFilesControlsState(enabled) {
 	GuiControl, Settings:+c%labelColor%, FilesCardDriveLabel
 	GuiControl, Settings:+c%labelColor%, FilesDownloadLabel
 	GuiControl, Settings:+c%labelColor%, FilesArchiveLabel
+	GuiControl, Settings:+c%labelColor%, FilesFolderTemplateLabel
 	GuiControl, Settings:+c%labelColor%, FilesPrefixLabel
 	GuiControl, Settings:+c%labelColor%, FilesSuffixLabel
 	GuiControl, Settings:+c%labelColor%, FilesEditorLabel
@@ -5597,56 +5635,60 @@ CreateHotkeysPanel()
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
 	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vHotkeysHeader Hidden, ⌨ Keyboard Shortcuts
 	
+	; Info note - hotkeys work when ProSelect or SideKick is active
+	Gui, Settings:Font, s9 c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x195 y45 w480 BackgroundTrans vHotkeysNote Hidden, ℹ️ Hotkeys work when ProSelect or SideKick is active
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; GLOBAL HOTKEYS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	devHotkeyHeight := A_IsCompiled ? 155 : 195
-	Gui, Settings:Add, GroupBox, x195 y55 w480 h%devHotkeyHeight% vHotkeysGlobalGroup Hidden, Global Hotkeys
+	Gui, Settings:Add, GroupBox, x195 y65 w480 h%devHotkeyHeight% vHotkeysGlobalGroup Hidden, Global Hotkeys
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; GHL Client Lookup hotkey
-	Gui, Settings:Add, Text, x210 y80 w180 BackgroundTrans vHKLabelGHL Hidden HwndHwndHKGHL, GHL Client Lookup:
+	Gui, Settings:Add, Text, x210 y90 w180 BackgroundTrans vHKLabelGHL Hidden HwndHwndHKGHL, GHL Client Lookup:
 	RegisterSettingsTooltip(HwndHKGHL, "GHL CLIENT LOOKUP HOTKEY`n`nTrigger a GoHighLevel client lookup from anywhere.`nFetches contact details, notes, and custom fields`nfor the currently active client in ProSelect.`n`nClick 'Set' then press your desired key combination.`nDefault: Ctrl+Shift+G")
 	displayGHL := FormatHotkeyDisplay(Hotkey_GHLLookup)
-	Gui, Settings:Add, Edit, x400 y77 w150 h25 vHotkey_GHLLookup_Edit ReadOnly Hidden, %displayGHL%
-	Gui, Settings:Add, Button, x560 y76 w60 h27 gCaptureHotkey_GHL vHKCaptureGHL Hidden HwndHwndHKCaptureGHL, Set
+	Gui, Settings:Add, Edit, x400 y87 w150 h25 vHotkey_GHLLookup_Edit ReadOnly Hidden, %displayGHL%
+	Gui, Settings:Add, Button, x560 y86 w60 h27 gCaptureHotkey_GHL vHKCaptureGHL Hidden HwndHwndHKCaptureGHL, Set
 	RegisterSettingsTooltip(HwndHKCaptureGHL, "SET HOTKEY`n`nClick this button, then press your desired`nkey combination (e.g., Ctrl+Shift+G).`n`nThe hotkey will be captured and saved automatically.")
 	
 	; PayPlan hotkey
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y110 w180 BackgroundTrans vHKLabelPP Hidden HwndHwndHKPP, Open PayPlan:
+	Gui, Settings:Add, Text, x210 y120 w180 BackgroundTrans vHKLabelPP Hidden HwndHwndHKPP, Open PayPlan:
 	RegisterSettingsTooltip(HwndHKPP, "PAYPLAN CALCULATOR HOTKEY`n`nOpen the PayPlan calculator for creating payment plans.`nQuickly generate monthly/weekly payment schedules`nfor client invoices.`n`nClick 'Set' then press your desired key combination.`nDefault: Ctrl+Shift+P")
 	displayPP := FormatHotkeyDisplay(Hotkey_PayPlan)
-	Gui, Settings:Add, Edit, x400 y107 w150 h25 vHotkey_PayPlan_Edit ReadOnly Hidden, %displayPP%
-	Gui, Settings:Add, Button, x560 y106 w60 h27 gCaptureHotkey_PayPlan vHKCapturePP Hidden HwndHwndHKCapturePP, Set
+	Gui, Settings:Add, Edit, x400 y117 w150 h25 vHotkey_PayPlan_Edit ReadOnly Hidden, %displayPP%
+	Gui, Settings:Add, Button, x560 y116 w60 h27 gCaptureHotkey_PayPlan vHKCapturePP Hidden HwndHwndHKCapturePP, Set
 	RegisterSettingsTooltip(HwndHKCapturePP, "SET HOTKEY`n`nClick this button, then press your desired`nkey combination (e.g., Ctrl+Shift+P).`n`nThe hotkey will be captured and saved automatically.")
 	
 	; Settings hotkey
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y140 w180 BackgroundTrans vHKLabelSettings Hidden HwndHwndHKSettings, Open Settings:
+	Gui, Settings:Add, Text, x210 y150 w180 BackgroundTrans vHKLabelSettings Hidden HwndHwndHKSettings, Open Settings:
 	RegisterSettingsTooltip(HwndHKSettings, "SETTINGS WINDOW HOTKEY`n`nOpen this Settings window from anywhere.`nQuickly access configuration, hotkeys,`nand GHL integration options.`n`nClick 'Set' then press your desired key combination.`nDefault: Ctrl+Shift+W")
 	displaySettings := FormatHotkeyDisplay(Hotkey_Settings)
-	Gui, Settings:Add, Edit, x400 y137 w150 h25 vHotkey_Settings_Edit ReadOnly Hidden, %displaySettings%
-	Gui, Settings:Add, Button, x560 y136 w60 h27 gCaptureHotkey_Settings vHKCaptureSettings Hidden HwndHwndHKCaptureSettings, Set
+	Gui, Settings:Add, Edit, x400 y147 w150 h25 vHotkey_Settings_Edit ReadOnly Hidden, %displaySettings%
+	Gui, Settings:Add, Button, x560 y146 w60 h27 gCaptureHotkey_Settings vHKCaptureSettings Hidden HwndHwndHKCaptureSettings, Set
 	RegisterSettingsTooltip(HwndHKCaptureSettings, "SET HOTKEY`n`nClick this button, then press your desired`nkey combination (e.g., Ctrl+Shift+W).`n`nThe hotkey will be captured and saved automatically.")
 	
 	; Dev Reload hotkey (only visible in dev mode - not compiled)
 	if (!A_IsCompiled) {
 		Gui, Settings:Font, s10 cFF9900, Segoe UI  ; Orange for dev-only
-		Gui, Settings:Add, Text, x210 y170 w180 BackgroundTrans vHKLabelDevReload Hidden HwndHwndHKDevReload, 🔧 Reload Script:
+		Gui, Settings:Add, Text, x210 y180 w180 BackgroundTrans vHKLabelDevReload Hidden HwndHwndHKDevReload, 🔧 Reload Script:
 		RegisterSettingsTooltip(HwndHKDevReload, "RELOAD SCRIPT HOTKEY (Dev Only)`n`nReloads the script for testing code changes.`nOnly available when running as uncompiled script.`n`nUseful during development to quickly apply changes`nwithout manually restarting.`n`nDefault: Ctrl+Shift+R")
 		displayDevReload := FormatHotkeyDisplay(Hotkey_DevReload)
-		Gui, Settings:Add, Edit, x400 y167 w150 h25 vHotkey_DevReload_Edit ReadOnly Hidden, %displayDevReload%
-		Gui, Settings:Add, Button, x560 y166 w60 h27 gCaptureHotkey_DevReload vHKCaptureDevReload Hidden, Set
+		Gui, Settings:Add, Edit, x400 y177 w150 h25 vHotkey_DevReload_Edit ReadOnly Hidden, %displayDevReload%
+		Gui, Settings:Add, Button, x560 y176 w60 h27 gCaptureHotkey_DevReload vHKCaptureDevReload Hidden, Set
 		Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	}
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; ACTIONS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
-	actionsY := A_IsCompiled ? 220 : 260
+	actionsY := A_IsCompiled ? 230 : 270
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y%actionsY% w480 h75 vHotkeysActionsGroup Hidden, Actions
 	
@@ -5660,7 +5702,7 @@ CreateHotkeysPanel()
 	; ═══════════════════════════════════════════════════════════════════════════
 	; TOOLBAR GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
-	toolbarY := A_IsCompiled ? 305 : 345
+	toolbarY := A_IsCompiled ? 315 : 355
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y%toolbarY% w480 h105 vHotkeysToolbarGroup Hidden, Toolbar Appearance
 	
@@ -5700,7 +5742,7 @@ CreateHotkeysPanel()
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INSTRUCTIONS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
-	instructY := A_IsCompiled ? 415 : 455
+	instructY := A_IsCompiled ? 425 : 465
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y%instructY% w480 h130 vHotkeysInstructGroup Hidden, How to Set Hotkeys
 	
@@ -7058,11 +7100,29 @@ CreatePrintPanel()
 	Gui, Settings:Add, Text, x210 y85 w440 BackgroundTrans vPrintTemplatesDesc, Template name to match in ProSelect's Print dialog dropdown.
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y115 w95 h22 BackgroundTrans vPrintPayPlanLabel, Payment Plan:
-	Gui, Settings:Add, Edit, x310 y113 w345 h22 cBlack vPrintPayPlanEdit, %Settings_PrintTemplate_PayPlan%
+	Gui, Settings:Add, Text, x210 y115 w95 h22 BackgroundTrans vPrintPayPlanLabel HwndHwndPrintPayPlan, Payment Plan:
+	RegisterSettingsTooltip(HwndPrintPayPlan, "PAYMENT PLAN TEMPLATE`n`nTemplate to auto-select when printing with`na payment plan (Ctrl+Shift+O).")
+	; Build dropdown: SELECT first, then saved value, then cached options
+	payplanList := "SELECT"
+	if (Settings_PrintTemplateOptions != "")
+		payplanList .= "|" . Settings_PrintTemplateOptions
+	Gui, Settings:Add, ComboBox, x310 y113 w295 r10 vPrintPayPlanCombo Choose1, %payplanList%
+	; Select saved value if it exists
+	if (Settings_PrintTemplate_PayPlan != "" && Settings_PrintTemplate_PayPlan != "SELECT")
+		GuiControl, Settings:ChooseString, PrintPayPlanCombo, %Settings_PrintTemplate_PayPlan%
+	Gui, Settings:Add, Button, x610 y112 w45 h55 gRefreshPrintTemplates vPrintRefreshBtn HwndHwndPrintRefresh, 🔄
+	RegisterSettingsTooltip(HwndPrintRefresh, "REFRESH TEMPLATES`n`nOpens ProSelect's Print dialog and reads available`ntemplate names for the dropdown lists.`n`nMake sure ProSelect is running with an album open.")
 	
-	Gui, Settings:Add, Text, x210 y145 w95 h22 BackgroundTrans vPrintStandardLabel, Standard:
-	Gui, Settings:Add, Edit, x310 y143 w345 h22 cBlack vPrintStandardEdit, %Settings_PrintTemplate_Standard%
+	Gui, Settings:Add, Text, x210 y145 w95 h22 BackgroundTrans vPrintStandardLabel HwndHwndPrintStandard, Standard:
+	RegisterSettingsTooltip(HwndPrintStandard, "STANDARD TEMPLATE`n`nTemplate to auto-select when printing without`na payment plan (Ctrl+Shift+P).")
+	; Build dropdown: SELECT first, then saved value, then cached options
+	standardList := "SELECT"
+	if (Settings_PrintTemplateOptions != "")
+		standardList .= "|" . Settings_PrintTemplateOptions
+	Gui, Settings:Add, ComboBox, x310 y143 w295 r10 vPrintStandardCombo Choose1, %standardList%
+	; Select saved value if it exists
+	if (Settings_PrintTemplate_Standard != "" && Settings_PrintTemplate_Standard != "SELECT")
+		GuiControl, Settings:ChooseString, PrintStandardCombo, %Settings_PrintTemplate_Standard%
 	
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y175 w440 BackgroundTrans vPrintTemplatesHint, The template matching this name will be auto-selected when using Quick Print.
@@ -7077,13 +7137,9 @@ CreatePrintPanel()
 	Gui, Settings:Add, Text, x210 y245 w95 h22 BackgroundTrans vPrintEmailTplLabel HwndHwndPrintEmailTpl, Template:
 	RegisterSettingsTooltip(HwndPrintEmailTpl, "EMAIL TEMPLATE`n`nSelect a GHL email template for room capture emails.`nThe room image will be appended to the template body.`n`nClick 🔄 to fetch templates from GHL.")
 	
-	; Build template list for ComboBox (saved value first, then cached)
-	tplList := Settings_EmailTemplateName
+	; Build template list for ComboBox (SELECT first, then cached options)
+	tplList := "SELECT"
 	if (GHL_CachedEmailTemplates != "") {
-		if (tplList != "" && tplList != "(none selected)")
-			tplList .= "||"
-		else
-			tplList := ""
 		; Extract just the names from cached templates (format: id|name`nid|name...)
 		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
 		{
@@ -7091,13 +7147,14 @@ CreatePrintPanel()
 				continue
 			parts := StrSplit(A_LoopField, "|")
 			if (parts.Length() >= 2) {
-				if (tplList != "")
-					tplList .= "|"
-				tplList .= parts[2]
+				tplList .= "|" . parts[2]
 			}
 		}
 	}
-	Gui, Settings:Add, ComboBox, x310 y243 w200 r10 vPrintEmailTplCombo, %tplList%
+	Gui, Settings:Add, ComboBox, x310 y243 w200 r10 vPrintEmailTplCombo Choose1, %tplList%
+	; Select saved value if it exists
+	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)" && Settings_EmailTemplateName != "SELECT")
+		GuiControl, Settings:ChooseString, PrintEmailTplCombo, %Settings_EmailTemplateName%
 	Gui, Settings:Add, Button, x515 y242 w40 h27 gRefreshPrintEmailTemplates vPrintEmailTplRefresh HwndHwndPrintEmailRefresh, 🔄
 	RegisterSettingsTooltip(HwndPrintEmailRefresh, "REFRESH EMAIL TEMPLATES`n`nFetch available email templates from GHL.")
 	
@@ -7105,9 +7162,20 @@ CreatePrintPanel()
 	Gui, Settings:Add, Text, x210 y275 w440 BackgroundTrans vPrintEmailTplHint, GHL email template used when emailing room captures to client.
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y300 w95 h22 BackgroundTrans vPrintRoomFolderLabel, Save Folder:
-	Gui, Settings:Add, Edit, x310 y298 w280 h22 cBlack vPrintRoomFolderEdit ReadOnly, %Settings_RoomCaptureFolder%
-	Gui, Settings:Add, Button, x595 y297 w60 h24 gBrowseRoomCaptureFolder vPrintRoomFolderBrowse, Browse
+	Gui, Settings:Add, Text, x210 y300 w95 h22 BackgroundTrans vPrintRoomFolderLabel HwndHwndPrintRoomFolder, Save Folder:
+	RegisterSettingsTooltip(HwndPrintRoomFolder, "ROOM CAPTURE SAVE FOLDER`n`nWhere room capture images are saved before`nbeing emailed to the client.`n`nAlbum Folder = saves in current album folder.")
+	; Build dropdown: Album Folder first, then custom path if set
+	roomFolderList := "Album Folder"
+	if (Settings_RoomCaptureFolder != "" && Settings_RoomCaptureFolder != "Album Folder")
+		roomFolderList .= "|" . Settings_RoomCaptureFolder
+	Gui, Settings:Add, ComboBox, x310 y298 w280 r5 vPrintRoomFolderCombo, %roomFolderList%
+	; Select saved value
+	if (Settings_RoomCaptureFolder != "" && Settings_RoomCaptureFolder != "Album Folder")
+		GuiControl, Settings:ChooseString, PrintRoomFolderCombo, %Settings_RoomCaptureFolder%
+	else
+		GuiControl, Settings:ChooseString, PrintRoomFolderCombo, Album Folder
+	Gui, Settings:Add, Button, x595 y297 w60 h24 gBrowseRoomCaptureFolder vPrintRoomFolderBrowse HwndHwndPrintRoomBrowse, Browse
+	RegisterSettingsTooltip(HwndPrintRoomBrowse, "Browse for custom save folder")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; PDF OUTPUT GROUP BOX
@@ -7116,16 +7184,19 @@ CreatePrintPanel()
 	Gui, Settings:Add, GroupBox, x195 y350 w480 h150 vPrintPDFGroup, PDF Output
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y378 w300 h22 BackgroundTrans vPrintEnablePDFLabel, Enable Print to PDF
+	Gui, Settings:Add, Text, x210 y378 w300 h22 BackgroundTrans vPrintEnablePDFLabel HwndHwndPrintEnablePDF, Enable Print to PDF
+	RegisterSettingsTooltip(HwndPrintEnablePDF, "ENABLE PDF OUTPUT`n`nShows a dedicated PDF button on the toolbar.`nPrints invoice to PDF instead of physical printer.")
 	CreateToggleSlider("Settings", "EnablePDF", 590, 375, Settings_EnablePDF)
 
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y400 w440 BackgroundTrans vPrintPDFDesc, Shows PDF button on toolbar. Print saves PDF to album folder + optional copy.
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y440 w95 h22 BackgroundTrans vPrintPDFCopyLabel, Copy Folder:
+	Gui, Settings:Add, Text, x210 y440 w95 h22 BackgroundTrans vPrintPDFCopyLabel HwndHwndPrintPDFCopy, Copy Folder:
+	RegisterSettingsTooltip(HwndPrintPDFCopy, "PDF COPY FOLDER`n`nOptional secondary location to copy the PDF.`nLeave blank to only save in the album folder.")
 	Gui, Settings:Add, Edit, x310 y438 w280 h22 cBlack vPrintPDFCopyEdit, %Settings_PDFOutputFolder%
-	Gui, Settings:Add, Button, x595 y437 w60 h24 gBrowsePDFOutputFolder vPrintPDFCopyBrowse, Browse
+	Gui, Settings:Add, Button, x595 y437 w60 h24 gBrowsePDFOutputFolder vPrintPDFCopyBrowse HwndHwndPrintPDFBrowse, Browse
+	RegisterSettingsTooltip(HwndPrintPDFBrowse, "Browse for PDF copy folder")
 
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y468 w440 BackgroundTrans vPrintPDFHint, PDF is always saved to the album folder. Leave blank to skip copying.
@@ -7139,6 +7210,84 @@ BrowsePDFOutputFolder:
 		Settings_PDFOutputFolder := selectedFolder
 		GuiControl, Settings:, PrintPDFCopyEdit, %selectedFolder%
 	}
+return
+
+RefreshPrintTemplates:
+	; Refresh print template options from ProSelect's Print dialog
+	ToolTip, Fetching print templates from ProSelect...
+	
+	; Check ProSelect is running
+	if !WinExist("ahk_exe ProSelect.exe") {
+		ToolTip
+		DarkMsgBox("Error", "ProSelect is not running.", "error")
+		return
+	}
+	
+	; Activate ProSelect
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe,, 2
+	
+	; Open Print dialog using keyboard navigation
+	Send, !f        ; Alt+F to open File menu
+	Sleep, 300
+	Send, p         ; P to highlight Print submenu
+	Sleep, 300
+	Send, {Right}   ; Open the submenu
+	Sleep, 300
+	Send, {Enter}   ; Select first item (Order/Invoice Report...)
+	Sleep, 1000
+	
+	; Wait for Print Order/Invoice Report window
+	WinWait, Print Order/Invoice Report, , 3
+	if ErrorLevel {
+		ToolTip
+		DarkMsgBox("Error", "Could not open Print dialog.", "error")
+		return
+	}
+	
+	; Read ComboBox5 (Template dropdown) list
+	ControlGet, cbList, List,, ComboBox5, Print Order/Invoice Report
+	if (ErrorLevel || cbList = "") {
+		; Close dialog and report error
+		Send, {Escape}
+		ToolTip
+		DarkMsgBox("Error", "Could not read template list from Print dialog.", "error")
+		return
+	}
+	
+	; Close dialog
+	Send, {Escape}
+	Sleep, 200
+	
+	; Re-activate Settings window
+	Gui, Settings:Show
+	
+	; Convert newline-separated list to pipe-separated
+	StringReplace, cbList, cbList, `n, |, All
+	Settings_PrintTemplateOptions := cbList
+	
+	; Update the ComboBox controls in Settings (prepend SELECT option)
+	GuiControl, Settings:, PrintPayPlanCombo, |SELECT|%cbList%
+	GuiControl, Settings:, PrintStandardCombo, |SELECT|%cbList%
+	
+	; Re-select current values if they still exist, otherwise set to SELECT
+	if (InStr("|" . cbList . "|", "|" . Settings_PrintTemplate_PayPlan . "|"))
+		GuiControl, Settings:ChooseString, PrintPayPlanCombo, %Settings_PrintTemplate_PayPlan%
+	else
+		GuiControl, Settings:ChooseString, PrintPayPlanCombo, SELECT
+	
+	if (InStr("|" . cbList . "|", "|" . Settings_PrintTemplate_Standard . "|"))
+		GuiControl, Settings:ChooseString, PrintStandardCombo, %Settings_PrintTemplate_Standard%
+	else
+		GuiControl, Settings:ChooseString, PrintStandardCombo, SELECT
+	
+	; Save to INI immediately
+	IniWrite, %Settings_PrintTemplateOptions%, %IniFilename%, Toolbar, PrintTemplateOptions
+	
+	; Show success tooltip (auto-hide after 2 seconds)
+	templateCount := StrSplit(cbList, "|").MaxIndex()
+	ToolTip, Loaded %templateCount% print templates
+	SetTimer, RemoveToolTip, -2000
 return
 
 RefreshPrintEmailTemplates:
@@ -7214,23 +7363,23 @@ RefreshPrintEmailTemplates:
 	; Cache the templates (format: id|name per line)
 	GHL_CachedEmailTemplates := result
 	
-	; Rebuild the dropdown
-	newList := ""
+	; Rebuild the dropdown with SELECT first
+	newList := "SELECT"
 	Loop, Parse, result, `n, `r
 	{
 		if (A_LoopField = "")
 			continue
 		parts := StrSplit(A_LoopField, "|")
 		if (parts.Length() >= 2) {
-			if (newList != "")
-				newList .= "|"
-			newList .= parts[2]
+			newList .= "|" . parts[2]
 		}
 	}
 	
 	GuiControl, Settings:, PrintEmailTplCombo, |%newList%
-	if (Settings_EmailTemplateName != "")
+	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)" && Settings_EmailTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, PrintEmailTplCombo, %Settings_EmailTemplateName%
+	else
+		GuiControl, Settings:ChooseString, PrintEmailTplCombo, SELECT
 	
 	DarkMsgBox("Templates Loaded", "Loaded " . StrSplit(result, "`n").MaxIndex() . " email templates from GHL.", "success", {timeout: 2})
 return
@@ -7239,7 +7388,9 @@ BrowseRoomCaptureFolder:
 	FileSelectFolder, selectedFolder, *%Settings_RoomCaptureFolder%, 3, Select Room Capture Folder
 	if (selectedFolder != "") {
 		Settings_RoomCaptureFolder := selectedFolder
-		GuiControl, Settings:, PrintRoomFolderEdit, %selectedFolder%
+		; Add to dropdown and select it
+		GuiControl, Settings:, PrintRoomFolderCombo, |Album Folder|%selectedFolder%
+		GuiControl, Settings:ChooseString, PrintRoomFolderCombo, %selectedFolder%
 	}
 return
 
@@ -7434,6 +7585,7 @@ ShowSettingsTab(tabName)
 	; Hide all panels - Hotkeys
 	GuiControl, Settings:Hide, PanelHotkeys
 	GuiControl, Settings:Hide, HotkeysHeader
+	GuiControl, Settings:Hide, HotkeysNote
 	GuiControl, Settings:Hide, HotkeysGlobalGroup
 	GuiControl, Settings:Hide, HKLabelGHL
 	GuiControl, Settings:Hide, Hotkey_GHLLookup_Edit
@@ -7613,10 +7765,11 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, PrintHeader
 	GuiControl, Settings:Hide, PrintTemplatesGroup
 	GuiControl, Settings:Hide, PrintTemplatesDesc
+	GuiControl, Settings:Hide, PrintRefreshBtn
 	GuiControl, Settings:Hide, PrintPayPlanLabel
-	GuiControl, Settings:Hide, PrintPayPlanEdit
+	GuiControl, Settings:Hide, PrintPayPlanCombo
 	GuiControl, Settings:Hide, PrintStandardLabel
-	GuiControl, Settings:Hide, PrintStandardEdit
+	GuiControl, Settings:Hide, PrintStandardCombo
 	GuiControl, Settings:Hide, PrintTemplatesHint
 	GuiControl, Settings:Hide, PrintEmailGroup
 	GuiControl, Settings:Hide, PrintEmailTplLabel
@@ -7624,7 +7777,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, PrintEmailTplRefresh
 	GuiControl, Settings:Hide, PrintEmailTplHint
 	GuiControl, Settings:Hide, PrintRoomFolderLabel
-	GuiControl, Settings:Hide, PrintRoomFolderEdit
+	GuiControl, Settings:Hide, PrintRoomFolderCombo
 	GuiControl, Settings:Hide, PrintRoomFolderBrowse
 	GuiControl, Settings:Hide, PrintPDFGroup
 	GuiControl, Settings:Hide, PrintEnablePDFLabel
@@ -7746,6 +7899,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabHotkeysBg
 		GuiControl, Settings:Show, PanelHotkeys
 		GuiControl, Settings:Show, HotkeysHeader
+		GuiControl, Settings:Show, HotkeysNote
 		GuiControl, Settings:Show, HotkeysGlobalGroup
 		GuiControl, Settings:Show, HKLabelGHL
 		GuiControl, Settings:Show, Hotkey_GHLLookup_Edit
@@ -7968,10 +8122,11 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, PrintHeader
 		GuiControl, Settings:Show, PrintTemplatesGroup
 		GuiControl, Settings:Show, PrintTemplatesDesc
+		GuiControl, Settings:Show, PrintRefreshBtn
 		GuiControl, Settings:Show, PrintPayPlanLabel
-		GuiControl, Settings:Show, PrintPayPlanEdit
+		GuiControl, Settings:Show, PrintPayPlanCombo
 		GuiControl, Settings:Show, PrintStandardLabel
-		GuiControl, Settings:Show, PrintStandardEdit
+		GuiControl, Settings:Show, PrintStandardCombo
 		GuiControl, Settings:Show, PrintTemplatesHint
 		GuiControl, Settings:Show, PrintEmailGroup
 		GuiControl, Settings:Show, PrintEmailTplLabel
@@ -7979,7 +8134,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, PrintEmailTplRefresh
 		GuiControl, Settings:Show, PrintEmailTplHint
 		GuiControl, Settings:Show, PrintRoomFolderLabel
-		GuiControl, Settings:Show, PrintRoomFolderEdit
+		GuiControl, Settings:Show, PrintRoomFolderCombo
 		GuiControl, Settings:Show, PrintRoomFolderBrowse
 		GuiControl, Settings:Show, PrintPDFGroup
 		GuiControl, Settings:Show, PrintEnablePDFLabel
@@ -9123,11 +9278,13 @@ Settings_QRCode_Text1 := SCQREdit1
 Settings_QRCode_Text2 := SCQREdit2
 Settings_QRCode_Text3 := SCQREdit3
 Settings_QRCode_Display := SCQRDisplay
-; Quick Print template strings from Print tab edit controls
-Settings_PrintTemplate_PayPlan := PrintPayPlanEdit
-Settings_PrintTemplate_Standard := PrintStandardEdit
+; Quick Print template strings from Print tab combo boxes
+if (PrintPayPlanCombo != "" && PrintPayPlanCombo != "SELECT")
+	Settings_PrintTemplate_PayPlan := PrintPayPlanCombo
+if (PrintStandardCombo != "" && PrintStandardCombo != "SELECT")
+	Settings_PrintTemplate_Standard := PrintStandardCombo
 ; Email template from Print tab combo box - look up ID from cached templates
-if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)") {
+if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)" && PrintEmailTplCombo != "SELECT") {
 	Settings_EmailTemplateName := PrintEmailTplCombo
 	; Find ID for this template name
 	Settings_EmailTemplateID := ""
@@ -9145,6 +9302,8 @@ if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)") {
 	Settings_EmailTemplateName := "(none selected)"
 	Settings_EmailTemplateID := ""
 }
+; Room capture folder from Print tab combo box
+Settings_RoomCaptureFolder := PrintRoomFolderCombo
 ; PDF settings from Print tab
 Settings_EnablePDF := Toggle_EnablePDF_State
 Settings_PDFOutputFolder := PrintPDFCopyEdit
@@ -9208,11 +9367,13 @@ Settings_QRCode_Text1 := SCQREdit1
 Settings_QRCode_Text2 := SCQREdit2
 Settings_QRCode_Text3 := SCQREdit3
 Settings_QRCode_Display := SCQRDisplay
-; Quick Print template strings from Print tab edit controls
-Settings_PrintTemplate_PayPlan := PrintPayPlanEdit
-Settings_PrintTemplate_Standard := PrintStandardEdit
+; Quick Print template strings from Print tab combo boxes
+if (PrintPayPlanCombo != "" && PrintPayPlanCombo != "SELECT")
+	Settings_PrintTemplate_PayPlan := PrintPayPlanCombo
+if (PrintStandardCombo != "" && PrintStandardCombo != "SELECT")
+	Settings_PrintTemplate_Standard := PrintStandardCombo
 ; Email template from Print tab combo box - look up ID from cached templates
-if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)") {
+if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)" && PrintEmailTplCombo != "SELECT") {
 	Settings_EmailTemplateName := PrintEmailTplCombo
 	; Find ID for this template name
 	Settings_EmailTemplateID := ""
@@ -9230,6 +9391,8 @@ if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)") {
 	Settings_EmailTemplateName := "(none selected)"
 	Settings_EmailTemplateID := ""
 }
+; Room capture folder from Print tab combo box
+Settings_RoomCaptureFolder := PrintRoomFolderCombo
 ; PDF settings from Print tab
 Settings_EnablePDF := Toggle_EnablePDF_State
 Settings_PDFOutputFolder := PrintPDFCopyEdit
@@ -9866,18 +10029,18 @@ RefreshEmailTemplates:
 			templateNames.Push(parts[2])
 	}
 	
-	; Update the ComboBox
-	newList := ""
+	; Update the ComboBox with SELECT first
+	newList := "SELECT"
 	for i, tplName in templateNames {
-		if (newList != "")
-			newList .= "|"
-		newList .= tplName
+		newList .= "|" . tplName
 	}
 	GuiControl, Settings:, PrintEmailTplCombo, |%newList%
 	
 	; Select current value if it exists
-	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)")
+	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)" && Settings_EmailTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, PrintEmailTplCombo, %Settings_EmailTemplateName%
+	else
+		GuiControl, Settings:ChooseString, PrintEmailTplCombo, SELECT
 	
 	tplCount := templateNames.MaxIndex() ? templateNames.MaxIndex() : 0
 	if (tplCount > 0)
@@ -9973,7 +10136,7 @@ ShowRoomCapturedDialog(imagePath, albumName, roomNum)
 	; Folder info
 	yPos += Round(22 * DPI_Scale)
 	Gui, RoomCaptured:Font, s%fontSize% cGray, Segoe UI
-	folderDisplay := Settings_RoomCaptureFolder
+	SplitPath, imagePath,, folderDisplay
 	if (StrLen(folderDisplay) > 50)
 		folderDisplay := "..." . SubStr(folderDisplay, -47)
 	Gui, RoomCaptured:Add, Text, x%dlgPadding% y%yPos% w%dlgW%, Folder: %folderDisplay%
@@ -11797,6 +11960,19 @@ RefreshSettingsDisplay() {
 ; ============================================
 ; Hotkey Registration System
 ; ============================================
+
+; Custom condition: ProSelect or SideKick windows are active
+IsProSelectOrSideKickActive() {
+	; Check if ProSelect is active
+	if WinActive("ahk_exe ProSelect.exe")
+		return true
+	; Check if any SideKick window is active (toolbar, settings, etc.)
+	WinGetTitle, activeTitle, A
+	if (InStr(activeTitle, "SideKick") || InStr(activeTitle, "Settings") || InStr(activeTitle, "PayPlan"))
+		return true
+	return false
+}
+
 RegisterHotkeys()
 {
 	global Hotkey_GHLLookup, Hotkey_PayPlan, Hotkey_Settings, Hotkey_DevReload
@@ -11810,7 +11986,7 @@ RegisterHotkeys()
 			Hotkey, %Hotkey_DevReload%, Off, UseErrorLevel
 	}
 	
-	; Register new hotkeys
+	; Register new hotkeys globally - condition checked in handlers
 	if (Hotkey_GHLLookup != "" && Hotkey_GHLLookup != "None") {
 		Hotkey, %Hotkey_GHLLookup%, HK_GHLLookup, On
 	}
@@ -11826,20 +12002,28 @@ RegisterHotkeys()
 	}
 }
 
-; Hotkey handler labels
+; Hotkey handler labels - check if ProSelect/SideKick is active before executing
 HK_GHLLookup:
+if (!IsProSelectOrSideKickActive())
+	Return
 GoSub, GHLClientLookup
 Return
 
 HK_PayPlan:
+if (!IsProSelectOrSideKickActive())
+	Return
 GoSub, PlaceButton
 Return
 
 HK_Settings:
+if (!IsProSelectOrSideKickActive())
+	Return
 GoSub, ShowSettings
 Return
 
 HK_DevReload:
+if (!IsProSelectOrSideKickActive())
+	Return
 Run, "%A_ScriptFullPath%"
 ExitApp
 Return
@@ -11939,8 +12123,10 @@ LoadSettings()
 	IniRead, Settings_QRCode_Display, %IniFilename%, QRCode, Display, 1
 	IniRead, Settings_PrintTemplate_PayPlan, %IniFilename%, Toolbar, PrintTemplate_PayPlan, PayPlan
 	IniRead, Settings_PrintTemplate_Standard, %IniFilename%, Toolbar, PrintTemplate_Standard, Terms of Sale
+	IniRead, Settings_PrintTemplateOptions, %IniFilename%, Toolbar, PrintTemplateOptions, %A_Space%
 	IniRead, Settings_EmailTemplateID, %IniFilename%, Toolbar, EmailTemplateID, %A_Space%
 	IniRead, Settings_EmailTemplateName, %IniFilename%, Toolbar, EmailTemplateName, (none selected)
+	IniRead, Settings_RoomCaptureFolder, %IniFilename%, Toolbar, RoomCaptureFolder, Album Folder
 	IniRead, Settings_EnablePDF, %IniFilename%, Toolbar, EnablePDF, 0
 	IniRead, Settings_PDFOutputFolder, %IniFilename%, Toolbar, PDFOutputFolder, %A_Space%
 	
@@ -12077,8 +12263,10 @@ SaveSettings()
 	GenerateQRCache()
 	IniWrite, %Settings_PrintTemplate_PayPlan%, %IniFilename%, Toolbar, PrintTemplate_PayPlan
 	IniWrite, %Settings_PrintTemplate_Standard%, %IniFilename%, Toolbar, PrintTemplate_Standard
+	IniWrite, %Settings_PrintTemplateOptions%, %IniFilename%, Toolbar, PrintTemplateOptions
 	IniWrite, %Settings_EmailTemplateID%, %IniFilename%, Toolbar, EmailTemplateID
 	IniWrite, %Settings_EmailTemplateName%, %IniFilename%, Toolbar, EmailTemplateName
+	IniWrite, %Settings_RoomCaptureFolder%, %IniFilename%, Toolbar, RoomCaptureFolder
 	IniWrite, %Settings_EnablePDF%, %IniFilename%, Toolbar, EnablePDF
 	IniWrite, %Settings_PDFOutputFolder%, %IniFilename%, Toolbar, PDFOutputFolder
 	
