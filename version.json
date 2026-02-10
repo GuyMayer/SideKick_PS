@@ -5,8 +5,7 @@
   "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
   "changelog": [
     "NEW: Dedicated PDF toolbar button (maroon) - always prints to PDF",
-    "NEW: GHL Client QR Code setup - one-click configure ProSelect QR code linking to GHL contact",
-    "NEW: Barcode scanner keyboard wedge support - scan GHLC:{contactId} to auto-open GHL contact",
+    "NEW: GHL Client QR Code - unified format works for both phones and barcode scanners",
     "NEW: Dynamic GHL agency domain - auto-detected from login URL, configurable per account",
     "NEW: PDF overwrite protection - auto-appends _1, _2, etc. if file exists",
     "NEW: Quick Print tooltip shows default printer name",

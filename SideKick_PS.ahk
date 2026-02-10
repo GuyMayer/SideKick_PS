@@ -5521,10 +5521,10 @@ CreateGHLPanel()
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	CreateToggleSlider("Settings", "AutoAddOppTags", 630, 478, Settings_AutoAddOppTags)
 	
-	; Set Order QR button - builds URL template using GHL Location ID
+	; Set Order QR button - unified format works for both phone and scanner
 	Gui, Settings:Font, s9 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Button, x210 y512 w150 h26 gSetOrderQRUrl vGHLSetOrderQRBtn Hidden HwndHwndSetOrderQR, 📱 Set Order QR URL
-	RegisterSettingsTooltip(HwndSetOrderQR, "SET ORDER QR URL`n`nConfigures ProSelect QR code for barcode scanner:`n  GHLC:[ACCOUNTCODE]`n`nWhen scanned, SideKick auto-opens the GHL contact.`nUses fast-typing detection (only scanner triggers it).")
+	RegisterSettingsTooltip(HwndSetOrderQR, "SET ORDER QR URL`n`nConfigures ProSelect QR code that works for BOTH:`n`n📱 Phone: Scan with camera → opens GHL contact`n🔫 Scanner: Barcode scanner → SideKick opens URL`n`nThe long URL path provides natural padding for scanner timing.")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; CONTACT SHEET COLLECTION GROUP BOX (y590 to y680)
@@ -9257,31 +9257,42 @@ if (!ErrorLevel && newLocID != "")
 Return
 
 SetOrderQRUrl:
-	global GHL_LocationID, Settings_QRCode_Text1
+	global GHL_LocationID, GHL_AgencyDomain, Settings_QRCode_Text1
+	
+	; Check if ProSelect is running FIRST
+	if !WinExist("ahk_exe ProSelect.exe") {
+		DarkMsgBox("Set Order QR", "ProSelect is not running.`n`nPlease open ProSelect first, then try again.", "warning")
+		Return
+	}
+	
+	; Activate ProSelect and ensure it's ready
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 3
+	if ErrorLevel {
+		DarkMsgBox("Set Order QR", "Could not activate ProSelect.`n`nPlease click on ProSelect and try again.", "warning")
+		Return
+	}
+	Sleep, 300
+	
 	if (GHL_LocationID = "") {
 		DarkMsgBox("Set Order QR", "GHL Location ID is not configured.`n`nPlease set your Location ID first.", "warning")
 		Return
 	}
-	; Build short QR code with GHLC: prefix + [ACCOUNTCODE] placeholder
-	; SideKick monitors for "GHLC:" typed quickly (scanner) and opens GHL contact
-	qrUrl := "GHLC:[ACCOUNTCODE]"
+	
+	; Build combined QR code URL that works for both phone AND scanner
+	; Format: Full URL - the path is long enough to act as padding
+	; - Phones: Scan QR → open URL directly in browser
+	; - Scanners: Type fast → SideKick detects https:// → opens URL
+	ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+	qrUrl := "https://" . ghlDomain . "/v2/location/" . GHL_LocationID . "/contacts/detail/[ACCOUNTCODE]"
+	qrTitle := "GHL Client QR"
+	
 	Settings_QRCode_Text1 := qrUrl
 	; Save to INI
 	IniWrite, %qrUrl%, %IniFilename%, QRCode, Text1
 	
 	; Copy URL to clipboard for easy paste
 	Clipboard := qrUrl
-	
-	; Check if ProSelect is running
-	if !WinExist("ahk_exe ProSelect.exe") {
-		DarkMsgBox("Set Order QR", "QR code template set to:`n`nGHLC:[ACCOUNTCODE]`n`nWhen scanned, SideKick will auto-open the GHL contact page.`n`nProSelect is not running. Open ProSelect and go to:`nResources → Setup QR Codes...", "info")
-		Return
-	}
-	
-	; Open ProSelect QR Codes window
-	WinActivate, ahk_exe ProSelect.exe
-	WinWaitActive, ahk_exe ProSelect.exe, , 2
-	Sleep, 200
 	
 	; Open Resources menu using menu bar click
 	; Menu order: File, Edit, Images, Products, Slideshow, Orders, Production, Resources, View, Help
@@ -9298,8 +9309,8 @@ SetOrderQRUrl:
 	WinActivate, QR Codes
 	Sleep, 300
 	
-	; Set Title field to "GHL Client QR" (Edit1)
-	ControlSetText, Edit1, GHL Client QR, QR Codes
+	; Set Title field (Edit1)
+	ControlSetText, Edit1, %qrTitle%, QR Codes
 	Sleep, 300
 	
 	; Set QR Message field to the URL (RICHEDIT50W1 is the rich text control)
@@ -9324,10 +9335,11 @@ SetOrderQRUrl:
 	}
 	Sleep, 300
 	
-	ToolTip, ✅ GHL Client QR code configured!
+	ToolTip, ✅ GHL Client QR configured!
 	SetTimer, RemoveToolTip, -3000
 Return
 
+; Handler for QR mode dropdown change
 BrowseInvoiceFolder:
 FileSelectFolder, selectedFolder, , 3, Select Invoice Watch Folder
 if (selectedFolder != "")
@@ -14187,35 +14199,34 @@ Return
 ; K-1 option ensures only fast keyboard wedge input triggers, not manual typing
 ; ═══════════════════════════════════════════════════════════════════════════════
 
-; Hotstring triggers on "GHLC:" prefix (fast typing only from scanner)
-; QR code should contain: GHLC:{ContactID}
-; Example: GHLC:vYqKlRHoxWyutMz5jh1r
-:*CK-1:GHLC::
-	global GHL_LocationID, GHL_AgencyDomain
+; URL scanner support - triggers on https:// prefix (fast typing only)
+; QR code format: https://app.domain.com/v2/location/.../contacts/detail/{ContactID}
+; The long URL path provides natural padding - contact ID is at the END
+:*CK-1:https`://::
+	; Capture the rest of the URL (scanner types it fast)
+	Input, urlRest, T3 L200, {Enter}{Tab}{Space}
 	
-	; Capture the contact ID (scanner will type it right after the prefix)
-	; Wait up to 2 seconds for input, end on Enter or non-alphanumeric
-	Input, contactId, T2 L50, {Enter}{Tab}{Space}
+	; Calculate total backspaces: https:// (8) + urlRest length
+	backspaceCount := 8 + StrLen(urlRest)
+	Loop, %backspaceCount%
+		Send, {Backspace}
 	
-	; Remove the typed "GHLC:" from wherever it was typed
-	Send, {Backspace 5}
-	
-	; If we got a contact ID, build and open the URL
-	if (contactId != "" && GHL_LocationID != "") {
-		ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
-		ghlUrl := "https://" . ghlDomain . "/v2/location/" . GHL_LocationID . "/contacts/detail/" . contactId
-		Run, %ghlUrl%
-		ToolTip, 🔗 Opening GHL Contact...
-		SetTimer, RemoveToolTip, -2000
-	} else if (GHL_LocationID = "") {
-		ToolTip, ❌ GHL Location ID not configured
-		SetTimer, RemoveToolTip, -3000
+	; Build and open the full URL if it looks valid
+	if (urlRest != "") {
+		fullUrl := "https://" . urlRest
+		; Check if it's a GHL contact URL (contains /contacts/detail/)
+		if InStr(fullUrl, "/contacts/detail/") {
+			Run, %fullUrl%
+			ToolTip, Opening GHL Contact...
+			SetTimer, RemoveToolTip, -2000
+		} else {
+			; Not a GHL contact URL - still open it but with different message
+			Run, %fullUrl%
+			ToolTip, Opening URL...
+			SetTimer, RemoveToolTip, -2000
+		}
 	}
 Return
-
-; Note: Full URL scanner support removed - use GHLC: prefix format instead
-; With dynamic agency domains, we can't have a static hotstring for all possible URLs.
-; The GHLC:{contactId} format is shorter, faster to scan, and works for all agencies.
 
 ; === QR Code Generation Library (must be at end of script) ===
 #Include %A_ScriptDir%\Lib\Qr_CodeGen.ahk
