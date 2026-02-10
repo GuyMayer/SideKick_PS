@@ -14,13 +14,26 @@ AI INSTRUCTIONS - When publishing a new version:
 
 ## v2.5.4 (2026-02-10)
 
+### New Features
+- **Hotkey Scope Control**: Global hotkeys (Ctrl+Shift+...) now only work when ProSelect or SideKick windows are active, preventing interference with other apps like Photoshop
+- **Photoshop Transfer Workflow**: Ctrl+T (Transfer to Photoshop) now shows reminder dialog to edit and save, then auto-refreshes ProSelect with Ctrl+U
+- **Invoice Export Hands-Off GUI**: Shows "HANDS OFF" warning during invoice export automation to prevent user interference
+- **Print Template Dropdowns**: Template selection in Settings now uses dropdown lists with Refresh button to load templates from ProSelect
+- **Room Capture Album Folder Option**: Save folder dropdown includes "Album Folder" to save room captures in the current album's directory
+
 ### Improvements
 - **Keyboard Menu Navigation for Print**: Replaced Ctrl+P shortcuts with Alt+F → Print → Order/Invoice Report keyboard navigation to prevent triggering other hotkeys during automation
 - **Print Automation Timing**: Added 1 second delays before/after menu navigation and in Windows Print dialog for reliability
+- **Toolbar Photoshop Button**: Only triggers when ProSelect is focused (matches other toolbar buttons)
+- **Settings Hotkeys Tab**: Added note explaining that hotkeys only work in ProSelect/SideKick context
+- **Print Settings Tooltips**: Added helpful tooltips to all Print Settings controls
+- **Dropdown SELECT Option**: All template dropdowns now show "SELECT" as default when no template is chosen
 
 ### Bug Fixes
 - **Toolbar Height DPI Scaling**: Fixed toolbar height not scaling on high-DPI displays (buttons were clipped at bottom)
 - **PDF Button Toggle**: PDF toolbar button now appears/disappears immediately when toggled in Settings (previously required Apply/Close)
+- **Settings Tab Switching**: Fixed HotkeysNote not being hidden when switching to other tabs
+- **Folder Template Disabled State**: Folder Template field now properly grays out when File Management is disabled
 
 ---
 
