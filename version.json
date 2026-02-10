@@ -1,24 +1,33 @@
 {
-  "version": "2.5.3",
-  "build_date": "2026-02-09",
+  "version": "2.5.4",
+  "build_date": "2026-02-10",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
+  "release_notes": "Bug fixes for toolbar DPI scaling and PDF button toggle",
   "changelog": [
-    "NEW: Dedicated PDF toolbar button (maroon) - always prints to PDF",
-    "NEW: GHL Client QR Code - unified format works for both phones and barcode scanners",
-    "NEW: Dynamic GHL agency domain - auto-detected from login URL, configurable per account",
-    "NEW: PDF overwrite protection - auto-appends _1, _2, etc. if file exists",
-    "NEW: Quick Print tooltip shows default printer name",
-    "NEW: ID Card icon for GHL button, Person+ icon for Get Client button",
-    "NEW: Print to PDF hands-off mode with warning GUI during automation",
-    "NEW: PDF copy folder auto-created if it doesn't exist",
-    "IMPROVED: Print to PDF focus handling - clicks dialog to ensure keyboard focus",
-    "IMPROVED: PDF named after album folder instead of subfolder",
-    "IMPROVED: Quick Print always uses default printer (PDF button for PDF output)",
-    "FIX: Correct Save button clicked in Save dialog",
-    "FIX: Removed GUI Flash that was stealing focus"
+    "FIX: Toolbar height now scales correctly on high-DPI displays (buttons were clipped at bottom)",
+    "FIX: PDF toolbar button now appears/disappears immediately when toggled in Settings"
   ],
   "versions": [
+    {
+      "version": "2.5.3",
+      "build_date": "2026-02-09",
+      "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
+      "changelog": [
+        "NEW: Dedicated PDF toolbar button (maroon) - always prints to PDF",
+        "NEW: GHL Client QR Code - unified format works for both phones and barcode scanners",
+        "NEW: Dynamic GHL agency domain - auto-detected from login URL, configurable per account",
+        "NEW: PDF overwrite protection - auto-appends _1, _2, etc. if file exists",
+        "NEW: Quick Print tooltip shows default printer name",
+        "NEW: ID Card icon for GHL button, Person+ icon for Get Client button",
+        "NEW: Print to PDF hands-off mode with warning GUI during automation",
+        "NEW: PDF copy folder auto-created if it doesn't exist",
+        "IMPROVED: Print to PDF focus handling - clicks dialog to ensure keyboard focus",
+        "IMPROVED: PDF named after album folder instead of subfolder",
+        "IMPROVED: Quick Print always uses default printer (PDF button for PDF output)",
+        "FIX: Correct Save button clicked in Save dialog",
+        "FIX: Removed GUI Flash that was stealing focus"
+      ]
+    },
     {
       "version": "2.5.1",
       "build_date": "2026-02-09",
