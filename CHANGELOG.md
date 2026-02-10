@@ -19,11 +19,9 @@ AI INSTRUCTIONS - When publishing a new version:
 - **Auto-Create Copy Folder**: PDF copy folder is created automatically if it doesn't exist
 - **PDF Toolbar Button**: Dedicated PDF button on toolbar (maroon background) - always prints to PDF regardless of Enable PDF toggle
 - **PDF Overwrite Protection**: If PDF already exists, auto-appends _1, _2, etc. instead of overwriting
-- **GHL Client QR Code**: One-click setup of ProSelect QR code that links to GHL contact. Button in Settings → GHL Integration opens ProSelect's QR Codes dialog and auto-fills:
-  - Title: "GHL Client QR"
-  - QR Message: `GHLC:[ACCOUNTCODE]` (short format for scanner)
+- **GHL Client QR Code**: One-click setup of ProSelect QR code - unified format works for both phone cameras AND barcode scanners
 - **Dynamic GHL Agency Domain**: GHL domain URL is now configurable per account (e.g. app.yourcompany.com). Auto-detected during setup wizard when reading the login URL. Stored in INI file.
-- **QR Scanner Keyboard Wedge Support**: When a barcode scanner types `GHLC:{contactId}`, SideKick auto-opens the GHL contact in browser using the configured agency domain. Uses fast-typing detection to avoid triggering on manual keyboard input.
+- **QR Scanner Keyboard Wedge Support**: SideKick detects `https://` URLs typed quickly by scanners. Fast-typing detection (K-1) avoids triggering on manual keyboard input.
 - **Print Tooltip Shows Printer**: Quick Print button tooltip now shows the default printer name
 - **New Toolbar Icons**: 
   - GHL button now uses ID Card icon instead of globe

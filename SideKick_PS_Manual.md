@@ -393,44 +393,32 @@ This is useful for quickly checking appointment history, notes, or communication
 
 ## GHL Client QR Code
 
-**Settings:** GHL Integration → 📱 Set Order QR URL
+**Settings:** GHL Integration → 📱 Set Order QR + Mode Dropdown
 
 ProSelect can display QR codes on the projection screen during viewing sessions. With this feature, you can set up a QR code that links directly to the client's GHL contact page.
 
-### How it Works
+### QR Code Format
 
-1. Open **Settings → GHL Integration**
-2. Click the **📱 Set Order QR URL** button
-3. SideKick PS automatically:
-   - Opens ProSelect's **Resources → Setup QR Codes...** dialog
-   - Creates a QR code titled "GHL Client QR"
-   - Sets the QR message to: `GHLC:[ACCOUNTCODE]`
-   - Clicks Save Changes and Close
+The unified QR code format works for both phone cameras AND barcode scanners:
 
-### The [ACCOUNTCODE] Placeholder
+```
+https://app.yourcompany.com/v2/location/{LOCID}/contacts/detail/[ACCOUNTCODE]
+```
 
-ProSelect replaces `[ACCOUNTCODE]` with the actual client/account code when generating the QR code.
+- **Phone**: Scan QR → opens URL directly in browser → GHL contact opens
+- **Scanner**: Barcode scanner types URL fast → SideKick detects `https://` → opens URL
 
-### Barcode Scanner Support
-
-SideKick monitors for keyboard input from barcode scanners (keyboard wedge devices). When the scanner types `GHLC:{contactId}` very quickly:
-
-1. SideKick detects the fast input (faster than human typing)
-2. Builds the full GHL contact URL using your Location ID and Agency Domain
-3. Opens the contact page in your default browser
-4. The scanned text is automatically removed (no clutter in your current app)
-
-> **Note:** The fast-typing detection (`K-1` option) ensures this only triggers from scanner input, not manual typing.
+The long URL path provides natural timing padding - by the time the scanner reaches the contact ID at the end, SideKick's Input command is already capturing.
 
 ### Dynamic Agency Domain
 
 SideKick automatically detects your GHL agency domain (e.g., `app.yourcompany.com`) when you run the GHL Setup Wizard. The domain is extracted from your GHL login URL and stored in the INI file.
 
-This means the scanner support and all GHL URLs will use your specific agency domain, not a hardcoded URL.
-
 ### Use Case
 
-During a viewing session, display the QR code on screen. Scan it with your barcode scanner to instantly open the client's GHL contact page — great for checking appointment history, notes, or contact details without leaving ProSelect.
+During a viewing session, display the QR code on screen:
+- **Scanner**: Instantly opens GHL contact in browser on your computer
+- **Phone**: Client or staff can scan with phone camera to view contact details
 
 ---
 
@@ -567,7 +555,7 @@ Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+
 | **Financials only** | Exclude image line items from invoices |
 | **Create contact sheet** | Upload a contact sheet JPG with invoices |
 | **Contact/Opportunity tags** | Tags to apply during invoice sync |
-| **📱 Set Order QR URL** | Configures ProSelect QR code for barcode scanner: `GHLC:[ACCOUNTCODE]`. When scanned, SideKick auto-opens the GHL contact in your browser. |
+| **📱 Set Order QR URL** | Configures ProSelect QR code URL. Works for both phone cameras and barcode scanners - opens GHL contact directly. |
 | **Save local copies** | Save contact sheet copies to a local folder |
 
 ### Hotkeys Tab
