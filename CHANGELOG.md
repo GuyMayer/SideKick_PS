@@ -20,6 +20,7 @@ AI INSTRUCTIONS - When publishing a new version:
 - **Invoice Export Hands-Off GUI**: Shows "HANDS OFF" warning during invoice export automation to prevent user interference
 - **Print Template Dropdowns**: Template selection in Settings now uses dropdown lists with Refresh button to load templates from ProSelect
 - **Room Capture Album Folder Option**: Save folder dropdown includes "Album Folder" to save room captures in the current album's directory
+- **Windows 10/11 Detection**: Automatic OS detection for platform-specific behavior
 
 ### Improvements
 - **Keyboard Menu Navigation for Print**: Replaced Ctrl+P shortcuts with Alt+F → Print → Order/Invoice Report keyboard navigation to prevent triggering other hotkeys during automation
@@ -34,6 +35,7 @@ AI INSTRUCTIONS - When publishing a new version:
 - **PDF Button Toggle**: PDF toolbar button now appears/disappears immediately when toggled in Settings (previously required Apply/Close)
 - **Settings Tab Switching**: Fixed HotkeysNote not being hidden when switching to other tabs
 - **Folder Template Disabled State**: Folder Template field now properly grays out when File Management is disabled
+- **Windows 10 Print Dialog**: Fixed Print dialog interaction for Windows 10 classic dialog (uses ControlClick instead of keyboard navigation)
 
 ---
 

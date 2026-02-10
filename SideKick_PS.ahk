@@ -168,6 +168,17 @@ DllCall("SetThreadDpiAwarenessContext", "ptr", -2, "ptr")  ; DPI_AWARENESS_CONTE
 global DPI_Scale := A_ScreenDPI / 96
 FileAppend, % A_Now . " - DPI Scale: " . DPI_Scale . "`n", %DebugLogFile%
 
+; Detect Windows version (Win11 build >= 22000, Win10 build < 22000)
+global IsWindows11 := false
+global IsWindows10 := false
+RegRead, winBuild, HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion, CurrentBuildNumber
+if (winBuild >= 22000) {
+	IsWindows11 := true
+} else {
+	IsWindows10 := true
+}
+FileAppend, % A_Now . " - Windows Build: " . winBuild . " (Win11=" . IsWindows11 . ")`n", %DebugLogFile%
+
 ; Detect icon font - Phosphor Thin (bundled) > Segoe Fluent (Win11) > Font Awesome
 global IconFont := DetectIconFont()
 FileAppend, % A_Now . " - Icon Font: " . IconFont . "`n", %DebugLogFile%
@@ -2184,23 +2195,36 @@ Toolbar_PrintToPDF:
 	Click, %clickX%, %clickY%
 	Sleep, 1000
 	
-	; Use regular Send (not ControlSend) - modern Win11 dialogs need this
-	; 6 tabs from Printer dropdown to reach Print button
-	Send, {Tab}
-	Sleep, 300
-	Send, {Tab}
-	Sleep, 300
-	Send, {Tab}
-	Sleep, 300
-	Send, {Tab}
-	Sleep, 300
-	Send, {Tab}
-	Sleep, 300
-	Send, {Tab}
-	Sleep, 300
-	
-	; Send Enter to activate Print button
-	Send, {Enter}
+	; Windows 10 vs Windows 11 have different Print dialogs
+	if (IsWindows10) {
+		; Windows 10: Classic Print dialog - click Print button directly
+		; Try clicking the Print button by text first
+		ControlClick, Print, ProSelect - Print
+		Sleep, 500
+		if ErrorLevel {
+			; Fallback: try Button1 (usually first button in classic dialogs)
+			ControlClick, Button1, ProSelect - Print
+			Sleep, 500
+		}
+	} else {
+		; Windows 11: Modern dialog - use tab navigation
+		; 6 tabs from Printer dropdown to reach Print button
+		Send, {Tab}
+		Sleep, 300
+		Send, {Tab}
+		Sleep, 300
+		Send, {Tab}
+		Sleep, 300
+		Send, {Tab}
+		Sleep, 300
+		Send, {Tab}
+		Sleep, 300
+		Send, {Tab}
+		Sleep, 300
+		
+		; Send Enter to activate Print button
+		Send, {Enter}
+	}
 	Sleep, 1000
 	
 	; Wait for Save As dialog
