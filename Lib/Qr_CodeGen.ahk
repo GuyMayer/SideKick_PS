@@ -7,16 +7,29 @@ Global 	PixelSize, test, MATRIX_TO_PRINT, FILE_PATH_AND_NAME,QRPath
 
 SaveQRFile(Data,Path,_Width :=200,_Clip :=false){	
 	
+	; Validate inputs
+	if (Path = "") {
+		MsgBox,262208,SideKick ~ QR Error,Cannot save QR code: Path is empty
+		return
+	}
+	if (Data = "") {
+		MsgBox,262208,SideKick ~ QR Error,Cannot save QR code: Data is empty
+		return
+	}
+	
 	FILE_PATH_AND_NAME := Path
-	QRPath := path
+	QRPath := Path
 	PixelSize := 15
 	test := Data
 	splitpath, Path,FILE_NAME_TO_USE,PathDIR
 	
-	ifNotExist, %PathDIR%
-	{
-		MsgBox,262208,SideKick ~ Dev Info QR_CodeGen %A_LineNumber%,%PathDIR%`n`nDirectory Unavailable
-		Exit
+	; Create directory if it doesn't exist
+	if (!FileExist(PathDIR)) {
+		FileCreateDir, %PathDIR%
+		if (ErrorLevel) {
+			MsgBox,262208,SideKick ~ Dev Info QR_CodeGen %A_LineNumber%,%PathDIR%`n`nFailed to create directory
+			return
+		}
 	}
 	/*
 		IfExist,%FILE_PATH_AND_NAME%
@@ -110,8 +123,11 @@ Loop % MATRIX_TO_PRINT.MaxIndex() ; Acess the Rows of the Matrix
 
 FILE_PATH_AND_NAME := QRPath
 GdipError := Gdip_SaveBitmapToFile(pBitmap, FILE_PATH_AND_NAME)
-if GdipError
-	MsgBox,262208,SideKick ~ Dev Info QR_CodeGen %A_LineNumber%,gDip File save ERROR %GdipError%
+if GdipError {
+	SplitPath, FILE_PATH_AND_NAME, , saveDir
+	dirExists := FileExist(saveDir) ? "Yes" : "No"
+	MsgBox,262208,SideKick ~ QR Save Error,Failed to save QR code (Error %GdipError%)`n`nPath: %FILE_PATH_AND_NAME%`nDirectory: %saveDir%`nDirectory exists: %dirExists%
+}
 Gdip_DisposeImage(pBitmap)
 Gdip_DeleteGraphics(G)
 ; Only shutdown GDI+ if we started it ourselves
