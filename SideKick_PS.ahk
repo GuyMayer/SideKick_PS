@@ -1966,17 +1966,17 @@ Toolbar_ToggleSort:
 Return
 
 Toolbar_Photoshop:
-; Send Ctrl+T to ProSelect (Transfer to Photoshop)
+; Use menu to Transfer to Photoshop (avoids triggering other hotkeys)
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
-Send, ^t
+WinMenuSelectItem, ahk_exe ProSelect.exe, , Images, Transfer to Editor...
 Return
 
 Toolbar_Refresh:
-; Send Ctrl+U to ProSelect (Refresh/Update)
+; Use menu to Refresh/Update album (avoids triggering other hotkeys)
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
-Send, ^u
+WinMenuSelectItem, ahk_exe ProSelect.exe, , Images, Update Files...
 Return
 
 Toolbar_QuickPrint:
@@ -1985,7 +1985,8 @@ WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
 if ErrorLevel
 	Return
-Send, ^p
+; Use menu to open Print dialog (avoids triggering other hotkeys)
+WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
 ; Wait for the Print dialog to appear
 WinWait, ahk_class #32770, , 3
 if ErrorLevel {
@@ -2078,16 +2079,16 @@ Toolbar_PrintToPDF:
 	RunWait, RUNDLL32 PRINTUI.DLL`,PrintUIEntry /y /n "Microsoft Print to PDF",, Hide
 	Sleep, 500
 	
-	; Activate ProSelect and send Ctrl+P
+	; Activate ProSelect and use menu to Print (avoids triggering other hotkeys)
 	WinActivate, ahk_exe ProSelect.exe
 	WinWaitActive, ahk_exe ProSelect.exe, , 2
 	if ErrorLevel {
 		Gui, PDFProgress:Destroy
 		if (origPrinter != "")
-			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",,Hide
 		Return
 	}
-	Send, ^p
+	WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
 	
 	; Wait for the ProSelect Print Order/Invoice Report dialog
 	WinWait, Print Order/Invoice Report, , 5
@@ -2333,7 +2334,7 @@ Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ; GetAlbumFolder() - Gets the current album's folder path from ProSelect
-; Uses Ctrl+Shift+S (Save Album As) to open Save dialog, reads the path from
+; Uses menu File > Save Album as... to open Save dialog, reads the path from
 ; the ToolbarWindow324 breadcrumb bar, then cancels.
 ; ═══════════════════════════════════════════════════════════════════════════════
 GetAlbumFolder() {
@@ -2343,8 +2344,8 @@ GetAlbumFolder() {
 	if ErrorLevel
 		return ""
 	
-	; Send Ctrl+Shift+S to open Save Album As dialog
-	Send, ^+s
+	; Use menu to open Save Album As dialog (avoids triggering other hotkeys)
+	WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Save Album as...
 	
 	; Wait for the Save As dialog
 	WinWait, Save, , 5
@@ -12746,7 +12747,7 @@ IfWinNotExist, ahk_exe ProSelect.exe
 ;ToolTip, Printing Accounts copy
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe
-Send, ^p
+WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
 sleep, 2000
 WinActivate, Print Order Report
 WinWaitActive, Print Order Report
@@ -12774,7 +12775,7 @@ SoundPlay %A_ScriptDir%\KbdSpacebar.wav
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe
 WinActivate, ahk_exe ProSelect.exe
-Send, ^p
+WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
 sleep, 2000
 WinActivate, Print Order Report
 WinWaitActive, Print Order Report
@@ -12797,7 +12798,7 @@ WinWaitClose, Task in Progress...,10
 ; Production copy
 
 WinActivate, ahk_exe ProSelect.exe
-Send, ^p
+WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Print...
 sleep, 2000
 WinActivate, Print Order Report
 WinWaitActive, Print Order Report
@@ -13254,13 +13255,13 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 				ToolTip, 💾 Saving album with client ID...
 				Sleep, 300
 				
-				; Activate ProSelect and send Ctrl+Shift+S to open Save As
+				; Activate ProSelect and use menu to open Save As (avoids triggering other hotkeys)
 				WinActivate, ahk_exe ProSelect.exe
 				Sleep, 500
 				WinWaitActive, ahk_exe ProSelect.exe, , 3
 				
-				; Send Ctrl+Shift+S to open Save Album As dialog
-				SendInput, {Ctrl down}{Shift down}s{Shift up}{Ctrl up}
+				; Use File menu > Save Album as... to open Save Album As dialog
+				WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Save Album as...
 				Sleep, 1500
 				
 				; Wait for Save As dialog

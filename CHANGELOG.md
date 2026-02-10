@@ -14,6 +14,9 @@ AI INSTRUCTIONS - When publishing a new version:
 
 ## v2.5.4 (2026-02-10)
 
+### Improvements
+- **Menu Selection for ProSelect Commands**: Replaced keyboard shortcuts (Ctrl+T, Ctrl+U, Ctrl+P, Ctrl+Shift+S) with menu selections to prevent triggering other hotkeys during automation
+
 ### Bug Fixes
 - **Toolbar Height DPI Scaling**: Fixed toolbar height not scaling on high-DPI displays (buttons were clipped at bottom)
 - **PDF Button Toggle**: PDF toolbar button now appears/disappears immediately when toggled in Settings (previously required Apply/Close)
