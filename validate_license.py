@@ -1,6 +1,7 @@
 """
-SideKick_PS License Validation
-Validates license keys against LemonSqueezy API with location ID binding.
+SideKick License Validation Module
+Copyright (c) 2026 GuyMayer. All rights reserved.
+Unauthorized use, modification, or distribution is prohibited.
 """
 
 import base64
@@ -518,7 +519,7 @@ def _handle_license_action(action: str) -> dict:
         dict: Result of the action.
     """
     if len(sys.argv) < 4:
-        _print_usage_error("Usage: validate_license.py <action> <license_key> <location_id>")
+        _print_usage_error("Invalid arguments")
 
     license_key = sys.argv[2]
     location_id = sys.argv[3]
@@ -533,18 +534,9 @@ def _handle_license_action(action: str) -> dict:
 
 
 def main():
-    """
-    CLI interface for license operations.
-
-    Usage:
-        python validate_license.py validate <license_key> <location_id>
-        python validate_license.py activate <license_key> <location_id>
-        python validate_license.py deactivate <license_key> <location_id> [instance_id]
-        python validate_license.py check <last_validated_date>
-        python validate_license.py trial <location_id>
-    """
+    """CLI interface for license operations."""
     if len(sys.argv) < 2:
-        _print_usage_error("Usage: validate_license.py <action> [args...]")
+        _print_usage_error("Invalid arguments")
 
     action = sys.argv[1].lower()
 

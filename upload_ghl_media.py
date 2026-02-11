@@ -1,9 +1,7 @@
 """
-GHL Media Uploader - Upload files to GoHighLevel Media Storage
-Author: GuyMayer
-Date: 2026-01-27
-Usage: python upload_ghl_media.py <file_path> [folder_name]
-       python upload_ghl_media.py "C:/path/to/image.jpg" "Client Photos"
+Media Upload Module
+Copyright (c) 2026 GuyMayer. All rights reserved.
+Unauthorized use, modification, or distribution is prohibited.
 """
 
 import subprocess
@@ -11,6 +9,8 @@ import sys
 import json
 import os
 import mimetypes
+import base64
+import re
 
 # Auto-install dependencies
 def install_dependencies() -> None:
@@ -25,9 +25,50 @@ def install_dependencies() -> None:
 install_dependencies()
 import requests
 
-# Configuration - Token passed as 3rd argument, or use default
-API_KEY = sys.argv[3] if len(sys.argv) > 3 else "pit-c0d5c542-b383-4acf-b0f4-b80345f68b05"
-LOCATION_ID = "8IWxk5M0PvbNf1w3npQU"
+def _get_script_dir():
+    """Get script directory (handles both .py and compiled .exe)."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+def _decode_api_key(encoded: str) -> str:
+    """Decode base64-encoded API key."""
+    try:
+        cleaned = encoded.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+        return base64.b64decode(cleaned).decode('utf-8')
+    except Exception:
+        return ""
+
+def _load_credentials():
+    """Load API_KEY and LOCATION_ID from ghl_credentials.json."""
+    script_dir = _get_script_dir()
+    possible_paths = [
+        os.path.join(script_dir, "ghl_credentials.json"),
+        os.path.join(os.path.dirname(script_dir), "ghl_credentials.json"),
+        os.path.join(os.environ.get('APPDATA', ''), "SideKick_PS", "ghl_credentials.json"),
+    ]
+    
+    for cred_path in possible_paths:
+        if os.path.exists(cred_path):
+            try:
+                with open(cred_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                # Parse api_key_b64
+                api_match = re.search(r'"api_key_b64"\s*:\s*"([^"]+)"', content)
+                api_key = _decode_api_key(api_match.group(1)) if api_match else ''
+                # Parse location_id
+                loc_match = re.search(r'"location_id"\s*:\s*"([^"]+)"', content)
+                location_id = loc_match.group(1) if loc_match else ''
+                if api_key:
+                    return api_key, location_id
+            except Exception:
+                continue
+    return '', ''
+
+# Configuration - Load from credentials file, or use command line argument as fallback
+_api_key, _location_id = _load_credentials()
+API_KEY = sys.argv[3] if len(sys.argv) > 3 else _api_key
+LOCATION_ID = sys.argv[4] if len(sys.argv) > 4 else _location_id
 
 
 def _get_output_dir():

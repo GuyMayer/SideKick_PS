@@ -1,11 +1,7 @@
 """
-import importlib
-ProSelect Invoice Sync to GHL - Parse PS XML and update GHL contact
-Author: GuyMayer
-Date: 2026-01-29
-Usage: python sync_ps_invoice.py <xml_file_path>
-Example: python sync_ps_invoice.py "C:/path/to/2026-01-27_180030_P26008P__1.xml"
-Note: All config loaded from SideKick_PS.ini (encrypted tokens)
+ProSelect Invoice Sync Module
+Copyright (c) 2026 GuyMayer. All rights reserved.
+Unauthorized use, modification, or distribution is prohibited.
 """
 
 # =============================================================================
@@ -3561,42 +3557,65 @@ def _parse_cli_args():
         argparse.Namespace: Parsed arguments.
     """
     import argparse
-    parser = argparse.ArgumentParser(description='Sync ProSelect invoice to GHL')
-    parser.add_argument('xml_path', nargs='?', help='Path to ProSelect XML export file')
-    parser.add_argument('--financials-only', action='store_true',
-                        help='Only include lines with monetary values')
-    parser.add_argument('--create-invoice', action='store_true', default=True,
-                        help='Create actual GHL invoice (default: True)')
-    parser.add_argument('--no-invoice', action='store_true',
-                        help='Skip invoice creation, only update contact fields')
-    parser.add_argument('--contact-sheet', action='store_true', default=True,
-                        help='Create and upload JPG contact sheet (default: True)')
-    parser.add_argument('--no-contact-sheet', action='store_true',
-                        help='Skip contact sheet creation')
-    parser.add_argument('--collect-folder', type=str, default='',
-                        help='Folder to save local copy of contact sheet (named by album)')
-    parser.add_argument('--rounding-in-deposit', action='store_true',
-                        help='Add rounding errors to deposit instead of separate invoice')
-    parser.add_argument('--no-open-browser', action='store_true',
-                        help='Do not open the invoice URL in browser after sync')
-    parser.add_argument('--list-folders', action='store_true',
-                        help='List all folders in GHL Media and exit')
-    parser.add_argument('--delete-invoice', type=str, default='',
-                        help='Delete a GHL invoice by ID')
-    parser.add_argument('--schedule-ids', type=str, default='',
-                        help='Comma-separated recurring schedule IDs to cancel (used with --delete-invoice)')
-    parser.add_argument('--delete-for-client', type=str, default='',
-                        help='Delete all invoices/schedules for the client in the given XML file')
-    parser.add_argument('--send-room-email', nargs=2, metavar=('CONTACT_ID', 'IMAGE_PATH'),
-                        help='Send a room capture image via email to a GHL contact')
-    parser.add_argument('--email-subject', type=str, default='',
-                        help='Custom email subject (used with --send-room-email)')
-    parser.add_argument('--email-template', type=str, default='',
-                        help='GHL email template/snippet ID to use (used with --send-room-email)')
-    parser.add_argument('--list-email-templates', action='store_true',
-                        help='List available email templates/snippets from GHL and exit')
-    parser.add_argument('--void-invoice', type=str, default='',
-                        help='Void a GHL invoice by ID (after payment refund)')
+    # Disable help in compiled exe to prevent reverse engineering
+    is_frozen = getattr(sys, 'frozen', False)
+    if is_frozen:
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument('xml_path', nargs='?')
+        parser.add_argument('--financials-only', action='store_true')
+        parser.add_argument('--create-invoice', action='store_true', default=True)
+        parser.add_argument('--no-invoice', action='store_true')
+        parser.add_argument('--contact-sheet', action='store_true', default=True)
+        parser.add_argument('--no-contact-sheet', action='store_true')
+        parser.add_argument('--collect-folder', type=str, default='')
+        parser.add_argument('--rounding-in-deposit', action='store_true')
+        parser.add_argument('--no-open-browser', action='store_true')
+        parser.add_argument('--list-folders', action='store_true')
+        parser.add_argument('--delete-invoice', type=str, default='')
+        parser.add_argument('--schedule-ids', type=str, default='')
+        parser.add_argument('--delete-for-client', type=str, default='')
+        parser.add_argument('--send-room-email', nargs=2, metavar=('CONTACT_ID', 'IMAGE_PATH'))
+        parser.add_argument('--email-subject', type=str, default='')
+        parser.add_argument('--email-template', type=str, default='')
+        parser.add_argument('--list-email-templates', action='store_true')
+        parser.add_argument('--void-invoice', type=str, default='')
+    else:
+        parser = argparse.ArgumentParser(description='Sync ProSelect invoice to GHL')
+        parser.add_argument('xml_path', nargs='?', help='Path to ProSelect XML export file')
+        parser.add_argument('--financials-only', action='store_true',
+                            help='Only include lines with monetary values')
+        parser.add_argument('--create-invoice', action='store_true', default=True,
+                            help='Create actual GHL invoice (default: True)')
+        parser.add_argument('--no-invoice', action='store_true',
+                            help='Skip invoice creation, only update contact fields')
+        parser.add_argument('--contact-sheet', action='store_true', default=True,
+                            help='Create and upload JPG contact sheet (default: True)')
+        parser.add_argument('--no-contact-sheet', action='store_true',
+                            help='Skip contact sheet creation')
+        parser.add_argument('--collect-folder', type=str, default='',
+                            help='Folder to save local copy of contact sheet (named by album)')
+        parser.add_argument('--rounding-in-deposit', action='store_true',
+                            help='Add rounding errors to deposit instead of separate invoice')
+        parser.add_argument('--no-open-browser', action='store_true',
+                            help='Do not open the invoice URL in browser after sync')
+        parser.add_argument('--list-folders', action='store_true',
+                            help='List all folders in GHL Media and exit')
+        parser.add_argument('--delete-invoice', type=str, default='',
+                            help='Delete a GHL invoice by ID')
+        parser.add_argument('--schedule-ids', type=str, default='',
+                            help='Comma-separated recurring schedule IDs to cancel (used with --delete-invoice)')
+        parser.add_argument('--delete-for-client', type=str, default='',
+                            help='Delete all invoices/schedules for the client in the given XML file')
+        parser.add_argument('--send-room-email', nargs=2, metavar=('CONTACT_ID', 'IMAGE_PATH'),
+                            help='Send a room capture image via email to a GHL contact')
+        parser.add_argument('--email-subject', type=str, default='',
+                            help='Custom email subject (used with --send-room-email)')
+        parser.add_argument('--email-template', type=str, default='',
+                            help='GHL email template/snippet ID to use (used with --send-room-email)')
+        parser.add_argument('--list-email-templates', action='store_true',
+                            help='List available email templates/snippets from GHL and exit')
+        parser.add_argument('--void-invoice', type=str, default='',
+                            help='Void a GHL invoice by ID (after payment refund)')
     return parser.parse_args()
 
 

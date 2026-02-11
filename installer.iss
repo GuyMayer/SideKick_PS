@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.4"
+#define MyAppVersion "2.5.5"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -77,11 +77,13 @@ Source: "Release\fonts\fa-solid-900.ttf"; DestDir: "{autofonts}"; FontInstall: "
 Source: "Release\SideKick_Logo_2025_Dark.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Release\SideKick_Logo_2025_Light.png"; DestDir: "{app}"; Flags: ignoreversion
 
-; Python executables (compiled - NO Python install needed)
-Source: "Release\validate_license.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "Release\sync_ps_invoice.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\upload_ghl_media.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\create_ghl_contactsheet.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Python executables (compiled with cryptic names - NO Python install needed)
+Source: "Release\_vlk.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Release\_sps.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_upm.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_ccs.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_fgc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_ugc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; License and version info
 Source: "Release\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -146,26 +148,6 @@ begin
     end;
   end;
 end;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

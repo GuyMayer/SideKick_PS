@@ -1,12 +1,7 @@
 """
-Create JPG Contact Sheet from ProSelect XML Export
-Generates a visual image gallery and uploads to GHL Media "Order Sheets" folder
-The JPG displays directly in GHL notes without needing to click to open
-
-Usage: python create_ghl_contactsheet.py <xml_file_path>
-Example: python create_ghl_contactsheet.py "C:/path/to/2026-01-31_P26005P__1.xml"
-
-Note: Create a folder named "Order Sheets" in GHL Media before running.
+Contact Sheet Generator Module
+Copyright (c) 2026 GuyMayer. All rights reserved.
+Unauthorized use, modification, or distribution is prohibited.
 """
 
 import subprocess
