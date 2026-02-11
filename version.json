@@ -58,6 +58,10 @@
       ]
     },
     {
+      "version": "2.4.78",
+      "build_date": "2026-02-09",
+      "release_notes": "Toolbar grab handle and positioning",
+      "changelog": [
         "NEW: Toolbar grab handle - Ctrl+Click and drag to reposition",
         "NEW: Position is saved relative to ProSelect window (persistent)",
         "NEW: Reset Position button in Settings > Shortcuts > Toolbar Appearance",

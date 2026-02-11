@@ -14,7 +14,8 @@ param(
     [string]$Version,
     
     [switch]$SkipPythonCompile = $false,
-    [switch]$ForceRebuild = $true
+    [switch]$ForceRebuild = $true,
+    [switch]$SkipPublish = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -434,4 +435,71 @@ Write-Host "   [OK] Uninstaller included" -ForegroundColor Gray
 Write-Host ""
 Write-Host " Ready for GitHub release!" -ForegroundColor Green
 Write-Host ""
+
+# Show Windows notification on success
+try {
+    [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
+    $notify = New-Object System.Windows.Forms.NotifyIcon
+    $notify.Icon = [System.Drawing.SystemIcons]::Information
+    $notify.BalloonTipTitle = "SideKick_PS Build Complete"
+    $notify.BalloonTipText = "v$Version installer ready in Releases\latest"
+    $notify.BalloonTipIcon = "Info"
+    $notify.Visible = $true
+    $notify.ShowBalloonTip(5000)
+    Start-Sleep -Milliseconds 5500
+    $notify.Dispose()
+} catch {
+    # Silent fail - notification is optional
+}
+
+# ============================================
+# Git Publish (optional)
+# ============================================
+if (-not $SkipPublish) {
+    Write-Host ""
+    $publish = Read-Host "Publish v$Version to GitHub? (y/n)"
+    if ($publish -eq 'y' -or $publish -eq 'Y') {
+    Write-Host ""
+    Write-Host "[Publishing to GitHub...]" -ForegroundColor Cyan
+    
+    # Stage version files and any changed source
+    git add version.json installer.iss SideKick_PS.ahk *.py 2>$null
+    
+    # Commit
+    $commitMsg = "Release v$Version"
+    git commit -m $commitMsg 2>&1 | Out-Null
+    
+    # Create tag
+    git tag -a "v$Version" -m "Release v$Version" 2>&1
+    
+    # Push commit and tags
+    git push origin main 2>&1
+    git push origin "v$Version" 2>&1
+    
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host " Published v$Version to GitHub!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host " Next: Upload SideKick_PS_Setup.exe to GitHub Releases" -ForegroundColor Yellow
+    Write-Host " URL: https://github.com/GuyMayer/SideKick_PS/releases/new?tag=v$Version" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Show success notification
+    try {
+        [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
+        $notify = New-Object System.Windows.Forms.NotifyIcon
+        $notify.Icon = [System.Drawing.SystemIcons]::Information
+        $notify.BalloonTipTitle = "SideKick_PS Published!"
+        $notify.BalloonTipText = "v$Version pushed to GitHub"
+        $notify.BalloonTipIcon = "Info"
+        $notify.Visible = $true
+        $notify.ShowBalloonTip(5000)
+        Start-Sleep -Milliseconds 5500
+        $notify.Dispose()
+    } catch {}
+} else {
+    Write-Host "Skipped git publish." -ForegroundColor Gray
+}
+}  # End of SkipPublish check
 
