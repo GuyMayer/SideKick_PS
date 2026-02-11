@@ -1,6 +1,6 @@
 {
-  "version": "2.5.4",
-  "build_date": "2026-02-10",
+  "version": "2.5.5",
+  "build_date": "2026-02-11",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
   "release_notes": "Hotkey scope control, Photoshop workflow, hands-off GUI, print template dropdowns, Windows 10 compatibility",
   "changelog": [

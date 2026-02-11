@@ -152,6 +152,16 @@ if (Test-Path $Ahk2Exe) {
 
 # Compile Python scripts to EXE using PyInstaller (with caching)
 Write-Host "`n[4/8] Compiling Python scripts to EXE..." -ForegroundColor Yellow
+
+# Script name mapping: source file => output exe name (cryptic names for distribution security)
+$scriptNameMap = @{
+    "validate_license" = "_vlk"
+    "fetch_ghl_contact" = "_fgc"
+    "update_ghl_contact" = "_ugc"
+    "sync_ps_invoice" = "_sps"
+    "upload_ghl_media" = "_upm"
+}
+
 $pythonFiles = @(
     "validate_license",
     "fetch_ghl_contact",
@@ -195,7 +205,9 @@ if (!$SkipPythonCompile) {
     
     foreach ($script in $pythonFiles) {
         $pyFile = "$SourceDir\$script.py"
-        $exeName = "$script.exe"
+        # Use cryptic name for compiled output
+        $outputName = if ($scriptNameMap.ContainsKey($script)) { $scriptNameMap[$script] } else { $script }
+        $exeName = "$outputName.exe"
         $cachedExe = "$CacheDir\$exeName"
         
         if (Test-Path $pyFile) {
@@ -203,19 +215,19 @@ if (!$SkipPythonCompile) {
             if (!(Test-NeedsRecompile $pyFile $exeName)) {
                 # Use cached EXE
                 Copy-Item $cachedExe "$ReleaseDir\$exeName" -Force
-                Write-Host "  [CACHED] $script.exe" -ForegroundColor Cyan
+                Write-Host "  [CACHED] $outputName.exe (from $script.py)" -ForegroundColor Cyan
                 $cachedCount++
             } else {
                 # Need to recompile
-                Write-Host "  Compiling: $script.py" -ForegroundColor Gray
+                Write-Host "  Compiling: $script.py -> $outputName.exe" -ForegroundColor Gray
                 
                 # PyInstaller - single file, no console (suppress stderr output)
                 $ErrorActionPreference = "SilentlyContinue"
-                & $pyinstallerExe --onefile --noconsole --clean --distpath $ReleaseDir --workpath "$env:TEMP\pyinstaller_work" --specpath "$env:TEMP\pyinstaller_spec" --name $script $pyFile 2>$null | Out-Null
+                & $pyinstallerExe --onefile --noconsole --clean --distpath $ReleaseDir --workpath "$env:TEMP\pyinstaller_work" --specpath "$env:TEMP\pyinstaller_spec" --name $outputName $pyFile 2>$null | Out-Null
                 $ErrorActionPreference = "Stop"
                 
                 if (Test-Path "$ReleaseDir\$exeName") {
-                    Write-Host "    [OK] $script.exe" -ForegroundColor Green
+                    Write-Host "    [OK] $outputName.exe" -ForegroundColor Green
                     $compiledCount++
                     
                     # Cache the compiled EXE and update hash

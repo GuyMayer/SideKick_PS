@@ -2,12 +2,17 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.0
-; Build Date:  2026-02-08
+; Version:     2.5.1
+; Build Date:  2026-02-11
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
 ; Changelog:
+;   v2.5.1 (2026-02-11)
+;     - NEW: Printer selection in Settings > Print tab
+;     - NEW: Dropdown shows System Default + all available printers
+;     - FIX: Windows 10 print dialog now uses Alt+P for reliability
+;     - Quick Print temporarily switches printer if specific one selected
 ;   v2.5.0 (2026-02-08)
 ;     - NEW: Toolbar grab handle - Ctrl+Click and drag to reposition
 ;     - NEW: Position is saved relative to ProSelect window (persistent)
@@ -350,6 +355,7 @@ global QR_CachedFiles := []  ; Array of cached file paths
 global Settings_PrintTemplate_PayPlan := "PayPlan"
 global Settings_PrintTemplate_Standard := "Terms of Sale"
 global Settings_PrintTemplateOptions := ""  ; Cached template options from ProSelect Print dialog
+global Settings_QuickPrintPrinter := ""  ; Selected printer for Quick Print (empty = system default)
 global Settings_EmailTemplateID := ""
 global Settings_EmailTemplateName := "(none selected)"
 
@@ -1413,11 +1419,21 @@ GetPythonPath() {
 
 ; Function to get the correct script path - checks for compiled .exe first, then .py
 ; This allows distribution with PyInstaller-compiled executables while supporting dev mode
-; scriptName: base name without extension (e.g., "validate_license")
+; scriptName: internal name (e.g., "validate_license") - mapped to cryptic filename for distribution
 ; Returns: full path to .exe if exists, otherwise full path to .py
 GetScriptPath(scriptName) {
-	pyPath := A_ScriptDir . "\" . scriptName . ".py"
-	exePath := A_ScriptDir . "\" . scriptName . ".exe"
+	; Script name mapping - internal names to cryptic filenames (for exe distribution)
+	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc"}
+	
+	; Get the actual filename (use mapped name for production, original for dev)
+	if (A_IsCompiled && scriptMap.HasKey(scriptName)) {
+		fileName := scriptMap[scriptName]
+	} else {
+		fileName := scriptName
+	}
+	
+	pyPath := A_ScriptDir . "\" . fileName . ".py"
+	exePath := A_ScriptDir . "\" . fileName . ".exe"
 	
 	; In dev mode (running .ahk not compiled), prefer .py for faster iteration
 	if (!A_IsCompiled && FileExist(pyPath)) {
@@ -2001,11 +2017,29 @@ Send, ^u
 Return
 
 Toolbar_QuickPrint:
-; Quick Print - always uses default printer (PDF button for PDF output)
+; Quick Print - uses selected printer from settings (or system default)
+global Settings_QuickPrintPrinter
+
+; Save original default printer if we need to switch
+origPrinter := ""
+if (Settings_QuickPrintPrinter != "" && Settings_QuickPrintPrinter != "System Default") {
+	RunWait, powershell -NoProfile -Command "(Get-CimInstance Win32_Printer -Filter 'Default=True').Name | Set-Content '%A_Temp%\sidekick_orig_printer.txt'",, Hide
+	FileRead, origPrinter, %A_Temp%\sidekick_orig_printer.txt
+	origPrinter := Trim(origPrinter, " `t`r`n")
+	FileDelete, %A_Temp%\sidekick_orig_printer.txt
+	; Set selected printer as default
+	RunWait, RUNDLL32 PRINTUI.DLL`,PrintUIEntry /y /n "%Settings_QuickPrintPrinter%",, Hide
+	Sleep, 300
+}
+
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe, , 2
-if ErrorLevel
+if ErrorLevel {
+	; Restore original printer if we changed it
+	if (origPrinter != "")
+		RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
 	Return
+}
 ; Use keyboard menu navigation to open Print dialog (avoids triggering other hotkeys)
 Sleep, 1000
 Send, !f        ; Alt+F to open File menu
@@ -2053,8 +2087,51 @@ if (!templateFound) {
 	Return
 }
 Sleep, 100
-; Click Print (Button32)
+; Click Print (Button32) - opens Windows Print dialog
 ControlClick, Button32, ahk_class #32770
+
+; Wait for the Windows "ProSelect - Print" dialog
+WinWait, ProSelect - Print, , 10
+if ErrorLevel {
+	ToolTip, Windows Print dialog did not appear
+	SetTimer, RemoveToolTip, -3000
+	Return
+}
+
+; Activate and click inside the window to ensure focus
+WinActivate, ProSelect - Print
+WinWaitActive, ProSelect - Print, , 3
+Sleep, 500
+
+; Windows 10 vs Windows 11 have different Print dialogs
+if (IsWindows10) {
+	; Windows 10: Classic Print dialog - use Alt+P to click Print button
+	Sleep, 1000
+	Send, !p
+} else {
+	; Windows 11: Modern dialog - use tab navigation
+	; 6 tabs from Printer dropdown to reach Print button
+	Send, {Tab}
+	Sleep, 300
+	Send, {Tab}
+	Sleep, 300
+	Send, {Tab}
+	Sleep, 300
+	Send, {Tab}
+	Sleep, 300
+	Send, {Tab}
+	Sleep, 300
+	Send, {Tab}
+	Sleep, 300
+	
+	; Send Enter to activate Print button
+	Send, {Enter}
+}
+
+; Restore original printer if we changed it
+Sleep, 500
+if (origPrinter != "")
+	RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
 Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -2197,15 +2274,9 @@ Toolbar_PrintToPDF:
 	
 	; Windows 10 vs Windows 11 have different Print dialogs
 	if (IsWindows10) {
-		; Windows 10: Classic Print dialog - click Print button directly
-		; Try clicking the Print button by text first
-		ControlClick, Print, ProSelect - Print
-		Sleep, 500
-		if ErrorLevel {
-			; Fallback: try Button1 (usually first button in classic dialogs)
-			ControlClick, Button1, ProSelect - Print
-			Sleep, 500
-		}
+		; Windows 10: Classic Print dialog - use Alt+P to click Print button
+		Sleep, 1000
+		Send, !p
 	} else {
 		; Windows 11: Modern dialog - use tab navigation
 		; 6 tabs from Printer dropdown to reach Print button
@@ -2440,6 +2511,20 @@ GetDefaultPrinterName() {
 			return printer.Name
 	}
 	return "Unknown"
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; GetPrinterList() - Returns pipe-separated list of available printers
+; Uses WMI via COM for fast access without spawning PowerShell
+; ═══════════════════════════════════════════════════════════════════════════════
+GetPrinterList() {
+	printerList := ""
+	try {
+		objWMI := ComObjGet("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
+		for printer in objWMI.ExecQuery("SELECT Name FROM Win32_Printer")
+			printerList .= (printerList != "" ? "|" : "") . printer.Name
+	}
+	return printerList
 }
 
 ; Debug keystroke progress indicator - shows what key is being sent when debug logging enabled
@@ -7115,50 +7200,69 @@ CreatePrintPanel()
 	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vPrintHeader, 🖨 Print Settings
 	
 	; ═══════════════════════════════════════════════════════════════════════════
+	; QUICK PRINT PRINTER GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y60 w480 h80 vPrintPrinterGroup, Printer
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y88 w95 h22 BackgroundTrans vPrintPrinterLabel HwndHwndPrintPrinter, Printer:
+	RegisterSettingsTooltip(HwndPrintPrinter, "QUICK PRINT PRINTER`n`nSelect which printer to use for Quick Print.`nLeave as 'System Default' to use Windows default printer.")
+	; Build printer list: System Default first, then all available printers
+	printerList := GetPrinterList()
+	Gui, Settings:Add, DropDownList, x310 y86 w345 r10 vPrintPrinterCombo Choose1, System Default|%printerList%
+	; Select saved value if it exists
+	if (Settings_QuickPrintPrinter != "" && Settings_QuickPrintPrinter != "System Default")
+		GuiControl, Settings:ChooseString, PrintPrinterCombo, %Settings_QuickPrintPrinter%
+	
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y115 w440 BackgroundTrans vPrintPrinterHint, Select printer for Quick Print button. 'System Default' uses Windows default.
+	
+	; ═══════════════════════════════════════════════════════════════════════════
 	; QUICK PRINT TEMPLATES GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y60 w480 h150 vPrintTemplatesGroup, Quick Print Templates
+	Gui, Settings:Add, GroupBox, x195 y150 w480 h150 vPrintTemplatesGroup, Quick Print Templates
 	
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y85 w440 BackgroundTrans vPrintTemplatesDesc, Template name to match in ProSelect's Print dialog dropdown.
+	Gui, Settings:Add, Text, x210 y175 w440 BackgroundTrans vPrintTemplatesDesc, Template name to match in ProSelect's Print dialog dropdown.
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y115 w95 h22 BackgroundTrans vPrintPayPlanLabel HwndHwndPrintPayPlan, Payment Plan:
+	Gui, Settings:Add, Text, x210 y205 w95 h22 BackgroundTrans vPrintPayPlanLabel HwndHwndPrintPayPlan, Payment Plan:
 	RegisterSettingsTooltip(HwndPrintPayPlan, "PAYMENT PLAN TEMPLATE`n`nTemplate to auto-select when printing with`na payment plan (Ctrl+Shift+O).")
 	; Build dropdown: SELECT first, then saved value, then cached options
 	payplanList := "SELECT"
 	if (Settings_PrintTemplateOptions != "")
 		payplanList .= "|" . Settings_PrintTemplateOptions
-	Gui, Settings:Add, ComboBox, x310 y113 w295 r10 vPrintPayPlanCombo Choose1, %payplanList%
+	Gui, Settings:Add, ComboBox, x310 y203 w295 r10 vPrintPayPlanCombo Choose1, %payplanList%
 	; Select saved value if it exists
 	if (Settings_PrintTemplate_PayPlan != "" && Settings_PrintTemplate_PayPlan != "SELECT")
 		GuiControl, Settings:ChooseString, PrintPayPlanCombo, %Settings_PrintTemplate_PayPlan%
-	Gui, Settings:Add, Button, x610 y112 w45 h55 gRefreshPrintTemplates vPrintRefreshBtn HwndHwndPrintRefresh, 🔄
+	Gui, Settings:Add, Button, x610 y202 w45 h55 gRefreshPrintTemplates vPrintRefreshBtn HwndHwndPrintRefresh, 🔄
 	RegisterSettingsTooltip(HwndPrintRefresh, "REFRESH TEMPLATES`n`nOpens ProSelect's Print dialog and reads available`ntemplate names for the dropdown lists.`n`nMake sure ProSelect is running with an album open.")
 	
-	Gui, Settings:Add, Text, x210 y145 w95 h22 BackgroundTrans vPrintStandardLabel HwndHwndPrintStandard, Standard:
+	Gui, Settings:Add, Text, x210 y235 w95 h22 BackgroundTrans vPrintStandardLabel HwndHwndPrintStandard, Standard:
 	RegisterSettingsTooltip(HwndPrintStandard, "STANDARD TEMPLATE`n`nTemplate to auto-select when printing without`na payment plan (Ctrl+Shift+P).")
 	; Build dropdown: SELECT first, then saved value, then cached options
 	standardList := "SELECT"
 	if (Settings_PrintTemplateOptions != "")
 		standardList .= "|" . Settings_PrintTemplateOptions
-	Gui, Settings:Add, ComboBox, x310 y143 w295 r10 vPrintStandardCombo Choose1, %standardList%
+	Gui, Settings:Add, ComboBox, x310 y233 w295 r10 vPrintStandardCombo Choose1, %standardList%
 	; Select saved value if it exists
 	if (Settings_PrintTemplate_Standard != "" && Settings_PrintTemplate_Standard != "SELECT")
 		GuiControl, Settings:ChooseString, PrintStandardCombo, %Settings_PrintTemplate_Standard%
 	
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y175 w440 BackgroundTrans vPrintTemplatesHint, The template matching this name will be auto-selected when using Quick Print.
+	Gui, Settings:Add, Text, x210 y265 w440 BackgroundTrans vPrintTemplatesHint, The template matching this name will be auto-selected when using Quick Print.
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; ROOM CAPTURE EMAIL GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y220 w480 h120 vPrintEmailGroup, Room Capture Email
+	Gui, Settings:Add, GroupBox, x195 y310 w480 h120 vPrintEmailGroup, Room Capture Email
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y245 w95 h22 BackgroundTrans vPrintEmailTplLabel HwndHwndPrintEmailTpl, Template:
+	Gui, Settings:Add, Text, x210 y335 w95 h22 BackgroundTrans vPrintEmailTplLabel HwndHwndPrintEmailTpl, Template:
 	RegisterSettingsTooltip(HwndPrintEmailTpl, "EMAIL TEMPLATE`n`nSelect a GHL email template for room capture emails.`nThe room image will be appended to the template body.`n`nClick 🔄 to fetch templates from GHL.")
 	
 	; Build template list for ComboBox (SELECT first, then cached options)
@@ -7175,55 +7279,55 @@ CreatePrintPanel()
 			}
 		}
 	}
-	Gui, Settings:Add, ComboBox, x310 y243 w200 r10 vPrintEmailTplCombo Choose1, %tplList%
+	Gui, Settings:Add, ComboBox, x310 y333 w200 r10 vPrintEmailTplCombo Choose1, %tplList%
 	; Select saved value if it exists
 	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)" && Settings_EmailTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, PrintEmailTplCombo, %Settings_EmailTemplateName%
-	Gui, Settings:Add, Button, x515 y242 w40 h27 gRefreshPrintEmailTemplates vPrintEmailTplRefresh HwndHwndPrintEmailRefresh, 🔄
+	Gui, Settings:Add, Button, x515 y332 w40 h27 gRefreshPrintEmailTemplates vPrintEmailTplRefresh HwndHwndPrintEmailRefresh, 🔄
 	RegisterSettingsTooltip(HwndPrintEmailRefresh, "REFRESH EMAIL TEMPLATES`n`nFetch available email templates from GHL.")
 	
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y275 w440 BackgroundTrans vPrintEmailTplHint, GHL email template used when emailing room captures to client.
+	Gui, Settings:Add, Text, x210 y365 w440 BackgroundTrans vPrintEmailTplHint, GHL email template used when emailing room captures to client.
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y300 w95 h22 BackgroundTrans vPrintRoomFolderLabel HwndHwndPrintRoomFolder, Save Folder:
+	Gui, Settings:Add, Text, x210 y390 w95 h22 BackgroundTrans vPrintRoomFolderLabel HwndHwndPrintRoomFolder, Save Folder:
 	RegisterSettingsTooltip(HwndPrintRoomFolder, "ROOM CAPTURE SAVE FOLDER`n`nWhere room capture images are saved before`nbeing emailed to the client.`n`nAlbum Folder = saves in current album folder.")
 	; Build dropdown: Album Folder first, then custom path if set
 	roomFolderList := "Album Folder"
 	if (Settings_RoomCaptureFolder != "" && Settings_RoomCaptureFolder != "Album Folder")
 		roomFolderList .= "|" . Settings_RoomCaptureFolder
-	Gui, Settings:Add, ComboBox, x310 y298 w280 r5 vPrintRoomFolderCombo, %roomFolderList%
+	Gui, Settings:Add, ComboBox, x310 y388 w280 r5 vPrintRoomFolderCombo, %roomFolderList%
 	; Select saved value
 	if (Settings_RoomCaptureFolder != "" && Settings_RoomCaptureFolder != "Album Folder")
 		GuiControl, Settings:ChooseString, PrintRoomFolderCombo, %Settings_RoomCaptureFolder%
 	else
 		GuiControl, Settings:ChooseString, PrintRoomFolderCombo, Album Folder
-	Gui, Settings:Add, Button, x595 y297 w60 h24 gBrowseRoomCaptureFolder vPrintRoomFolderBrowse HwndHwndPrintRoomBrowse, Browse
+	Gui, Settings:Add, Button, x595 y387 w60 h24 gBrowseRoomCaptureFolder vPrintRoomFolderBrowse HwndHwndPrintRoomBrowse, Browse
 	RegisterSettingsTooltip(HwndPrintRoomBrowse, "Browse for custom save folder")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; PDF OUTPUT GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y350 w480 h150 vPrintPDFGroup, PDF Output
+	Gui, Settings:Add, GroupBox, x195 y440 w480 h150 vPrintPDFGroup, PDF Output
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y378 w300 h22 BackgroundTrans vPrintEnablePDFLabel HwndHwndPrintEnablePDF, Enable Print to PDF
+	Gui, Settings:Add, Text, x210 y468 w300 h22 BackgroundTrans vPrintEnablePDFLabel HwndHwndPrintEnablePDF, Enable Print to PDF
 	RegisterSettingsTooltip(HwndPrintEnablePDF, "ENABLE PDF OUTPUT`n`nShows a dedicated PDF button on the toolbar.`nPrints invoice to PDF instead of physical printer.")
-	CreateToggleSlider("Settings", "EnablePDF", 590, 375, Settings_EnablePDF)
+	CreateToggleSlider("Settings", "EnablePDF", 590, 465, Settings_EnablePDF)
 
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y400 w440 BackgroundTrans vPrintPDFDesc, Shows PDF button on toolbar. Print saves PDF to album folder + optional copy.
+	Gui, Settings:Add, Text, x210 y490 w440 BackgroundTrans vPrintPDFDesc, Shows PDF button on toolbar. Print saves PDF to album folder + optional copy.
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y440 w95 h22 BackgroundTrans vPrintPDFCopyLabel HwndHwndPrintPDFCopy, Copy Folder:
+	Gui, Settings:Add, Text, x210 y530 w95 h22 BackgroundTrans vPrintPDFCopyLabel HwndHwndPrintPDFCopy, Copy Folder:
 	RegisterSettingsTooltip(HwndPrintPDFCopy, "PDF COPY FOLDER`n`nOptional secondary location to copy the PDF.`nLeave blank to only save in the album folder.")
-	Gui, Settings:Add, Edit, x310 y438 w280 h22 cBlack vPrintPDFCopyEdit, %Settings_PDFOutputFolder%
-	Gui, Settings:Add, Button, x595 y437 w60 h24 gBrowsePDFOutputFolder vPrintPDFCopyBrowse HwndHwndPrintPDFBrowse, Browse
+	Gui, Settings:Add, Edit, x310 y528 w280 h22 cBlack vPrintPDFCopyEdit, %Settings_PDFOutputFolder%
+	Gui, Settings:Add, Button, x595 y527 w60 h24 gBrowsePDFOutputFolder vPrintPDFCopyBrowse HwndHwndPrintPDFBrowse, Browse
 	RegisterSettingsTooltip(HwndPrintPDFBrowse, "Browse for PDF copy folder")
 
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y468 w440 BackgroundTrans vPrintPDFHint, PDF is always saved to the album folder. Leave blank to skip copying.
+	Gui, Settings:Add, Text, x210 y558 w440 BackgroundTrans vPrintPDFHint, PDF is always saved to the album folder. Leave blank to skip copying.
 
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -7787,6 +7891,10 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, TabPrintBg
 	GuiControl, Settings:Hide, PanelPrint
 	GuiControl, Settings:Hide, PrintHeader
+	GuiControl, Settings:Hide, PrintPrinterGroup
+	GuiControl, Settings:Hide, PrintPrinterLabel
+	GuiControl, Settings:Hide, PrintPrinterCombo
+	GuiControl, Settings:Hide, PrintPrinterHint
 	GuiControl, Settings:Hide, PrintTemplatesGroup
 	GuiControl, Settings:Hide, PrintTemplatesDesc
 	GuiControl, Settings:Hide, PrintRefreshBtn
@@ -8144,6 +8252,10 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabPrintBg
 		GuiControl, Settings:Show, PanelPrint
 		GuiControl, Settings:Show, PrintHeader
+		GuiControl, Settings:Show, PrintPrinterGroup
+		GuiControl, Settings:Show, PrintPrinterLabel
+		GuiControl, Settings:Show, PrintPrinterCombo
+		GuiControl, Settings:Show, PrintPrinterHint
 		GuiControl, Settings:Show, PrintTemplatesGroup
 		GuiControl, Settings:Show, PrintTemplatesDesc
 		GuiControl, Settings:Show, PrintRefreshBtn
@@ -9302,6 +9414,11 @@ Settings_QRCode_Text1 := SCQREdit1
 Settings_QRCode_Text2 := SCQREdit2
 Settings_QRCode_Text3 := SCQREdit3
 Settings_QRCode_Display := SCQRDisplay
+; Quick Print printer from Print tab dropdown
+if (PrintPrinterCombo != "" && PrintPrinterCombo != "System Default")
+	Settings_QuickPrintPrinter := PrintPrinterCombo
+else
+	Settings_QuickPrintPrinter := ""
 ; Quick Print template strings from Print tab combo boxes
 if (PrintPayPlanCombo != "" && PrintPayPlanCombo != "SELECT")
 	Settings_PrintTemplate_PayPlan := PrintPayPlanCombo
@@ -9391,6 +9508,11 @@ Settings_QRCode_Text1 := SCQREdit1
 Settings_QRCode_Text2 := SCQREdit2
 Settings_QRCode_Text3 := SCQREdit3
 Settings_QRCode_Display := SCQRDisplay
+; Quick Print printer from Print tab dropdown
+if (PrintPrinterCombo != "" && PrintPrinterCombo != "System Default")
+	Settings_QuickPrintPrinter := PrintPrinterCombo
+else
+	Settings_QuickPrintPrinter := ""
 ; Quick Print template strings from Print tab combo boxes
 if (PrintPayPlanCombo != "" && PrintPayPlanCombo != "SELECT")
 	Settings_PrintTemplate_PayPlan := PrintPayPlanCombo
@@ -12148,6 +12270,7 @@ LoadSettings()
 	IniRead, Settings_PrintTemplate_PayPlan, %IniFilename%, Toolbar, PrintTemplate_PayPlan, PayPlan
 	IniRead, Settings_PrintTemplate_Standard, %IniFilename%, Toolbar, PrintTemplate_Standard, Terms of Sale
 	IniRead, Settings_PrintTemplateOptions, %IniFilename%, Toolbar, PrintTemplateOptions, %A_Space%
+	IniRead, Settings_QuickPrintPrinter, %IniFilename%, Toolbar, QuickPrintPrinter, %A_Space%
 	IniRead, Settings_EmailTemplateID, %IniFilename%, Toolbar, EmailTemplateID, %A_Space%
 	IniRead, Settings_EmailTemplateName, %IniFilename%, Toolbar, EmailTemplateName, (none selected)
 	IniRead, Settings_RoomCaptureFolder, %IniFilename%, Toolbar, RoomCaptureFolder, Album Folder
@@ -12288,6 +12411,7 @@ SaveSettings()
 	IniWrite, %Settings_PrintTemplate_PayPlan%, %IniFilename%, Toolbar, PrintTemplate_PayPlan
 	IniWrite, %Settings_PrintTemplate_Standard%, %IniFilename%, Toolbar, PrintTemplate_Standard
 	IniWrite, %Settings_PrintTemplateOptions%, %IniFilename%, Toolbar, PrintTemplateOptions
+	IniWrite, %Settings_QuickPrintPrinter%, %IniFilename%, Toolbar, QuickPrintPrinter
 	IniWrite, %Settings_EmailTemplateID%, %IniFilename%, Toolbar, EmailTemplateID
 	IniWrite, %Settings_EmailTemplateName%, %IniFilename%, Toolbar, EmailTemplateName
 	IniWrite, %Settings_RoomCaptureFolder%, %IniFilename%, Toolbar, RoomCaptureFolder

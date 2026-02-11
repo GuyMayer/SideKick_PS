@@ -1,8 +1,7 @@
 """
-GHL Contact Fetcher - Standalone utility for AutoHotkey integration
-Author: GuyMayer
-Date: 2025-12-01
-Usage: python fetch_ghl_contact_LB.py <contact_id>
+GHL Contact Fetcher Module
+Copyright (c) 2026 GuyMayer. All rights reserved.
+Unauthorized use, modification, or distribution is prohibited.
 """
 
 import subprocess
@@ -11,6 +10,7 @@ import json
 import re
 import os
 import traceback
+import base64
 from datetime import datetime
 
 # Auto-install dependencies
@@ -27,6 +27,41 @@ import requests
 
 ERROR_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ghl_error_log.txt')
 MAX_LOG_SIZE_KB = 500  # Rotate log if it exceeds this size
+
+def _get_script_dir():
+    """Get script directory (handles both .py and compiled .exe)."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+def _decode_api_key(encoded: str) -> str:
+    """Decode base64-encoded API key."""
+    try:
+        cleaned = encoded.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+        return base64.b64decode(cleaned).decode('utf-8')
+    except Exception:
+        return ""
+
+def _load_api_key() -> str:
+    """Load API_KEY from ghl_credentials.json."""
+    script_dir = _get_script_dir()
+    possible_paths = [
+        os.path.join(script_dir, "ghl_credentials.json"),
+        os.path.join(os.path.dirname(script_dir), "ghl_credentials.json"),
+        os.path.join(os.environ.get('APPDATA', ''), "SideKick_LB", "ghl_credentials.json"),
+    ]
+    
+    for cred_path in possible_paths:
+        if os.path.exists(cred_path):
+            try:
+                with open(cred_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                api_match = re.search(r'"api_key_b64"\s*:\s*"([^"]+)"', content)
+                if api_match:
+                    return _decode_api_key(api_match.group(1))
+            except Exception:
+                continue
+    return ''
 
 
 def log_error(operation: str, error_msg: str, context: dict = None, response=None):
@@ -84,8 +119,9 @@ def log_error(operation: str, error_msg: str, context: dict = None, response=Non
         pass  # Don't let logging errors break the main flow
 
 
-# API key can be passed as second parameter, otherwise use default
-API_KEY = sys.argv[2] if len(sys.argv) > 2 else "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJsb2NhdGlvbl9pZCI6IjhJV3hrNU0wUHZiTmYxdzNucFFVIiwiY29tcGFueV9pZCI6IkpKQWJIa2lBaFRxNVBaQ3J1OXpOIiwidmVyc2lvbiI6MSwiaWF0IjoxNjgxMzk0NDQwMjg3LCJzdWIiOiJ6YXBpZXIifQ.t0hyU-M2PNLyBuo1dYTQmkmZHBKLiacNt8kZbeprZms"
+# API key can be passed as second parameter, otherwise load from credentials
+_cred_api_key = _load_api_key()
+API_KEY = sys.argv[2] if len(sys.argv) > 2 else _cred_api_key
 
 def format_uk_postcode(postcode):
     """Format UK postcode to proper format (e.g., 'SW1A 1AA')"""
