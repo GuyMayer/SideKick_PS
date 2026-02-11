@@ -2999,9 +2999,9 @@ ShowFullscreenQR(index) {
 	DllCall("ReleaseDC", "Ptr", 0, "Ptr", hDC)
 	dpiScale := dpi / 96
 	
-	; Calculate QR code size (40% of screen, whichever dimension is smaller)
+	; Calculate QR code size (80% of screen, whichever dimension is smaller)
 	; Using real pixels since GUI has -DPIScale
-	qrSize := Round(Min(screenW, screenH) * 0.40)
+	qrSize := Round(Min(screenW, screenH) * 0.80)
 	
 	; Use cached QR code file (pre-generated on startup)
 	; Find which slot this text is in (1, 2, or 3)
