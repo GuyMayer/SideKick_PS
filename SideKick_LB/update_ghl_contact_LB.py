@@ -99,10 +99,10 @@ CUSTOM_FIELDS = {
     'contact_photo_link': 'FvzCW7qdPl6Dsy1LIgCs' # Contact Photo Link
 }
 
-def update_contact(contact_id, api_key, status, notes, shoot_no="", session_date="", session_time="", email="", phone="", address1="", city="", postal_code=""):
+def update_contact(contact_id, api_key, status, notes, shoot_no="", session_date="", session_time="", email="", phone="", address1="", address2="", city="", state="", postal_code="", country=""):
     """Update GHL contact with shoot data"""
     
-    url = f"https://rest.gohighlevel.com/v1/contacts/{contact_id}"
+    url = f"https://services.leadconnectorhq.com/contacts/{contact_id}"
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -115,9 +115,8 @@ def update_contact(contact_id, api_key, status, notes, shoot_no="", session_date
     # Email, phone, and address are top-level contact fields
     from datetime import datetime
     
-    update_data: dict[str, Any] = {
-        "customField": {}
-    }
+    update_data: dict[str, Any] = {}
+    custom_fields = []  # GHL API v2 uses customFields array format
     
     # Add email if provided (top-level field, not custom field)
     if email:
@@ -130,33 +129,43 @@ def update_contact(contact_id, api_key, status, notes, shoot_no="", session_date
     # Add address fields if provided (top-level fields)
     if address1:
         update_data["address1"] = address1
+    if address2:
+        update_data["address2"] = address2
     if city:
         update_data["city"] = city
+    if state:
+        update_data["state"] = state
     if postal_code:
         update_data["postalCode"] = postal_code
+    if country:
+        update_data["country"] = country
     
     # Add session status
     if status:
-        update_data["customField"][CUSTOM_FIELDS['session_status']] = status
+        custom_fields.append({"id": CUSTOM_FIELDS['session_status'], "value": status})
     
     # Add session notes/story
     if notes:
-        update_data["customField"][CUSTOM_FIELDS['session_story']] = notes
+        custom_fields.append({"id": CUSTOM_FIELDS['session_story'], "value": notes})
     
     # Add shoot/job number
     if shoot_no:
-        update_data["customField"][CUSTOM_FIELDS['session_job_no']] = shoot_no
+        custom_fields.append({"id": CUSTOM_FIELDS['session_job_no'], "value": shoot_no})
     
     # Add session date
     if session_date:
-        update_data["customField"][CUSTOM_FIELDS['session_date']] = session_date
+        custom_fields.append({"id": CUSTOM_FIELDS['session_date'], "value": session_date})
         # Also update combined datetime if we have both
         if session_time:
-            update_data["customField"][CUSTOM_FIELDS['appointment_datetime']] = f"{session_date} {session_time}"
+            custom_fields.append({"id": CUSTOM_FIELDS['appointment_datetime'], "value": f"{session_date} {session_time}"})
     
     # Add session time
     if session_time:
-        update_data["customField"][CUSTOM_FIELDS['session_time']] = session_time
+        custom_fields.append({"id": CUSTOM_FIELDS['session_time'], "value": session_time})
+    
+    # Add custom fields array if we have any
+    if custom_fields:
+        update_data["customFields"] = custom_fields
     
     try:
         response = requests.put(url, headers=headers, json=update_data, timeout=15)
@@ -209,7 +218,7 @@ def update_photo_link(contact_id, api_key, photo_url, field_id=None):
     if not field_id:
         field_id = CUSTOM_FIELDS.get('contact_photo_link', 'FvzCW7qdPl6Dsy1LIgCs')
     
-    url = f"https://rest.gohighlevel.com/v1/contacts/{contact_id}"
+    url = f"https://services.leadconnectorhq.com/contacts/{contact_id}"
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -315,7 +324,7 @@ def main():
     
     # Normal update operation
     if len(sys.argv) < 5:
-        result['error'] = 'Usage: python update_ghl_contact_LB.py <contact_id> <api_key> <status> <notes> [shoot_no] [session_date] [session_time] [email] [phone] [address1] [city] [postal_code]'
+        result['error'] = 'Usage: python update_ghl_contact_LB.py <contact_id> <api_key> <status> <notes> [shoot_no] [session_date] [session_time] [email] [phone] [address1] [address2] [city] [state] [postal_code] [country]'
         print(json.dumps(result, indent=2))
         with open(OUTPUT_FILE, 'w') as f:
             json.dump(result, f, indent=2)
@@ -331,8 +340,11 @@ def main():
     email = sys.argv[8] if len(sys.argv) > 8 else ""
     phone = sys.argv[9] if len(sys.argv) > 9 else ""
     address1 = sys.argv[10] if len(sys.argv) > 10 else ""
-    city = sys.argv[11] if len(sys.argv) > 11 else ""
-    postal_code = sys.argv[12] if len(sys.argv) > 12 else ""
+    address2 = sys.argv[11] if len(sys.argv) > 11 else ""
+    city = sys.argv[12] if len(sys.argv) > 12 else ""
+    state = sys.argv[13] if len(sys.argv) > 13 else ""
+    postal_code = sys.argv[14] if len(sys.argv) > 14 else ""
+    country = sys.argv[15] if len(sys.argv) > 15 else ""
     
     # Validate contact ID
     if not contact_id or len(contact_id) < 10:
@@ -342,7 +354,7 @@ def main():
             json.dump(result, f, indent=2)
         sys.exit(1)
     
-    result = update_contact(contact_id, api_key, status, notes, shoot_no, session_date, session_time, email, phone, address1, city, postal_code)
+    result = update_contact(contact_id, api_key, status, notes, shoot_no, session_date, session_time, email, phone, address1, address2, city, state, postal_code, country)
     
     print(json.dumps(result, indent=2))
     
