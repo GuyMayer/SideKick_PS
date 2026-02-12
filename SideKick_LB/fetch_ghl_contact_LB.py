@@ -207,7 +207,7 @@ def extract_contact_id(url_or_id):
 
 def fetch_contact(contact_id):
     """Fetch contact data from GHL API"""
-    url = f"https://rest.gohighlevel.com/v1/contacts/{contact_id}"
+    url = f"https://services.leadconnectorhq.com/contacts/{contact_id}"
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
@@ -236,6 +236,7 @@ def fetch_contact(contact_id):
                 'email': contact.get('email', '').lower().strip(),
                 'phone': contact.get('phone', '').strip(),
                 'address1': format_address(contact.get('address1', '')),
+                'address2': format_address(contact.get('address2', '')),
                 'city': capitalize_name(contact.get('city', '')),
                 'state': contact.get('state', '').strip(),
                 'postalCode': format_uk_postcode(contact.get('postalCode', '')),

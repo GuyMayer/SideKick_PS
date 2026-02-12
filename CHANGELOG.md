@@ -12,6 +12,25 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.6 (2026-02-12)
+
+### New Features
+- **Print to PDF Calibration**: First-time calibration prompts user to click Print button, stores position relative to window edges
+- **Recalibration Shortcut**: Ctrl+Shift+Click PDF icon to recalibrate Print button position
+- **Transparent Toolbar**: Toolbar background now transparent, showing only colored buttons
+- **Braille Grab Handle**: New ⣿ grab handle icon with solid dark background for easy dragging
+
+### Improvements
+- **Calibration Prompt**: Yellow centered GUI with clear instructions explaining why calibration is needed
+- **PDF Filename Cleaning**: Removes "copy" text and replaces spaces with underscores
+- **Copy Folder Validation**: Skips copy if destination drive unavailable instead of failing
+
+### Bug Fixes
+- **GHL API Compatibility**: Updated Python scripts to use new GHL API endpoint for PIT token support
+- **Secure Credentials**: API keys removed from INI files, stored only in credentials.json
+
+---
+
 ## v2.5.0 (2026-02-08)
 
 ### New Features

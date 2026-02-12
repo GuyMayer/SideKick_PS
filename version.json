@@ -1,26 +1,11 @@
 {
-  "version": "2.5.5",
-  "build_date": "2026-02-11",
+  "version": "2.5.6",
+  "build_date": "2026-02-12",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Hotkey scope control, Photoshop workflow, hands-off GUI, print template dropdowns, Windows 10 compatibility",
+  "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
   "changelog": [
-    "NEW: Hotkey scope control - global hotkeys only work in ProSelect/SideKick context",
-    "NEW: Photoshop transfer workflow - Ctrl+T shows reminder, auto-refreshes with Ctrl+U",
-    "NEW: Invoice export hands-off GUI during automation",
-    "NEW: Print template dropdowns with refresh from ProSelect's Print dialog",
-    "NEW: Room capture save folder dropdown with Album Folder option",
-    "NEW: Windows 10/11 OS detection for platform-specific behavior",
-    "IMPROVED: Print now uses keyboard menu navigation (Alt+F) to prevent triggering other hotkeys",
-    "IMPROVED: Added timing delays for print automation reliability",
-    "IMPROVED: Toolbar Photoshop button only triggers when ProSelect focused",
-    "IMPROVED: Settings Hotkeys tab shows context note",
-    "IMPROVED: Print Settings tooltips on all controls",
-    "IMPROVED: All template dropdowns show SELECT as default",
-    "FIX: Toolbar height now scales correctly on high-DPI displays",
-    "FIX: PDF toolbar button appears/disappears immediately when toggled",
-    "FIX: HotkeysNote hidden correctly when switching tabs",
-    "FIX: Folder Template field properly disabled with File Management",
-    "FIX: Windows 10 Print dialog compatibility (classic dialog handling)"
+    "FIX: GHL API updated to new endpoint for PIT token support",
+    "IMPROVED: API keys now stored only in credentials.json (removed from INI)"
   ],
   "versions": [
     {

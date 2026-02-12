@@ -266,6 +266,11 @@ global ScriptVersion := ""
 global BuildDate := ""
 global LastSeenVersion := ""  ; User's last seen version for What's New dialog
 
+; DarkMsgBox position tracking for wizard dialogs
+global DarkMsgBox_LastX := ""
+global DarkMsgBox_LastY := ""
+global DarkMsgBox_RememberPos := false
+
 FileAppend, % A_Now . " - Loading version from JSON...`n", %DebugLogFile%
 ; Load version from version.json at startup
 LoadVersionFromJson()
@@ -328,6 +333,9 @@ global Settings_SDCardEnabled := true    ; Enable SD Card Download feature (show
 global Settings_RoomCaptureFolder := ""  ; Folder for room capture JPGs (default: Documents\ProSelect Room Captures)
 global Settings_EnablePDF := false           ; Enable Print to PDF mode (toolbar print button uses PDF)
 global Settings_PDFOutputFolder := ""       ; Secondary folder to copy PDF output to
+global Settings_PDFPrintBtnOffsetRight := 0  ; Print button X offset from right edge (calibrated)
+global Settings_PDFPrintBtnOffsetBottom := 0 ; Print button Y offset from bottom edge (calibrated)
+global PDF_CalibrationMode := false          ; True when Ctrl+Shift+Click triggers calibration
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow
 global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
 global Settings_ToolbarOffsetX := 0  ; Toolbar X offset from default position (Ctrl+Click grab handle to adjust)
@@ -1557,8 +1565,8 @@ CreateFloatingToolbar()
 	grabX := 0
 	grabY := Round(3 * DPI_Scale)
 	grabH := Round(38 * DPI_Scale)
-	Gui, Toolbar:Font, s14 w700, Segoe UI
-	Gui, Toolbar:Add, Text, x%grabX% y%grabY% w%grabHandleWidth% h%grabH% Center 0x200 Background1E1E1E c%iconColor% gToolbar_GrabHandle vTB_GrabHandle +HwndTB_GrabHandle_Hwnd, ⋮
+	Gui, Toolbar:Font, s20 w700, Segoe UI
+	Gui, Toolbar:Add, Text, x%grabX% y%grabY% w%grabHandleWidth% h%grabH% Center 0x200 Background333333 c%iconColor% gToolbar_GrabHandle vTB_GrabHandle +HwndTB_GrabHandle_Hwnd, ⣿
 	ToolbarTooltips[TB_GrabHandle_Hwnd] := "Ctrl+Click to move toolbar"
 	
 	; Dynamic x position - each visible button advances by btnSpacing (after grab handle)
@@ -1879,6 +1887,7 @@ if (newY < 0)
 	newY := 0
 
 Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
+WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
 Return
 
 Toolbar_GetClient:
@@ -2106,7 +2115,9 @@ Sleep, 500
 ; Windows 10 vs Windows 11 have different Print dialogs
 if (IsWindows10) {
 	; Windows 10: Classic Print dialog - use Alt+P to click Print button
-	Sleep, 1000
+	Sleep, 3000
+	WinActivate, Print
+	WinWaitActive, Print, , 2
 	Send, !p
 } else {
 	; Windows 11: Modern dialog - use tab navigation
@@ -2138,7 +2149,14 @@ Return
 ; PDF DOC BUTTON - Always prints to PDF (ignores Settings_EnablePDF toggle)
 ; ═══════════════════════════════════════════════════════════════════════════════
 Toolbar_PDFDoc:
+; Ctrl+Shift+Click = calibration mode
+if (GetKeyState("Ctrl", "P") && GetKeyState("Shift", "P")) {
+	PDF_CalibrationMode := true
+	ToolTip, 🔧 Calibration mode enabled
+	SetTimer, RemoveToolTip, -1500
+}
 Gosub, Toolbar_PrintToPDF
+PDF_CalibrationMode := false
 Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -2273,29 +2291,154 @@ Toolbar_PrintToPDF:
 	Sleep, 1000
 	
 	; Windows 10 vs Windows 11 have different Print dialogs
+	; Both use calibration: first run or Ctrl+Shift+Click prompts user to click Print button
+	
+	; Ensure we're using screen coordinates
+	CoordMode, Mouse, Screen
+	
+	; Check if we need calibration (Ctrl+Shift+Click OR no saved offsets)
+	needCalibration := PDF_CalibrationMode || (Settings_PDFPrintBtnOffsetRight = 0 && Settings_PDFPrintBtnOffsetBottom = 0)
+	
 	if (IsWindows10) {
-		; Windows 10: Classic Print dialog - use Alt+P to click Print button
-		Sleep, 1000
-		Send, !p
-	} else {
-		; Windows 11: Modern dialog - use tab navigation
-		; 6 tabs from Printer dropdown to reach Print button
-		Send, {Tab}
-		Sleep, 300
-		Send, {Tab}
-		Sleep, 300
-		Send, {Tab}
-		Sleep, 300
-		Send, {Tab}
-		Sleep, 300
-		Send, {Tab}
-		Sleep, 300
-		Send, {Tab}
-		Sleep, 300
+		; Windows 10: Classic Print dialog
+		Sleep, 3000
+		WinActivate, Print
+		WinWaitActive, Print, , 2
 		
-		; Send Enter to activate Print button
-		Send, {Enter}
+		; Get window position
+		WinGetPos, winX, winY, winW, winH, Print
+		
+		if (needCalibration) {
+			; Show calibration instruction GUI (yellow, in front of hands-off GUI)
+			Gui, PDFCalibrate:New, +AlwaysOnTop +ToolWindow +HwndPDFCalibrateHwnd -Caption
+			Gui, PDFCalibrate:Color, FFD700
+			Gui, PDFCalibrate:Font, s14 Bold c000000, Segoe UI
+			Gui, PDFCalibrate:Add, Text, x15 y15 w370 Center, 🖱️ CALIBRATION REQUIRED
+			Gui, PDFCalibrate:Font, s10 Normal c000000, Segoe UI
+			Gui, PDFCalibrate:Add, Text, x15 y50 w370, Windows Print dialogs vary by PC and DPI settings.
+			Gui, PDFCalibrate:Add, Text, x15 y75 w370, SideKick needs to learn where the Print button is.
+			Gui, PDFCalibrate:Font, s11 Bold c000000, Segoe UI
+			Gui, PDFCalibrate:Add, Text, x15 y110 w370 Center, Click the PRINT button now
+			Gui, PDFCalibrate:Font, s9 Normal c444444, Segoe UI
+			Gui, PDFCalibrate:Add, Text, x15 y140 w370 Center, (Ctrl+Shift+Click PDF icon to recalibrate later)
+			; Center on screen
+			calibrateX := (A_ScreenWidth - 400) // 2
+			calibrateY := (A_ScreenHeight - 170) // 2
+			Gui, PDFCalibrate:Show, x%calibrateX% y%calibrateY% w400 h170, Calibration
+			WinSet, AlwaysOnTop, On, ahk_id %PDFCalibrateHwnd%
+			
+			KeyWait, LButton, D T30
+			Gui, PDFCalibrate:Destroy
+			if ErrorLevel {
+				DarkMsgBox("Print to PDF", "Calibration timed out.`n`nPlease try again and click the Print button when prompted.", "warning")
+				Gui, PDFProgress:Destroy
+				if (origPrinter != "")
+					RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+				Return
+			}
+			
+			; Capture click position
+			MouseGetPos, clickX, clickY
+			Settings_PDFPrintBtnOffsetRight := (winX + winW) - clickX
+			Settings_PDFPrintBtnOffsetBottom := (winY + winH) - clickY
+			
+			; Save to INI
+			IniWrite, %Settings_PDFPrintBtnOffsetRight%, %IniFilename%, Toolbar, PDFPrintBtnOffsetRight
+			IniWrite, %Settings_PDFPrintBtnOffsetBottom%, %IniFilename%, Toolbar, PDFPrintBtnOffsetBottom
+			
+			ToolTip, ✅ Calibrated! Position saved.
+			Sleep, 1500
+			ToolTip
+			
+			KeyWait, LButton
+			Sleep, 300
+		} else {
+			; Use saved calibration
+			printBtnX := winX + winW - Settings_PDFPrintBtnOffsetRight
+			printBtnY := winY + winH - Settings_PDFPrintBtnOffsetBottom
+			Click, %printBtnX%, %printBtnY%
+			Sleep, 500
+			if WinExist("Print") {
+				Sleep, 300
+				Click, %printBtnX%, %printBtnY%
+			}
+		}
+	} else {
+		; Windows 11: Modern UWP dialog - mouse clicks work better than keystrokes
+		
+		; Get window position
+		WinGetPos, winX, winY, winW, winH, ProSelect - Print
+		
+		if (needCalibration) {
+			; Show calibration instruction GUI (yellow, in front of hands-off GUI)
+			Gui, PDFCalibrate:New, +AlwaysOnTop +ToolWindow +HwndPDFCalibrateHwnd -Caption
+			Gui, PDFCalibrate:Color, FFD700
+			Gui, PDFCalibrate:Font, s14 Bold c000000, Segoe UI
+			Gui, PDFCalibrate:Add, Text, x15 y15 w370 Center, 🖱️ CALIBRATION REQUIRED
+			Gui, PDFCalibrate:Font, s10 Normal c000000, Segoe UI
+			Gui, PDFCalibrate:Add, Text, x15 y50 w370, Windows Print dialogs vary by PC and DPI settings.
+			Gui, PDFCalibrate:Add, Text, x15 y75 w370, SideKick needs to learn where the Print button is.
+			Gui, PDFCalibrate:Font, s11 Bold c000000, Segoe UI
+			Gui, PDFCalibrate:Add, Text, x15 y110 w370 Center, Click the PRINT button now
+			Gui, PDFCalibrate:Font, s9 Normal c444444, Segoe UI
+			Gui, PDFCalibrate:Add, Text, x15 y140 w370 Center, (Ctrl+Shift+Click PDF icon to recalibrate later)
+			; Center on screen
+			calibrateX := (A_ScreenWidth - 400) // 2
+			calibrateY := (A_ScreenHeight - 170) // 2
+			Gui, PDFCalibrate:Show, x%calibrateX% y%calibrateY% w400 h170, Calibration
+			WinSet, AlwaysOnTop, On, ahk_id %PDFCalibrateHwnd%
+			
+			; Wait for click
+			KeyWait, LButton, D T30  ; Wait up to 30 seconds for left click
+			if ErrorLevel {
+				Gui, PDFCalibrate:Destroy
+				DarkMsgBox("Print to PDF", "Calibration timed out.`n`nPlease try again and click the Print button when prompted.", "warning")
+				Gui, PDFProgress:Destroy
+				if (origPrinter != "")
+					RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+				Return
+			}
+			
+			; Capture where user clicked
+			MouseGetPos, clickX, clickY
+			Gui, PDFCalibrate:Destroy
+			
+			; Calculate offset from window edges
+			Settings_PDFPrintBtnOffsetRight := (winX + winW) - clickX
+			Settings_PDFPrintBtnOffsetBottom := (winY + winH) - clickY
+			
+			; Save to INI
+			IniWrite, %Settings_PDFPrintBtnOffsetRight%, %IniFilename%, Toolbar, PDFPrintBtnOffsetRight
+			IniWrite, %Settings_PDFPrintBtnOffsetBottom%, %IniFilename%, Toolbar, PDFPrintBtnOffsetBottom
+			
+			; Show what we captured
+			ToolTip, ✅ Calibrated! Offset: %Settings_PDFPrintBtnOffsetRight% x %Settings_PDFPrintBtnOffsetBottom%, winX + 10, winY - 30
+			Sleep, 1500
+			ToolTip
+			
+			; User's click already triggered the button - wait for release
+			KeyWait, LButton
+			Sleep, 300
+		} else {
+			; Use saved calibration offsets
+			printBtnX := winX + winW - Settings_PDFPrintBtnOffsetRight
+			printBtnY := winY + winH - Settings_PDFPrintBtnOffsetBottom
+			
+			; Click the Print button
+			Click, %printBtnX%, %printBtnY%
+			Sleep, 500
+			
+			; If dialog still open, try again
+			if WinExist("ProSelect - Print") {
+				Sleep, 300
+				Click, %printBtnX%, %printBtnY%
+			}
+		}
 	}
+	
+	; Destroy hands-off GUI immediately after Print button clicked
+	Gui, PDFProgress:Destroy
+	
 	Sleep, 1000
 	
 	; Wait for Save As dialog
@@ -2325,7 +2468,6 @@ Toolbar_PrintToPDF:
 	}
 	
 	if (saveWinTitle = "") {
-		Gui, PDFProgress:Destroy
 		ToolTip, PDF Save dialog did not appear (waited 20 seconds)
 		SetTimer, RemoveToolTip, -3000
 		if (origPrinter != "")
@@ -2338,6 +2480,17 @@ Toolbar_PrintToPDF:
 	; Album file may be in subfolder like "Unprocessed", so go up one level
 	SplitPath, albumFolder, , parentFolder
 	SplitPath, parentFolder, albumName
+	
+	; Clean up album name for PDF filename
+	; Remove "copy" (case-insensitive, may appear multiple times)
+	albumName := RegExReplace(albumName, "i)\s*copy\s*", "")
+	; Replace spaces with underscores
+	albumName := StrReplace(albumName, " ", "_")
+	; Remove multiple consecutive underscores
+	albumName := RegExReplace(albumName, "_+", "_")
+	; Trim leading/trailing underscores
+	albumName := Trim(albumName, "_")
+	
 	pdfName := albumName . ".pdf"
 	pdfFullPath := albumFolder . "\" . pdfName
 	
@@ -2364,40 +2517,34 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 500
 	
-	; Handle "Confirm Save As" dialog if file already exists
-	; Click No and append _1, _2, etc. to filename
-	fileSuffix := 0
-	Loop, 10 {
+	; Handle file overwrite confirmation dialogs
+	; Check for various Windows confirmation dialog titles
+	Loop, 5 {
+		Sleep, 300
+		; Check for "Confirm Save As" (standard dialog)
 		if WinExist("Confirm Save As") {
-			fileSuffix++
-			; Click No to cancel overwrite
-			ControlClick, Button2, Confirm Save As
+			ControlClick, Button1, Confirm Save As  ; Click Yes to overwrite
 			Sleep, 300
-			
-			; Build new filename with suffix
-			pdfNameBase := albumName . "_" . fileSuffix . ".pdf"
-			pdfFullPath := albumFolder . "\" . pdfNameBase
-			
-			; Wait for Save dialog to be ready again
-			WinWait, %saveWinTitle%, , 3
-			WinActivate, %saveWinTitle%
-			Sleep, 300
-			
-			; Set new filename and click Save
-			ControlSetText, Edit1, %pdfFullPath%, %saveWinTitle%
-			Sleep, 200
-			ControlFocus, Button2, %saveWinTitle%
-			Sleep, 100
-			ControlClick, Button2, %saveWinTitle%
-			Sleep, 500
-		} else {
-			break
+			continue
 		}
+		; Check for generic "Replace" or file exists dialogs
+		if WinExist("ahk_class #32770") {
+			; Look for Yes button in generic dialogs
+			ControlGet, hasYes, Visible,, Button1, ahk_class #32770
+			if (hasYes) {
+				ControlClick, Button1, ahk_class #32770  ; Click Yes
+				Sleep, 300
+				continue
+			}
+		}
+		break
 	}
 	
 	; Wait for Save dialog to close
-	WinWaitClose, %saveWinTitle%, , 15
-	Sleep, 1000
+	WinWaitClose, %saveWinTitle%, , 5
+	
+	; Show tooltip while PDF generates
+	ToolTip, 📄 Generating PDF...
 	
 	; Wait for ProSelect "Task In Progress" window to appear and close (PDF generation)
 	SetTitleMatchMode, 2
@@ -2405,48 +2552,66 @@ Toolbar_PrintToPDF:
 	if !ErrorLevel
 		WinWaitClose, Task In Progress ahk_exe ProSelect.exe, , 30
 	SetTitleMatchMode, 1
-	Sleep, 500
+	
+	ToolTip  ; Clear generating tooltip
+	
+	; Wait for PDF file to be fully written
+	Sleep, 1000
 	
 	; Copy to secondary folder if configured
 	copyStatus := ""
 	if (Settings_PDFOutputFolder != "") {
-		; Create folder if it doesn't exist
-		if (!FileExist(Settings_PDFOutputFolder))
+		; Try to create destination folder - will fail if drive doesn't exist
+		if (!FileExist(Settings_PDFOutputFolder)) {
 			FileCreateDir, %Settings_PDFOutputFolder%
+		}
 		
-		if FileExist(pdfFullPath) {
-			copyDest := Settings_PDFOutputFolder . "\" . pdfName
-			FileCopy, %pdfFullPath%, %copyDest%, 1
-			if ErrorLevel
-				copyStatus := "Copy FAILED to " . Settings_PDFOutputFolder
-			else
-				copyStatus := "Also copied to " . Settings_PDFOutputFolder
-		} else {
-			copyStatus := "PDF file not found at " . pdfFullPath
+		; Only proceed if destination folder now exists
+		if (FileExist(Settings_PDFOutputFolder)) {
+			; Wait for source file to exist (PDF generation may still be in progress)
+			Loop, 10 {
+				if FileExist(pdfFullPath)
+					break
+				Sleep, 500
+			}
+			
+			if FileExist(pdfFullPath) {
+				copyDest := Settings_PDFOutputFolder . "\" . pdfName
+				FileCopy, %pdfFullPath%, %copyDest%, 1
+				if ErrorLevel
+					copyStatus := "Copy FAILED to " . Settings_PDFOutputFolder
+				else
+					copyStatus := "Also copied to " . Settings_PDFOutputFolder
+			} else {
+				copyStatus := "PDF file not found at " . pdfFullPath
+			}
+		}
+		; If folder doesn't exist (drive not available), mark as skipped
+		else {
+			copyStatus := "SKIPPED - destination unavailable"
 		}
 	}
 	
 	; Show final result
-	if (Settings_PDFOutputFolder != "") {
-		if FileExist(pdfFullPath) {
-			copyDest := Settings_PDFOutputFolder . "\" . pdfName
-			if FileExist(copyDest)
-				ToolTip, ✅ PDF saved to album folder + copied to %Settings_PDFOutputFolder%
-			else
-				ToolTip, ⚠ PDF saved to album but copy to %Settings_PDFOutputFolder% failed
+	if FileExist(pdfFullPath) {
+		if (copyStatus = "Also copied to " . Settings_PDFOutputFolder) {
+			ToolTip, ✅ PDF saved + copied to %Settings_PDFOutputFolder%
+		} else if InStr(copyStatus, "FAILED") {
+			ToolTip, ⚠ PDF saved but copy failed
+		} else if InStr(copyStatus, "SKIPPED") {
+			ToolTip, ✅ PDF saved (copy skipped - drive unavailable)
 		} else {
-			ToolTip, ⚠ PDF file not found at %pdfFullPath%
+			; No copy configured
+			ToolTip, ✅ PDF saved to album folder
 		}
 	} else {
-		ToolTip, ✅ PDF saved to %albumFolder%
+		ToolTip, ⚠ PDF file not found at %pdfFullPath%
 	}
 	SetTimer, RemoveToolTip, -4000
 	
 	; Restore original default printer
 	if (origPrinter != "")
 		RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-	
-	Gui, PDFProgress:Destroy
 Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -4731,6 +4896,7 @@ return
 ;
 DarkMsgBox(title, message, type := "info", options := "") {
 	global Settings_DarkMode, DarkMsgBox_Result, DarkMsgBox_Checked, DPI_Scale
+	global DarkMsgBox_LastX, DarkMsgBox_LastY, DarkMsgBox_RememberPos
 	static iconMap := {info: 76, warning: 78, error: 93, question: 99, success: 78}
 	static colorMap := {info: "4FC3F7", warning: "FFCC00", error: "FF6B6B", question: "4FC3F7", success: "00CC66"}
 	
@@ -4744,6 +4910,8 @@ DarkMsgBox(title, message, type := "info", options := "") {
 	customWidth := (options && options.width) ? options.width : 0
 	timeout := (options && options.timeout) ? options.timeout : 0
 	btnTooltips := (options && options.tooltips) ? options.tooltips : {}
+	rememberPos := (options && options.rememberPosition) ? options.rememberPosition : false
+	DarkMsgBox_RememberPos := rememberPos
 	
 	; Calculate dimensions
 	msgLines := StrSplit(message, "`n")
@@ -4890,8 +5058,16 @@ DarkMsgBox(title, message, type := "info", options := "") {
 		}
 	}
 	
-	; Show window
-	Gui, DarkMsg:Show, w%winWidth% h%winHeight%, %title%
+	; Show window - use remembered position if available and requested
+	if (rememberPos && DarkMsgBox_LastX != "" && DarkMsgBox_LastY != "") {
+		Gui, DarkMsg:Show, x%DarkMsgBox_LastX% y%DarkMsgBox_LastY% w%winWidth% h%winHeight%, %title%
+	} else {
+		Gui, DarkMsg:Show, w%winWidth% h%winHeight%, %title%
+	}
+	
+	; Ensure window stays on top (reinforce AlwaysOnTop after show)
+	Gui, DarkMsg:+LastFound
+	WinSet, AlwaysOnTop, On
 	
 	; Apply dark title bar if dark mode
 	if (Settings_DarkMode) {
@@ -4908,7 +5084,21 @@ DarkMsgBox(title, message, type := "info", options := "") {
 	
 	; Wait for result
 	WinWait, %title% ahk_class AutoHotkeyGUI
+	
+	; Get window handle for position tracking
+	Gui, DarkMsg:+LastFound
+	WinGet, msgHwnd, ID
+	
 	WinWaitClose, %title% ahk_class AutoHotkeyGUI
+	
+	; Save final position if rememberPosition is enabled
+	if (rememberPos && msgHwnd) {
+		WinGetPos, finalX, finalY,,, ahk_id %msgHwnd%
+		if (finalX != "")
+			DarkMsgBox_LastX := finalX
+		if (finalY != "")
+			DarkMsgBox_LastY := finalY
+	}
 	
 	; Clear timeout
 	SetTimer, DarkMsgBox_TimeoutHandler, Off
@@ -4917,6 +5107,16 @@ DarkMsgBox(title, message, type := "info", options := "") {
 }
 
 DarkMsgBox_Click:
+	global DarkMsgBox_LastX, DarkMsgBox_LastY, DarkMsgBox_RememberPos
+	; Save position before destroying if rememberPosition is enabled
+	if (DarkMsgBox_RememberPos) {
+		Gui, DarkMsg:+LastFound
+		WinGetPos, clickX, clickY
+		if (clickX != "")
+			DarkMsgBox_LastX := clickX
+		if (clickY != "")
+			DarkMsgBox_LastY := clickY
+	}
 	Gui, DarkMsg:Submit
 	DarkMsgBox_Result := A_GuiControl
 	if (DarkMsgBox_CheckVar)
@@ -4925,9 +5125,18 @@ DarkMsgBox_Click:
 Return
 
 DarkMsgBox_TimeoutHandler:
-	global DarkMsgBox_Timeout, DarkMsgBox_Result
+	global DarkMsgBox_Timeout, DarkMsgBox_Result, DarkMsgBox_LastX, DarkMsgBox_LastY, DarkMsgBox_RememberPos
 	DarkMsgBox_Timeout--
 	if (DarkMsgBox_Timeout <= 0) {
+		; Save position before destroying if rememberPosition is enabled
+		if (DarkMsgBox_RememberPos) {
+			Gui, DarkMsg:+LastFound
+			WinGetPos, timeoutX, timeoutY
+			if (timeoutX != "")
+				DarkMsgBox_LastX := timeoutX
+			if (timeoutY != "")
+				DarkMsgBox_LastY := timeoutY
+		}
 		SetTimer, DarkMsgBox_TimeoutHandler, Off
 		DarkMsgBox_Result := "Timeout"
 		Gui, DarkMsg:Destroy
@@ -10765,7 +10974,11 @@ Return
 ; ============================================================================
 RunGHLSetupWizard:
 {
-	global GHL_LocationID, GHL_API_Key
+	global GHL_LocationID, GHL_API_Key, DarkMsgBox_LastX, DarkMsgBox_LastY
+	
+	; Reset wizard position at start (so each wizard run starts centered)
+	DarkMsgBox_LastX := ""
+	DarkMsgBox_LastY := ""
 	
 	; Step 1: Welcome and explain what we need
 	msg := "This wizard will help you connect SideKick to GoHighLevel.`n`n"
@@ -10774,13 +10987,13 @@ RunGHLSetupWizard:
 	msg .= "   2. An API Key (from Private Integrations)`n`n"
 	msg .= "Ready to get started?"
 	
-	result := DarkMsgBox("🔧 GHL Setup Wizard - Step 1", msg, "YesNo")
+	result := DarkMsgBox("🔧 GHL Setup Wizard - Step 1", msg, "YesNo", {rememberPosition: true})
 	if (result != "Yes")
 		Return
 	
 	; Step 2: Check if we already have Location ID
 	if (GHL_LocationID != "") {
-		result := DarkMsgBox("📍 Location ID Found", "You already have a Location ID configured:`n`n" . GHL_LocationID . "`n`nWould you like to keep this and skip to API key setup?", "YesNo")
+		result := DarkMsgBox("📍 Location ID Found", "You already have a Location ID configured:`n`n" . GHL_LocationID . "`n`nWould you like to keep this and skip to API key setup?", "YesNo", {rememberPosition: true})
 		if (result = "Yes")
 			Goto, GHLWizardApiKeyStep
 	}
@@ -10791,7 +11004,7 @@ RunGHLSetupWizard:
 	msg .= "2. Once logged in, click 'Yes' to read the URL`n`n"
 	msg .= "Ready to open GHL?"
 	
-	result := DarkMsgBox("📍 Step 2: Get Your Location ID", msg, "YesNo")
+	result := DarkMsgBox("📍 Step 2: Get Your Location ID", msg, "YesNo", {rememberPosition: true})
 	if (result != "Yes")
 		Return
 	
@@ -10803,7 +11016,7 @@ RunGHLSetupWizard:
 	
 	; Step 4: Wait for user to log in, then read URL
 	Loop {
-		result := DarkMsgBox("📍 Read Location ID", "Log in to your GHL sub-account.`n`nOnce you see your dashboard, click 'Yes' to read the URL.`n`nClick 'No' to cancel.", "YesNo")
+		result := DarkMsgBox("📍 Read Location ID", "Log in to your GHL sub-account.`n`nOnce you see your dashboard, click 'Yes' to read the URL.`n`nClick 'No' to cancel.", "YesNo", {rememberPosition: true})
 		if (result != "Yes")
 			Return
 		
@@ -10813,7 +11026,7 @@ RunGHLSetupWizard:
 		if (locationId != "") {
 			; Show extracted domain if found
 			domainInfo := (GHL_ExtractedDomain != "") ? "`n`nAgency Domain: " . GHL_ExtractedDomain : ""
-			result := DarkMsgBox("✅ Location ID Found!", "Found Location ID:`n`n" . locationId . domainInfo . "`n`nIs this correct?", "YesNo")
+			result := DarkMsgBox("✅ Location ID Found!", "Found Location ID:`n`n" . locationId . domainInfo . "`n`nIs this correct?", "YesNo", {rememberPosition: true})
 			if (result = "Yes")
 			{
 				GHL_LocationID := locationId
@@ -10825,7 +11038,7 @@ RunGHLSetupWizard:
 				Break
 			}
 		} else {
-			result := DarkMsgBox("⚠️ Could Not Read URL", "Could not find Location ID in Chrome URL.`n`nMake sure you are on your GHL dashboard and the URL contains '/location/'.`n`nWould you like to try again?", "RetryCancel")
+			result := DarkMsgBox("⚠️ Could Not Read URL", "Could not find Location ID in Chrome URL.`n`nMake sure you are on your GHL dashboard and the URL contains '/location/'.`n`nWould you like to try again?", "RetryCancel", {rememberPosition: true})
 			if (result = "Cancel")
 				Return
 		}
@@ -10859,7 +11072,7 @@ GHLWizardApiKeyStep:
 	msg .= "5. Copy the API key (starts with 'pit-...')`n`n"
 	msg .= "Click OK when you have copied the API key."
 	
-	result := DarkMsgBox("🔑 Step 3: Create API Key", msg, "OKCancel")
+	result := DarkMsgBox("🔑 Step 3: Create API Key", msg, "OKCancel", {rememberPosition: true})
 	if (result = "Cancel")
 		Return
 	
@@ -10870,7 +11083,7 @@ GHLWizardApiKeyStep:
 	
 	; Validate format
 	if (!InStr(newApiKey, "pit-")) {
-		DarkMsgBox("⚠️ Invalid Key Format", "API key should start with 'pit-'.`n`nPlease try again.", "OK")
+		DarkMsgBox("⚠️ Invalid Key Format", "API key should start with 'pit-'.`n`nPlease try again.", "OK", {rememberPosition: true})
 		Return
 	}
 	
@@ -10883,7 +11096,7 @@ GHLWizardApiKeyStep:
 	; Update status
 	GuiControl, Settings:, GHLStatusText, ✅ Connected
 	
-	DarkMsgBox("Setup Complete", "GHL Integration is now configured!`n`nLocation ID: " . GHL_LocationID . "`nAPI Key: " . apiKeyDisplay . "`n`nYou can test the connection using the 'Test' button.", "success")
+	DarkMsgBox("Setup Complete", "GHL Integration is now configured!`n`nLocation ID: " . GHL_LocationID . "`nAPI Key: " . apiKeyDisplay . "`n`nYou can test the connection using the 'Test' button.", "success", {rememberPosition: true})
 }
 Return
 
@@ -10970,7 +11183,7 @@ CheckFirstRunGHLSetup() {
 	msg .= "   • Sync invoice data`n`n"
 	msg .= "Would you like to set up GHL integration now?"
 	
-	result := DarkMsgBox("Connect to GoHighLevel", msg, "question", {buttons: ["Yes", "Later"]})
+	result := DarkMsgBox("Connect to GoHighLevel", msg, "question", {buttons: ["Yes", "Later"], rememberPosition: true})
 	if (result = "Yes")
 	{
 		Gosub, RunGHLSetupWizard
@@ -12276,6 +12489,8 @@ LoadSettings()
 	IniRead, Settings_RoomCaptureFolder, %IniFilename%, Toolbar, RoomCaptureFolder, Album Folder
 	IniRead, Settings_EnablePDF, %IniFilename%, Toolbar, EnablePDF, 0
 	IniRead, Settings_PDFOutputFolder, %IniFilename%, Toolbar, PDFOutputFolder, %A_Space%
+	IniRead, Settings_PDFPrintBtnOffsetRight, %IniFilename%, Toolbar, PDFPrintBtnOffsetRight, 0
+	IniRead, Settings_PDFPrintBtnOffsetBottom, %IniFilename%, Toolbar, PDFPrintBtnOffsetBottom, 0
 	
 	; Load GHL agency domain - check if migration needed for existing users
 	IniRead, GHL_AgencyDomain, %IniFilename%, GHL, AgencyDomain, %A_Space%
