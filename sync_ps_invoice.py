@@ -2896,7 +2896,10 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
     
     # Pre-fetch GHL products if enabled (caches for 5 minutes)
     if use_ghl_products:
-        fetch_ghl_products()
+        products_cache = fetch_ghl_products()
+        debug_log(f"GHL products cache has {len(products_cache)} lookup keys")
+        if products_cache:
+            debug_log(f"Sample keys: {list(products_cache.keys())[:10]}")
     
     for item in invoice_items:
         item_price = float(item['price'])
@@ -2912,15 +2915,19 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
         item_description = str(item['description'])
         item_sku = item.get('sku', '')
         
+        debug_log(f"Processing item: name='{item_name}', sku='{item_sku}'")
+        
         # Try to look up GHL product by SKU if enabled and SKU exists
         if use_ghl_products and item_sku:
+            debug_log(f"Looking up GHL product for SKU: '{item_sku}'")
             ghl_product = lookup_ghl_product(item_sku)
             if ghl_product:
                 # Use GHL product name, keep original description for details
                 ghl_product_name = ghl_product.get('name', '')
+                debug_log(f"GHL product found: '{ghl_product_name}'")
                 if ghl_product_name:
+                    debug_log(f"Replacing ProSelect name '{item_name}' with GHL name '{ghl_product_name}'")
                     item_name = ghl_product_name
-                    debug_log(f"Using GHL product name '{item_name}' for SKU '{item_sku}'")
                 # Optionally use GHL description if better
                 ghl_description = ghl_product.get('description', '')
                 if ghl_description and not item_description:
