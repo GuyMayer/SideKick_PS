@@ -1975,32 +1975,13 @@ if (!foundMonitor) {
 if (newX < 0)
 	newX := 0
 
-; Auto background color detection - sample every 2 seconds
-if (Settings_ToolbarAutoBG && !Toolbar_IsDragging) {
-	currentTime := A_TickCount
-	if (currentTime - Toolbar_LastBGCheckTime > 2000 || Toolbar_LastBGColor = "") {
-		Toolbar_LastBGCheckTime := currentTime
-		; Sample screen behind toolbar position
-		detectedColor := SampleScreenBackgroundColor(newX, newY, tbWidth, toolbarHeight)
-		if (detectedColor != Toolbar_LastBGColor) {
-			Toolbar_LastBGColor := detectedColor
-			; Update toolbar background color
-			Gui, Toolbar:Color, %detectedColor%
-			; Auto-calculate icon color for contrast
-			autoIconColor := GetContrastingIconColor(detectedColor)
-			; Update grab handle text color if needed
-			if (autoIconColor != Settings_ToolbarIconColor) {
-				; Note: Full icon color update would require rebuild
-				; For now just log for debugging
-			}
-		}
-	}
-	; Show toolbar with solid background (no TransColor)
-	Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
-} else {
-	Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
-	; NOTE: TransColor removed - buttons now fill 100% of toolbar, no transparent gaps
-}
+; NOTE: Auto background color detection disabled
+; Buttons now fill 100% of toolbar area, so background color is not visible
+; Keeping the code but skipping execution to avoid unnecessary redraws
+; if (Settings_ToolbarAutoBG && !Toolbar_IsDragging) { ... }
+
+; Show toolbar
+Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
 Return
 
 Toolbar_GetClient:
