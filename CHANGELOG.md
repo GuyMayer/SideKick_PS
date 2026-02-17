@@ -12,6 +12,18 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.13 (2026-02-17)
+
+### New Features
+- **GHL Product Lookup**: Invoice items with Product_Code (SKU) now look up product names from GHL, falls back to ProSelect description if not found
+
+### Improvements
+- **Toolbar Solid Buttons**: Buttons now fill toolbar completely - no transparent gaps blocking clicks
+- **Auto-Blend Default ON**: Toolbar auto-blend background now enabled by default for new installs
+- **Settings Toggle Style**: Auto-blend toggle now uses consistent ✓/✗ style
+
+---
+
 ## v2.5.12 (2026-02-17)
 
 ### Bug Fixes

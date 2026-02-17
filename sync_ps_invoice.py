@@ -28,6 +28,12 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 
 # =============================================================================
+# GHL PRODUCTS CACHE - For SKU-to-name lookups
+# =============================================================================
+_ghl_products_cache: dict = {}  # Cached GHL products: {sku: product_data}
+_ghl_products_cache_time: float = 0  # Last fetch timestamp
+
+# =============================================================================
 # DEBUG MODE - Read from INI file (Settings > DebugLogging)
 # =============================================================================
 def _sanitize_ini_file(ini_path: str) -> bool:
@@ -976,6 +982,139 @@ def _get_ghl_headers() -> dict:
         "Content-Type": "application/json",
         "Version": "2021-07-28"
     }
+
+
+def fetch_ghl_products(force_refresh: bool = False) -> dict:
+    """Fetch all products from GHL and cache them by SKU.
+    
+    Products are cached for 5 minutes to avoid repeated API calls.
+    The cache maps product names (lowercased) and variant SKUs to product data.
+    
+    Args:
+        force_refresh: If True, bypass cache and fetch fresh data.
+    
+    Returns:
+        dict: Map of SKU/name -> product data, empty dict on failure.
+    """
+    global _ghl_products_cache, _ghl_products_cache_time
+    
+    # Return cached data if still fresh (5 minutes)
+    cache_age = time.time() - _ghl_products_cache_time
+    if not force_refresh and _ghl_products_cache and cache_age < 300:
+        debug_log(f"Using cached GHL products ({len(_ghl_products_cache)} items, {int(cache_age)}s old)")
+        return _ghl_products_cache
+    
+    debug_log("Fetching GHL products...")
+    products_map = {}
+    
+    try:
+        # Fetch all products (paginated)
+        url = f"https://services.leadconnectorhq.com/products/"
+        headers = _get_ghl_headers()
+        all_products = []
+        offset = 0
+        limit = 100
+        
+        while True:
+            params = {
+                "locationId": LOCATION_ID,
+                "limit": limit,
+                "offset": offset
+            }
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            
+            if response.status_code != 200:
+                debug_log(f"GHL Products API error: {response.status_code}")
+                break
+            
+            data = response.json()
+            products = data.get("products", [])
+            all_products.extend(products)
+            
+            # Check if more pages
+            if len(products) < limit:
+                break
+            offset += limit
+        
+        debug_log(f"Fetched {len(all_products)} products from GHL")
+        
+        # Build lookup map by name and variant SKUs
+        for product in all_products:
+            product_name = product.get("name", "").lower().strip()
+            product_id = product.get("_id", "")
+            
+            product_data = {
+                "id": product_id,
+                "name": product.get("name", ""),
+                "description": product.get("description", ""),
+                "productType": product.get("productType", ""),
+            }
+            
+            # Map by product name (lowercased)
+            if product_name:
+                products_map[product_name] = product_data
+            
+            # Also map by variant SKUs/names
+            for variant in product.get("variants", []):
+                variant_sku = variant.get("sku", "").lower().strip()
+                variant_name = variant.get("name", "").lower().strip()
+                variant_data = {
+                    **product_data,
+                    "variant_id": variant.get("id", ""),
+                    "variant_name": variant.get("name", ""),
+                    "variant_sku": variant.get("sku", ""),
+                    "price": variant.get("price", 0),
+                }
+                if variant_sku:
+                    products_map[variant_sku] = variant_data
+                if variant_name and variant_name != product_name:
+                    products_map[variant_name] = variant_data
+        
+        # Update cache
+        _ghl_products_cache = products_map
+        _ghl_products_cache_time = time.time()
+        debug_log(f"Cached {len(products_map)} product/variant lookup keys")
+        
+    except Exception as e:
+        debug_log(f"Error fetching GHL products: {e}")
+    
+    return products_map
+
+
+def lookup_ghl_product(sku_or_name: str) -> dict | None:
+    """Look up a product in GHL by SKU or name.
+    
+    First tries exact SKU match, then name match (case-insensitive).
+    Fetches products if cache is empty.
+    
+    Args:
+        sku_or_name: Product SKU code or name to look up.
+    
+    Returns:
+        dict: Product data with name, description, id or None if not found.
+    """
+    if not sku_or_name:
+        return None
+    
+    # Ensure products are cached
+    products = fetch_ghl_products()
+    if not products:
+        return None
+    
+    # Try exact match (lowercased)
+    key = sku_or_name.lower().strip()
+    if key in products:
+        debug_log(f"GHL product found for '{sku_or_name}': {products[key].get('name', 'Unknown')}")
+        return products[key]
+    
+    # Try partial match (contains)
+    for product_key, product_data in products.items():
+        if key in product_key or product_key in key:
+            debug_log(f"GHL product partial match for '{sku_or_name}': {product_data.get('name', 'Unknown')}")
+            return product_data
+    
+    debug_log(f"No GHL product found for '{sku_or_name}'")
+    return None
 
 
 def fetch_ghl_contact(contact_id: str) -> dict | None:
@@ -2721,21 +2860,45 @@ def _build_product_invoice_items(items: list, financials_only: bool) -> tuple[li
     return invoice_items, total_discounts_credits
 
 
-def _convert_to_ghl_items(invoice_items: list) -> list:
+def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) -> list:
     """Convert internal invoice items to GHL V2 API format.
 
     Args:
         invoice_items: Internal invoice items list.
+        use_ghl_products: If True, look up product names from GHL by SKU (falls back to ProSelect names).
 
     Returns:
         list: GHL-formatted items with amounts in pounds (invoice API uses pounds, not pence).
     """
     ghl_items = []
+    
+    # Pre-fetch GHL products if enabled (caches for 5 minutes)
+    if use_ghl_products:
+        fetch_ghl_products()
+    
     for item in invoice_items:
         item_price = float(item['price'])
+        item_name = str(item['name'])
+        item_description = str(item['description'])
+        item_sku = item.get('sku', '')
+        
+        # Try to look up GHL product by SKU if enabled and SKU exists
+        if use_ghl_products and item_sku:
+            ghl_product = lookup_ghl_product(item_sku)
+            if ghl_product:
+                # Use GHL product name, keep original description for details
+                ghl_product_name = ghl_product.get('name', '')
+                if ghl_product_name:
+                    item_name = ghl_product_name
+                    debug_log(f"Using GHL product name '{item_name}' for SKU '{item_sku}'")
+                # Optionally use GHL description if better
+                ghl_description = ghl_product.get('description', '')
+                if ghl_description and not item_description:
+                    item_description = ghl_description
+        
         ghl_item = {
-            "name": str(item['name']),
-            "description": str(item['description']),
+            "name": item_name,
+            "description": item_description,
             "amount": item_price,  # Invoice items use pounds (record-payment uses pence)
             "qty": int(item['quantity']),
             "currency": "GBP",
