@@ -1,5 +1,5 @@
 @echo off
 cd /d "C:\Stash\SideKick_PS"
 call C:\Stash\.venv\Scripts\activate.bat
-powershell -ExecutionPolicy Bypass -File "build_and_archive.ps1" -Version "2.5.9" -ForceRebuild -SkipPublish
+powershell -ExecutionPolicy Bypass -File "build_and_archive.ps1" -Version "2.5.10" -ForceRebuild -SkipPublish
 pause

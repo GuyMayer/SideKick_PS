@@ -12,6 +12,36 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.10 (2026-02-17)
+
+### New Features
+- **Auto-Blend Toolbar**: Toolbar samples screen behind it and matches background color for seamless integration
+- **Auto-Blend Setting**: Enable/disable in Settings > Hotkeys > Toolbar Appearance
+
+### Bug Fixes
+- **Toolbar Click-Through**: Fixed issue where clicking transparent parts of toolbar buttons didn't register (TransColor changed to 010101)
+
+### Improvements
+- **Seamless Integration**: Toolbar blends with ProSelect title bar when auto-blend enabled
+
+---
+
+## v2.5.9 (2026-02-17)
+
+### Bug Fixes
+- **GHL Invoice Creation**: Fixed failure when Product_Name was empty (Wall Groupings, Collections)
+- **Rich Item Names**: Invoice items now combine Template + Description for better display
+
+### New Features
+- **Per-Line Tax**: Each invoice item now includes tax info (20% VAT with inclusive/exclusive flag)
+- **Error Logging**: Always-on error logging (sync_error_*.log) for critical failures
+- **Remote Diagnostics**: Error logs auto-upload to Gist for remote troubleshooting
+
+### Improvements
+- **Detailed Error Context**: Better error messages for GHL API failures, XML parsing, and missing contact ID
+
+---
+
 ## v2.5.8 (2026-02-17)
 
 ### New Features

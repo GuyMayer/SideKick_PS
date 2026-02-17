@@ -299,14 +299,23 @@ if ($sourceFiles) {
 }
 Write-Host "  [OK] Release contains EXE files only" -ForegroundColor Green
 
-# Create version info file
-@"
+# Copy full version.json from repo root (includes changelog, release_notes, and versions history)
+Write-Host "`n[7b/9] Copying version.json with full history..." -ForegroundColor Yellow
+$sourceVersionJson = "$ScriptDir\version.json"
+if (Test-Path $sourceVersionJson) {
+    Copy-Item $sourceVersionJson "$ReleaseDir\version.json" -Force
+    Write-Host "  [OK] Copied version.json with full changelog history" -ForegroundColor Green
+} else {
+    # Fallback: create minimal version.json if source not found
+    Write-Host "  WARNING: Source version.json not found, creating minimal version" -ForegroundColor Yellow
+    @"
 {
     "version": "$Version",
     "build_date": "$(Get-Date -Format 'yyyy-MM-dd')",
     "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest"
 }
 "@ | Out-File "$ReleaseDir\version.json" -Encoding UTF8
+}
 
 # Update installer.iss version
 Write-Host "`n[8/9] Updating installer version..." -ForegroundColor Yellow
