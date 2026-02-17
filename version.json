@@ -1,20 +1,32 @@
 {
-  "version": "2.5.8",
+  "version": "2.5.9",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
+  "release_notes": "CRITICAL: Fix GHL invoice creation for items without Product_Name, verbose error logging",
   "changelog": [
-    "NEW: Setup Wizard auto-loads GHL tags, opportunity tags, and email templates after setup",
-    "NEW: Setup Wizard offers to launch ProSelect and wait up to 60s for print template loading",
-    "NEW: Manual button in General Settings opens online documentation",
-    "NEW: Docs button in About tab links to field mapping documentation",
-    "NEW: Website sitemap.xml and robots.txt for search engine indexing",
-    "NEW: JSON-LD schema for Google and AI search (SoftwareApplication, FAQPage)",
-    "NEW: Open Graph and Twitter Card meta tags for social sharing",
-    "IMPROVED: App Settings group box simplified - removed ProSelect version display",
-    "IMPROVED: Silent refresh functions for tags and templates (no dialogs during setup)"
+    "FIX: GHL invoice creation failed when Product_Name was empty (e.g., Wall Grouping items)",
+    "FIX: Now uses Description as fallback when Product_Name is empty (required by GHL API)",
+    "NEW: Always-on error logging (sync_error_*.log) for critical failures even when debug mode off",
+    "NEW: Error logs auto-upload to Gist for remote diagnostics",
+    "IMPROVED: Detailed error context for GHL API failures, XML parsing, and missing contact ID"
   ],
   "versions": [
+    {
+      "version": "2.5.8",
+      "build_date": "2026-02-17",
+      "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
+      "changelog": [
+        "NEW: Setup Wizard auto-loads GHL tags, opportunity tags, and email templates after setup",
+        "NEW: Setup Wizard offers to launch ProSelect and wait up to 60s for print template loading",
+        "NEW: Manual button in General Settings opens online documentation",
+        "NEW: Docs button in About tab links to field mapping documentation",
+        "NEW: Website sitemap.xml and robots.txt for search engine indexing",
+        "NEW: JSON-LD schema for Google and AI search (SoftwareApplication, FAQPage)",
+        "NEW: Open Graph and Twitter Card meta tags for social sharing",
+        "IMPROVED: App Settings group box simplified - removed ProSelect version display",
+        "IMPROVED: Silent refresh functions for tags and templates (no dialogs during setup)"
+      ]
+    },
     {
       "version": "2.5.7",
       "build_date": "2026-02-17",
