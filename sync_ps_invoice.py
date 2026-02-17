@@ -2732,22 +2732,25 @@ def _convert_to_ghl_items(invoice_items: list) -> list:
     """
     ghl_items = []
     for item in invoice_items:
+        item_price = float(item['price'])
         ghl_item = {
             "name": str(item['name']),
             "description": str(item['description']),
-            "amount": float(item['price']),  # Invoice items use pounds (record-payment uses pence)
+            "amount": item_price,  # Invoice items use pounds (record-payment uses pence)
             "qty": int(item['quantity']),
             "currency": "GBP"
         }
         
-        # Add tax info if item is taxable
-        # GHL Invoice API uses "taxes" array for per-item tax
-        if item.get('taxable', False) and item.get('tax_rate', 0) > 0:
+        # Add tax info if item is taxable AND has price > 0
+        # GHL Invoice API rejects taxes on $0 items
+        if item.get('taxable', False) and item.get('tax_rate', 0) > 0 and item_price > 0:
+            # GHL requires lowercase: "exclusive" or "inclusive"
+            calc_type = "inclusive" if item.get('price_includes_tax', False) else "exclusive"
             ghl_item["taxes"] = [{
                 "_id": "default",  # GHL default tax ID
                 "name": item.get('tax_label', 'VAT'),
                 "rate": float(item.get('tax_rate', 20)),
-                "calculation": "exclusive" if not item.get('price_includes_tax', False) else "inclusive"
+                "calculation": calc_type
             }]
         
         ghl_items.append(ghl_item)

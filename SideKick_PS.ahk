@@ -384,6 +384,7 @@ global RoomView_LastLogTime := 0     ; For throttling RoomView debug logging
 
 ; Export automation state
 global ExportInProgress := false  ; Flag to suspend file watcher during export
+global ExportCancelled := false   ; Flag when user presses ESC to cancel export
 
 ; Hotkey settings (modifiers: ^ = Ctrl, ! = Alt, + = Shift, # = Win)
 global Hotkey_GHLLookup := "^+g"  ; Ctrl+Shift+G
@@ -3771,6 +3772,9 @@ GHLWarning_Continue:
 Toolbar_GetInvoice_AfterWarning:
 FileAppend, % A_Now . " - Starting invoice export...`n", %DebugLogFile%
 
+; Reset cancellation flag
+ExportCancelled := false
+
 ; Show hands-off warning GUI during export automation
 Gui, InvoiceHandsOff:New, +AlwaysOnTop +ToolWindow -Caption +HwndInvoiceHandsOffHwnd
 Gui, InvoiceHandsOff:Color, 1E1E1E
@@ -3780,11 +3784,24 @@ Gui, InvoiceHandsOff:Font, s10 cFFCC00, Segoe UI
 Gui, InvoiceHandsOff:Add, Text, x20 y55 w260 Center, ⚠️ HANDS OFF
 Gui, InvoiceHandsOff:Font, s9 cCCCCCC, Segoe UI
 Gui, InvoiceHandsOff:Add, Text, x20 y80 w260 Center, Do not touch mouse or keyboard
-Gui, InvoiceHandsOff:Show, w300 h115, Exporting Invoice
+Gui, InvoiceHandsOff:Font, s8 c888888, Segoe UI
+Gui, InvoiceHandsOff:Add, Text, x20 y100 w260 Center, Press ESC to cancel
+Gui, InvoiceHandsOff:Show, w300 h130, Exporting Invoice
 DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", InvoiceHandsOffHwnd, "Int", 20, "Int*", 1, "Int", 4)
+
+; Enable ESC hotkey during export
+Hotkey, Escape, ExportCancelCheck, On
 
 ; Suspend file watcher during export to prevent duplicate prompts
 ExportInProgress := true
+
+; Check if cancelled before continuing
+if (ExportCancelled) {
+	Hotkey, Escape, ExportCancelCheck, Off
+	Gui, InvoiceHandsOff:Destroy
+	ExportInProgress := false
+	Return
+}
 
 FileAppend, % A_Now . " - Activating ProSelect...`n", %DebugLogFile%
 ; Open ProSelect Export Orders dialog (Orders menu -> Export Order)
@@ -3848,6 +3865,15 @@ if (!exportOpened)
 {
 	FileAppend, % A_Now . " - Waiting 5s for Export Orders dialog...`n", %DebugLogFile%
 	WinWait, Export Orders ahk_exe ProSelect.exe, , 5
+	
+	; Check if user cancelled during wait
+	if (ExportCancelled) {
+		Hotkey, Escape, ExportCancelCheck, Off
+		Gui, InvoiceHandsOff:Destroy
+		ExportInProgress := false
+		Return
+	}
+	
 	if ErrorLevel
 	{
 		FileAppend, % A_Now . " - FAILED: Export Orders dialog did not open`n", %DebugLogFile%
@@ -4031,9 +4057,19 @@ if !ErrorLevel
 	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 	FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
 	
+	; Check if user cancelled before syncing
+	if (ExportCancelled) {
+		Hotkey, Escape, ExportCancelCheck, Off
+		Gui, InvoiceHandsOff:Destroy
+		ExportInProgress := false
+		Return
+	}
+	
 	FileAppend, % A_Now . " - Showing progress GUI...`n", %DebugLogFile%
 	; Close hands-off GUI before showing sync progress
 	Gui, InvoiceHandsOff:Destroy
+	; Disable ESC handler once we move to sync phase
+	Hotkey, Escape, ExportCancelCheck, Off
 	; Show non-blocking progress GUI
 	ShowSyncProgressGUI(latestXml)
 	FileAppend, % A_Now . " - Progress GUI shown`n", %DebugLogFile%
@@ -4060,13 +4096,35 @@ if !ErrorLevel
 	
 	FileAppend, % A_Now . " - Export completed, file watcher re-enabled`n", %DebugLogFile%
 	ExportInProgress := false  ; Re-enable file watcher immediately so user can continue
+	Hotkey, Escape, ExportCancelCheck, Off  ; Disable ESC handler
 }
 else
 {
 	FileAppend, % A_Now . " - ERROR: Export timeout`n", %DebugLogFile%
 	ExportInProgress := false  ; Re-enable file watcher
+	Hotkey, Escape, ExportCancelCheck, Off  ; Disable ESC handler
 	Gui, InvoiceHandsOff:Destroy
 	DarkMsgBox("Export Timeout", "Export timeout - check ProSelect", "warning")
+}
+Return
+
+; ESC key handler during export - shows cancel confirmation
+ExportCancelCheck:
+if (!ExportInProgress) {
+	; Export not in progress, disable hotkey
+	Hotkey, Escape, ExportCancelCheck, Off
+	Return
+}
+; Show cancel confirmation dialog
+MsgBox, 36, Cancel Export?, Do you want to cancel this export?
+IfMsgBox, Yes
+{
+	ExportCancelled := true
+	ExportInProgress := false
+	Hotkey, Escape, ExportCancelCheck, Off
+	Gui, InvoiceHandsOff:Destroy
+	FileAppend, % A_Now . " - Export CANCELLED by user (ESC)`n", %DebugLogFile%
+	DarkMsgBox("Export Cancelled", "Invoice export cancelled.", "info")
 }
 Return
 

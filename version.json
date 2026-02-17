@@ -2,10 +2,12 @@
   "version": "2.5.10",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Toolbar auto-blend background, click-through fix",
+  "release_notes": "Toolbar auto-blend, ESC to cancel export, GHL tax fix",
   "changelog": [
     "NEW: Auto-blend toolbar background - samples screen behind toolbar and matches color",
     "NEW: Setting in Hotkeys > Toolbar Appearance to enable/disable auto-blend",
+    "NEW: Press ESC during invoice export to cancel with confirmation dialog",
+    "FIX: GHL invoice tax rejected - skip taxes on $0 items (HTTP 422 fix)",
     "FIX: Toolbar click-through issue on transparent button edges (TransColor 010101)",
     "IMPROVED: Toolbar blends seamlessly with ProSelect title bar when auto-blend enabled"
   ],
