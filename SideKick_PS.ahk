@@ -357,6 +357,14 @@ global Settings_ShowBtn_Photoshop := true
 global Settings_ShowBtn_Refresh := true
 global Settings_ShowBtn_Print := true
 global Settings_ShowBtn_QRCode := true
+global Settings_ShowBtn_GoCardless := false  ; GoCardless button (controlled by GoCardless tab enable toggle)
+global Settings_GoCardlessEnabled := false   ; Master enable for GoCardless integration
+global Settings_GoCardlessToken := ""        ; GoCardless API access token (sandbox or live)
+global Settings_GoCardlessEnvironment := "sandbox"  ; "sandbox" or "live"
+global Settings_GCEmailTemplateID := ""      ; GHL email template ID for mandate link
+global Settings_GCEmailTemplateName := "(none selected)"  ; GHL email template name for mandate link
+global Settings_GCSMSTemplateID := ""        ; GHL SMS template ID for mandate link
+global Settings_GCSMSTemplateName := "(none selected)"  ; GHL SMS template name for mandate link
 global Settings_QRCode_Text1 := ""
 global Settings_QRCode_Text2 := ""
 global Settings_QRCode_Text3 := ""
@@ -1371,7 +1379,7 @@ GetCredentialsFilePath() {
 ; Load GHL API credentials from JSON file
 ; Falls back to legacy INI format for backwards compatibility
 LoadGHLCredentials() {
-	global GHL_API_Key, GHL_LocationID, IniFilename
+	global GHL_API_Key, GHL_LocationID, IniFilename, Settings_GoCardlessToken
 	
 	credFile := GetCredentialsFilePath()
 	
@@ -1386,6 +1394,10 @@ LoadGHLCredentials() {
 			; Parse location_id field
 			if (RegExMatch(jsonText, """location_id"":\s*""([^""]+)""", match)) {
 				GHL_LocationID := match1
+			}
+			; Parse GoCardless token
+			if (RegExMatch(jsonText, """gc_token_b64"":\s*""([^""]+)""", match)) {
+				Settings_GoCardlessToken := Base64_Decode(match1)
 			}
 			return true
 		}
@@ -1402,8 +1414,13 @@ LoadGHLCredentials() {
 	else
 		GHL_API_Key := ""
 	
+	; Also check for GoCardless token in INI (legacy)
+	IniRead, gcTokenIni, %IniFilename%, GoCardless, Token, %A_Space%
+	if (gcTokenIni != "")
+		Settings_GoCardlessToken := gcTokenIni
+	
 	; If we loaded from INI, migrate to JSON format
-	if (GHL_API_Key != "" || GHL_LocationID != "") {
+	if (GHL_API_Key != "" || GHL_LocationID != "" || Settings_GoCardlessToken != "") {
 		SaveGHLCredentials()
 		; Clean up legacy INI entries (optional - leave for now for safety)
 	}
@@ -1413,7 +1430,7 @@ LoadGHLCredentials() {
 
 ; Save GHL API credentials to JSON file
 SaveGHLCredentials() {
-	global GHL_API_Key, GHL_LocationID
+	global GHL_API_Key, GHL_LocationID, Settings_GoCardlessToken
 	
 	credFile := GetCredentialsFilePath()
 	
@@ -1422,10 +1439,16 @@ SaveGHLCredentials() {
 	if (GHL_API_Key != "")
 		apiKeyB64 := Base64_Encode(GHL_API_Key)
 	
+	; Encode GoCardless token to Base64 for storage
+	gcTokenB64 := ""
+	if (Settings_GoCardlessToken != "")
+		gcTokenB64 := Base64_Encode(Settings_GoCardlessToken)
+	
 	; Build JSON content - simple format, no library needed
 	jsonContent := "{"
 	jsonContent .= "`n  ""api_key_b64"": """ . apiKeyB64 . ""","
-	jsonContent .= "`n  ""location_id"": """ . GHL_LocationID . """"
+	jsonContent .= "`n  ""location_id"": """ . GHL_LocationID . ""","
+	jsonContent .= "`n  ""gc_token_b64"": """ . gcTokenB64 . """"
 	jsonContent .= "`n}"
 	
 	; Write to file
@@ -1561,6 +1584,8 @@ CreateFloatingToolbar()
 	if (Settings_ShowBtn_QRCode)
 		btnCount++
 	if (Settings_SDCardEnabled)
+		btnCount++
+	if (Settings_GoCardlessEnabled)
 		btnCount++
 	btnCount++  ; Settings button (always visible)
 	
@@ -1722,6 +1747,14 @@ CreateFloatingToolbar()
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
 		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundOrange c%iconColor% gToolbar_DownloadSD vTB_Download +HwndTB_Download_Hwnd, % Chr(Icon_Download)
 		ToolbarTooltips[TB_Download_Hwnd] := "Download from SD Card"
+		nextX += btnSpacing
+	}
+	
+	; GoCardless button (GC text styled to match toolbar icons)
+	if (Settings_GoCardlessEnabled) {
+		Gui, Toolbar:Font, s%fontSizeSmall% w700, Segoe UI
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background333333 c%iconColor% gToolbar_GoCardless vTB_GoCardless +HwndTB_GoCardless_Hwnd, GC
+		ToolbarTooltips[TB_GoCardless_Hwnd] := "GoCardless Direct Debit"
 		nextX += btnSpacing
 	}
 	
@@ -3522,6 +3555,39 @@ Toolbar_DownloadSD:
 DarkMsgBox("Coming Soon", "📥 Image Download`n`nImage download functionality to follow in a future update.", "info", {timeout: 5})
 Return
 
+Toolbar_GoCardless:
+; GoCardless Direct Debit - send mandate link to client
+{
+	global GHL_ContactData, Settings_GCEmailTemplateID, Settings_GCEmailTemplateName
+	global Settings_GCSMSEnabled, Settings_GoCardlessToken, Settings_GoCardlessEnvironment
+	
+	; Check if GoCardless is configured
+	if (Settings_GoCardlessToken = "") {
+		DarkMsgBox("GoCardless Not Configured", "Please configure your GoCardless API token in Settings > GoCardless first.", "warning")
+		return
+	}
+	
+	; Check if we have a GHL contact loaded
+	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {
+		DarkMsgBox("No Client Selected", "Please fetch a client from GHL first using the Client button.", "warning")
+		return
+	}
+	
+	; Check if email template is selected
+	if (Settings_GCEmailTemplateName = "" || Settings_GCEmailTemplateName = "(none selected)" || Settings_GCEmailTemplateName = "SELECT") {
+		DarkMsgBox("No Email Template", "Please select an email template in Settings > GoCardless to send mandate links.", "warning")
+		ShowSettingsTab("GoCardless")
+		Gui, Settings:Show
+		return
+	}
+	
+	clientName := GHL_ContactData.firstName . " " . GHL_ContactData.lastName
+	clientEmail := GHL_ContactData.email
+	
+	DarkMsgBox("Coming Soon", "💳 GoCardless Integration`n`nMandate link sending for " . clientName . " will be implemented in a future update.`n`nTemplate: " . Settings_GCEmailTemplateName . "`nSMS: " . (Settings_GCSMSEnabled ? "Yes" : "No"), "info", {timeout: 5})
+}
+Return
+
 Toolbar_CaptureRoom:
 ; Capture the central room view from ProSelect and save as JPG
 {
@@ -4439,8 +4505,8 @@ Gui, Settings:Add, Text, x15 y20 w150 BackgroundTrans Center, SideKick Hub
 Gui, Settings:Font, s11 c%textColor%, Segoe UI
 
 ; Tab buttons with highlight indicator
-global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts, TabPrint
-global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg, TabPrintBg
+global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts, TabPrint, TabGoCardless
+global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg, TabPrintBg, TabGoCardlessBg
 
 ; General tab
 Gui, Settings:Add, Progress, x0 y60 w4 h35 Background0078D4 vTabGeneralBg Hidden
@@ -4474,9 +4540,13 @@ Gui, Settings:Add, Text, x15 y305 w160 h25 BackgroundTrans gSettingsTabShortcuts
 Gui, Settings:Add, Progress, x0 y340 w4 h35 Background0078D4 vTabPrintBg Hidden
 Gui, Settings:Add, Text, x15 y345 w160 h25 BackgroundTrans gSettingsTabPrint vTabPrint, 🖨  Print
 
+; GoCardless tab
+Gui, Settings:Add, Progress, x0 y380 w4 h35 Background0078D4 vTabGoCardlessBg Hidden
+Gui, Settings:Add, Text, x15 y385 w160 h25 BackgroundTrans gSettingsTabGoCardless vTabGoCardless, 💳  GoCardless
+
 ; Developer tab (only for dev location)
-Gui, Settings:Add, Progress, x0 y380 w4 h35 Background0078D4 vTabDeveloperBg Hidden
-Gui, Settings:Add, Text, x15 y385 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
+Gui, Settings:Add, Progress, x0 y420 w4 h35 Background0078D4 vTabDeveloperBg Hidden
+Gui, Settings:Add, Text, x15 y425 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
 
 ; SideKick Logo at bottom of sidebar - transparent PNG, use appropriate version for theme
 logoPathDark := A_ScriptDir . "\SideKick_Logo_2025_Dark.png"
@@ -4510,6 +4580,7 @@ CreateLicensePanel()
 CreateAboutPanel()
 CreateShortcutsPanel()
 CreatePrintPanel()
+CreateGoCardlessPanel()
 CreateDeveloperPanel()
 
 ; Show Developer tab only for dev location
@@ -4625,6 +4696,34 @@ Return
 ToggleClick_GHL_AutoLoad:
 Toggle_GHL_AutoLoad_State := !Toggle_GHL_AutoLoad_State
 UpdateToggleSlider("Settings", "GHL_AutoLoad", Toggle_GHL_AutoLoad_State, 590)
+Return
+
+ToggleClick_GoCardlessEnabled:
+Toggle_GoCardlessEnabled_State := !Toggle_GoCardlessEnabled_State
+UpdateToggleSlider("Settings", "GoCardlessEnabled", Toggle_GoCardlessEnabled_State, 630)
+Settings_GoCardlessEnabled := Toggle_GoCardlessEnabled_State
+IniWrite, %Settings_GoCardlessEnabled%, %IniFilename%, GoCardless, Enabled
+; Enable/disable controls and recreate toolbar
+if (Settings_GoCardlessEnabled) {
+	GuiControl, Settings:Enable, GCEnvDDL
+	GuiControl, Settings:Enable, GCTokenEditBtn
+	GuiControl, Settings:Enable, GCTestBtn
+	GuiControl, Settings:Enable, GCDashboardBtn
+	GuiControl, Settings:Enable, GCEmailTplCombo
+	GuiControl, Settings:Enable, GCEmailTplRefresh
+	GuiControl, Settings:Enable, GCSMSTplCombo
+	GuiControl, Settings:Enable, GCSMSTplRefresh
+} else {
+	GuiControl, Settings:Disable, GCEnvDDL
+	GuiControl, Settings:Disable, GCTokenEditBtn
+	GuiControl, Settings:Disable, GCTestBtn
+	GuiControl, Settings:Disable, GCDashboardBtn
+	GuiControl, Settings:Disable, GCEmailTplCombo
+	GuiControl, Settings:Disable, GCEmailTplRefresh
+	GuiControl, Settings:Disable, GCSMSTplCombo
+	GuiControl, Settings:Disable, GCSMSTplRefresh
+}
+CreateFloatingToolbar()
 Return
 
 ToggleClick_OpenInvoiceURL:
@@ -5835,6 +5934,30 @@ Return
 
 TT_DarkMode:
 tt := "DARK MODE`n`nToggle between dark and light color themes.`nChanges apply immediately."
+ToolTip, %tt%
+SetTimer, RemoveToolTip, -5000
+Return
+
+TT_GCEnable:
+tt := "ENABLE GOCARDLESS`n`nConnect to GoCardless Direct Debit.`nAllows creating mandates and collecting payments."
+ToolTip, %tt%
+SetTimer, RemoveToolTip, -5000
+Return
+
+TT_GCEnv:
+tt := "GOCARDLESS ENVIRONMENT`n`nSandbox: Testing environment (no real transactions).`nLive: Production environment (real transactions)."
+ToolTip, %tt%
+SetTimer, RemoveToolTip, -5000
+Return
+
+TT_GCToken:
+tt := "API TOKEN`n`nYour GoCardless API access token.`nKeep this secure - do not share it!"
+ToolTip, %tt%
+SetTimer, RemoveToolTip, -5000
+Return
+
+TT_GCSMS:
+tt := "SMS MANDATE LINK`n`nAlso send the mandate signup link via SMS.`nRequires valid phone number in GHL contact."
 ToolTip, %tt%
 SetTimer, RemoveToolTip, -5000
 Return
@@ -7948,6 +8071,395 @@ BrowseRoomCaptureFolder:
 	}
 return
 
+; ═══════════════════════════════════════════════════════════════════════════════════════════════
+; GoCardless Integration Panel
+; ═══════════════════════════════════════════════════════════════════════════════════════════════
+CreateGoCardlessPanel()
+{
+	global
+	
+	; Theme-aware colors
+	if (Settings_DarkMode) {
+		headerColor := "4FC3F7"
+		textColor := "FFFFFF"
+		labelColor := "CCCCCC"
+		mutedColor := "888888"
+		groupColor := "666666"
+	} else {
+		headerColor := "0078D4"
+		textColor := "1E1E1E"
+		labelColor := "444444"
+		mutedColor := "666666"
+		groupColor := "999999"
+	}
+	
+	; GoCardless panel container (initially hidden)
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelGoCardless Hidden
+	
+	; Section header
+	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
+	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vGCHeader Hidden, 💳 GoCardless Integration
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; CONNECTION GROUP BOX (y55 to y165)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h110 vGCConnection Hidden, Connection
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	
+	; Enable GoCardless Integration toggle slider
+	Gui, Settings:Add, Text, x210 y80 w300 BackgroundTrans vGCEnable Hidden gTT_GCEnable HwndHwndGCEnable, Enable GoCardless Integration
+	RegisterSettingsTooltip(HwndGCEnable, "ENABLE GOCARDLESS INTEGRATION`n`nConnect SideKick to GoCardless Direct Debit.`nAllows creating mandates and collecting payments.`n`nRequires a valid GoCardless API token.")
+	CreateToggleSlider("Settings", "GoCardlessEnabled", 630, 78, Settings_GoCardlessEnabled)
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; API CONFIGURATION GROUP BOX (y170 to y320)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y170 w480 h150 vGCApiConfig Hidden, API Configuration
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	
+	; Environment selector
+	Gui, Settings:Add, Text, x210 y195 w90 BackgroundTrans vGCEnvLabel Hidden gTT_GCEnv HwndHwndGCEnv, Environment:
+	RegisterSettingsTooltip(HwndGCEnv, "ENVIRONMENT`n`nSandbox: For testing (no real money)`nLive: Production (real transactions)`n`nStart with Sandbox to test your setup.")
+	Gui, Settings:Add, DropDownList, x305 y192 w150 vGCEnvDDL Hidden Choose1 gGCEnvChanged, Sandbox|Live
+	if (Settings_GoCardlessEnvironment = "live")
+		GuiControl, Settings:ChooseString, GCEnvDDL, Live
+	
+	; API Token display (masked)
+	Gui, Settings:Add, Text, x210 y228 w90 BackgroundTrans vGCTokenLabel Hidden gTT_GCToken HwndHwndGCToken, API Token:
+	RegisterSettingsTooltip(HwndGCToken, "GOCARDLESS API TOKEN`n`nYour GoCardless access token.`nGet it from: GoCardless Dashboard > Developers > Create > Access token`n`nTokens are stored in the INI file.")
+	tokenDisplay := Settings_GoCardlessToken ? SubStr(Settings_GoCardlessToken, 1, 12) . "..." . SubStr(Settings_GoCardlessToken, -4) : "Not configured"
+	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
+	Gui, Settings:Add, Edit, x305 y225 w250 h25 vGCTokenDisplay Hidden ReadOnly, %tokenDisplay%
+	Gui, Settings:Add, Button, x560 y223 w100 h28 gEditGCToken vGCTokenEditBtn Hidden, Edit
+	
+	; Status row
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y268 w60 BackgroundTrans vGCStatus Hidden, Status:
+	statusText := Settings_GoCardlessToken ? "✅ Token Set" : "❌ Not configured"
+	statusColor := Settings_GoCardlessToken ? "00FF00" : "FF6B6B"
+	Gui, Settings:Font, s10 Norm c%statusColor%, Segoe UI
+	Gui, Settings:Add, Text, x275 y268 w120 BackgroundTrans vGCStatusText Hidden HwndHwndGCStatus, %statusText%
+	RegisterSettingsTooltip(HwndGCStatus, "CONNECTION STATUS`n`n✅ Token Set = API token configured`n`nUse 'Test' to verify the token works.")
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Button, x455 y265 w100 h26 gTestGCConnection vGCTestBtn Hidden HwndHwndGCTest, Test
+	RegisterSettingsTooltip(HwndGCTest, "TEST CONNECTION`n`nVerify your API token works by making`na test request to the GoCardless API.")
+	Gui, Settings:Add, Button, x560 y265 w100 h26 gOpenGCDashboard vGCDashboardBtn Hidden, 🔗 Dashboard
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; MANDATE NOTIFICATIONS GROUP BOX (y330 to y450)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y330 w480 h130 vGCNotifyGroup Hidden, Mandate Link Notifications
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	
+	; Email Template selector
+	Gui, Settings:Add, Text, x210 y355 w95 h22 BackgroundTrans vGCEmailTplLabel Hidden HwndHwndGCEmailTpl, Email Template:
+	RegisterSettingsTooltip(HwndGCEmailTpl, "EMAIL TEMPLATE`n`nSelect a GHL email template to send the mandate link.`nThe mandate URL will be inserted into the template.`n`nClick 🔄 to fetch templates from GHL.")
+	
+	; Build template list for ComboBox (SELECT first, then cached options)
+	gcTplList := "SELECT"
+	if (GHL_CachedEmailTemplates != "") {
+		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2) {
+				gcTplList .= "|" . parts[2]
+			}
+		}
+	}
+	Gui, Settings:Add, ComboBox, x310 y353 w200 r10 vGCEmailTplCombo Hidden gGCEmailTplChanged, %gcTplList%
+	if (Settings_GCEmailTemplateName != "" && Settings_GCEmailTemplateName != "(none selected)" && Settings_GCEmailTemplateName != "SELECT")
+		GuiControl, Settings:ChooseString, GCEmailTplCombo, %Settings_GCEmailTemplateName%
+	Gui, Settings:Add, Button, x515 y352 w40 h27 gRefreshGCEmailTemplates vGCEmailTplRefresh Hidden HwndHwndGCEmailRefresh, 🔄
+	RegisterSettingsTooltip(HwndGCEmailRefresh, "REFRESH EMAIL TEMPLATES`n`nFetch available email templates from GHL.")
+	
+	; SMS Template selector
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y390 w95 h22 BackgroundTrans vGCSMSTplLabel Hidden HwndHwndGCSMSTpl, SMS Template:
+	RegisterSettingsTooltip(HwndGCSMSTpl, "SMS TEMPLATE`n`nSelect a GHL SMS template to send the mandate link.`nLeave blank to skip SMS notification.`n`nClick 🔄 to fetch templates from GHL.")
+	
+	; Build SMS template list (same as email templates for now)
+	gcSmsTplList := ""
+	if (GHL_CachedEmailTemplates != "") {
+		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2) {
+				gcSmsTplList .= "|" . parts[2]
+			}
+		}
+	}
+	Gui, Settings:Add, ComboBox, x310 y388 w200 r10 vGCSMSTplCombo Hidden gGCSMSTplChanged, %gcSmsTplList%
+	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)")
+		GuiControl, Settings:ChooseString, GCSMSTplCombo, %Settings_GCSMSTemplateName%
+	Gui, Settings:Add, Button, x515 y387 w40 h27 gRefreshGCSMSTemplates vGCSMSTplRefresh Hidden HwndHwndGCSMSRefresh, 🔄
+	RegisterSettingsTooltip(HwndGCSMSRefresh, "REFRESH SMS TEMPLATES`n`nFetch available templates from GHL.")
+	
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y420 w440 BackgroundTrans vGCNotifyHint Hidden, Send mandate setup link to client via GHL email (+ optional SMS).
+	
+	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
+}
+
+; GoCardless Settings Handlers
+GCEnvChanged:
+	Gui, Settings:Submit, NoHide
+	Settings_GoCardlessEnvironment := (GCEnvDDL = "Live") ? "live" : "sandbox"
+	IniWrite, %Settings_GoCardlessEnvironment%, %IniFilename%, GoCardless, Environment
+	; Update status display
+	UpdateGCStatus()
+return
+
+EditGCToken:
+	InputBox, newToken, GoCardless API Token, Enter your GoCardless API access token:,, 450, 150,,,,, %Settings_GoCardlessToken%
+	if (!ErrorLevel && newToken != "") {
+		Settings_GoCardlessToken := newToken
+		; Save to credentials JSON file (base64 encoded)
+		SaveGHLCredentials()
+		; Update display
+		tokenDisplay := SubStr(newToken, 1, 12) . "..." . SubStr(newToken, -4)
+		GuiControl, Settings:, GCTokenDisplay, %tokenDisplay%
+		UpdateGCStatus()
+	}
+return
+
+TestGCConnection:
+	if (Settings_GoCardlessToken = "") {
+		DarkMsgBox("Error", "No API token configured.`n`nPlease enter your GoCardless API token first.", "error")
+		return
+	}
+	
+	ToolTip, Testing GoCardless connection...
+	
+	; Determine API URL based on environment
+	gcApiUrl := (Settings_GoCardlessEnvironment = "live") ? "https://api.gocardless.com" : "https://api-sandbox.gocardless.com"
+	
+	; Test connection using PowerShell
+	testScript := A_Temp . "\gc_test_" . A_TickCount . ".ps1"
+	resultFile := A_Temp . "\gc_test_result_" . A_TickCount . ".txt"
+	
+	psScript := "try {`n"
+	psScript .= "  $headers = @{ 'Authorization' = 'Bearer " . Settings_GoCardlessToken . "'; 'GoCardless-Version' = '2015-07-06' }`n"
+	psScript .= "  $response = Invoke-RestMethod -Uri '" . gcApiUrl . "/creditors' -Headers $headers -TimeoutSec 10`n"
+	psScript .= "  $creditorName = $response.creditors[0].name`n"
+	psScript .= "  $creditorId = $response.creditors[0].id`n"
+	psScript .= "  Write-Output ""SUCCESS|$creditorName|$creditorId""`n"
+	psScript .= "} catch {`n"
+	psScript .= "  Write-Output ""ERROR|$($_.Exception.Message)""`n"
+	psScript .= "}"
+	
+	FileDelete, %testScript%
+	FileAppend, %psScript%, %testScript%
+	
+	RunWait, powershell.exe -ExecutionPolicy Bypass -File "%testScript%" > "%resultFile%" 2>&1, , Hide
+	
+	FileRead, testResult, %resultFile%
+	FileDelete, %testScript%
+	FileDelete, %resultFile%
+	
+	ToolTip
+	
+	if (InStr(testResult, "SUCCESS|")) {
+		parts := StrSplit(testResult, "|")
+		creditorName := Trim(parts[2])
+		creditorId := Trim(parts[3])
+		GuiControl, Settings:, GCStatusText, ✅ Connected
+		GuiControl, Settings:+c00FF00, GCStatusText
+		DarkMsgBox("Connection Successful", "Connected to GoCardless!`n`nCreditor: " . creditorName . "`nID: " . creditorId . "`nEnvironment: " . Settings_GoCardlessEnvironment, "success")
+	} else {
+		errMsg := InStr(testResult, "ERROR|") ? StrReplace(testResult, "ERROR|", "") : testResult
+		GuiControl, Settings:, GCStatusText, ❌ Failed
+		GuiControl, Settings:+cFF6B6B, GCStatusText
+		DarkMsgBox("Connection Failed", "Could not connect to GoCardless.`n`nError: " . Trim(errMsg) . "`n`nCheck your API token and try again.", "error")
+	}
+return
+
+OpenGCDashboard:
+	gcDashUrl := (Settings_GoCardlessEnvironment = "live") ? "https://manage.gocardless.com" : "https://manage-sandbox.gocardless.com"
+	Run, %gcDashUrl%
+return
+
+UpdateGCStatus() {
+	global Settings_GoCardlessToken
+	if (Settings_GoCardlessToken != "") {
+		GuiControl, Settings:, GCStatusText, ✅ Token Set
+		GuiControl, Settings:+c00FF00, GCStatusText
+	} else {
+		GuiControl, Settings:, GCStatusText, ❌ Not configured
+		GuiControl, Settings:+cFF6B6B, GCStatusText
+	}
+}
+
+; Toggle handler for GoCardless enabled - controls panel enable/disable state
+Toggle_GoCardlessEnabled_Changed:
+	Gui, Settings:Submit, NoHide
+	; Get the toggle state
+	GuiControlGet, toggleState,, Toggle_GoCardlessEnabled
+	Settings_GoCardlessEnabled := toggleState
+	IniWrite, %Settings_GoCardlessEnabled%, %IniFilename%, GoCardless, Enabled
+	; Enable/disable all other GoCardless controls based on toggle state
+	if (Settings_GoCardlessEnabled) {
+		GuiControl, Settings:Enable, GCEnvDDL
+		GuiControl, Settings:Enable, GCTokenEditBtn
+		GuiControl, Settings:Enable, GCTestBtn
+		GuiControl, Settings:Enable, GCDashboardBtn
+		GuiControl, Settings:Enable, GCEmailTplCombo
+		GuiControl, Settings:Enable, GCEmailTplRefresh
+		GuiControl, Settings:Enable, GCSMSTplCombo
+		GuiControl, Settings:Enable, GCSMSTplRefresh
+	} else {
+		GuiControl, Settings:Disable, GCEnvDDL
+		GuiControl, Settings:Disable, GCTokenEditBtn
+		GuiControl, Settings:Disable, GCTestBtn
+		GuiControl, Settings:Disable, GCDashboardBtn
+		GuiControl, Settings:Disable, GCEmailTplCombo
+		GuiControl, Settings:Disable, GCEmailTplRefresh
+		GuiControl, Settings:Disable, GCSMSTplCombo
+		GuiControl, Settings:Disable, GCSMSTplRefresh
+	}
+	; Recreate toolbar to reflect changes
+	CreateFloatingToolbar()
+return
+
+GCEmailTplChanged:
+	Gui, Settings:Submit, NoHide
+	GuiControlGet, selectedTemplate,, GCEmailTplCombo
+	if (selectedTemplate != "" && selectedTemplate != "SELECT") {
+		Settings_GCEmailTemplateName := selectedTemplate
+		; Look up the template ID from cached templates
+		Loop, Parse, GHL_CachedEmailTemplates, `n
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2 && parts[2] = selectedTemplate) {
+				Settings_GCEmailTemplateID := parts[1]
+				break
+			}
+		}
+		; Save to INI
+		IniWrite, %Settings_GCEmailTemplateID%, %IniFilename%, GoCardless, EmailTemplateID
+		IniWrite, %Settings_GCEmailTemplateName%, %IniFilename%, GoCardless, EmailTemplateName
+	}
+return
+
+GCSMSTplChanged:
+	Gui, Settings:Submit, NoHide
+	GuiControlGet, selectedTemplate,, GCSMSTplCombo
+	if (selectedTemplate != "") {
+		Settings_GCSMSTemplateName := selectedTemplate
+		; Look up the template ID from cached templates
+		Loop, Parse, GHL_CachedEmailTemplates, `n
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2 && parts[2] = selectedTemplate) {
+				Settings_GCSMSTemplateID := parts[1]
+				break
+			}
+		}
+		; Save to INI
+		IniWrite, %Settings_GCSMSTemplateID%, %IniFilename%, GoCardless, SMSTemplateID
+		IniWrite, %Settings_GCSMSTemplateName%, %IniFilename%, GoCardless, SMSTemplateName
+	} else {
+		; Clear if empty selected
+		Settings_GCSMSTemplateID := ""
+		Settings_GCSMSTemplateName := ""
+		IniWrite, %Settings_GCSMSTemplateID%, %IniFilename%, GoCardless, SMSTemplateID
+		IniWrite, %Settings_GCSMSTemplateName%, %IniFilename%, GoCardless, SMSTemplateName
+	}
+return
+
+RefreshGCSMSTemplates:
+	; Same as email templates - just refresh and update SMS dropdown
+	GoSub, RefreshGCEmailTemplates
+	; Also update SMS dropdown
+	newSmsList := ""
+	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2) {
+			newSmsList .= "|" . parts[2]
+		}
+	}
+	GuiControl, Settings:, GCSMSTplCombo, |%newSmsList%
+	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)")
+		GuiControl, Settings:ChooseString, GCSMSTplCombo, %Settings_GCSMSTemplateName%
+return
+
+RefreshGCEmailTemplates:
+	; Fetch email templates from GHL for GoCardless mandate notifications
+	ToolTip, Fetching email templates from GHL...
+	
+	; Build command using GetScriptCommand (handles .exe vs .py automatically)
+	tempFile := A_Temp . "\ghl_email_templates_gc.json"
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
+	
+	if (scriptCmd = "") {
+		ToolTip
+		DarkMsgBox("Error", "Script not found: sync_ps_invoice", "error")
+		return
+	}
+	
+	; Delete any existing temp file
+	FileDelete, %tempFile%
+	
+	; Write command to temp .cmd file
+	tempCmd := A_Temp . "\sk_gc_email_tpl_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileAppend, % "@" . scriptCmd . " > """ . tempFile . """ 2>&1`n", %tempCmd%
+	RunWait, %ComSpec% /c "%tempCmd%", , Hide
+	FileDelete, %tempCmd%
+	
+	; Read and parse the result
+	FileRead, result, %tempFile%
+	FileDelete, %tempFile%
+	
+	ToolTip
+	
+	if (InStr(result, "ERROR") || result = "") {
+		DarkMsgBox("Error", "Failed to fetch email templates from GHL.", "error")
+		return
+	}
+	
+	; Cache the templates (format: id|name per line)
+	GHL_CachedEmailTemplates := result
+	
+	; Rebuild the dropdown with SELECT first
+	newList := "SELECT"
+	Loop, Parse, result, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2) {
+			newList .= "|" . parts[2]
+		}
+	}
+	
+	GuiControl, Settings:, GCEmailTplCombo, |%newList%
+	if (Settings_GCEmailTemplateName != "" && Settings_GCEmailTemplateName != "(none selected)" && Settings_GCEmailTemplateName != "SELECT")
+		GuiControl, Settings:ChooseString, GCEmailTplCombo, %Settings_GCEmailTemplateName%
+	else
+		GuiControl, Settings:ChooseString, GCEmailTplCombo, SELECT
+	
+	templateCount := StrSplit(result, "`n").MaxIndex()
+	DarkMsgBox("Templates Loaded", "Loaded " . templateCount . " email templates from GHL.", "success", {timeout: 2})
+return
+
 CreateDeveloperPanel()
 {
 	global
@@ -8060,6 +8572,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, TabAboutBg
 	GuiControl, Settings:Hide, TabShortcutsBg
 	GuiControl, Settings:Hide, TabPrintBg
+	GuiControl, Settings:Hide, TabGoCardlessBg
 	GuiControl, Settings:Hide, TabDeveloperBg
 	
 	; Hide all panels - General
@@ -8374,6 +8887,31 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, DevPushWebBtn
 	GuiControl, Settings:Hide, DevWebProgress
 	GuiControl, Settings:Hide, DevWebProgressStatus
+	
+	; Hide all panels - GoCardless
+	GuiControl, Settings:Hide, PanelGoCardless
+	GuiControl, Settings:Hide, GCHeader
+	GuiControl, Settings:Hide, GCConnection
+	GuiControl, Settings:Hide, GCEnable
+	GuiControl, Settings:Hide, Toggle_GoCardlessEnabled
+	GuiControl, Settings:Hide, GCApiConfig
+	GuiControl, Settings:Hide, GCEnvLabel
+	GuiControl, Settings:Hide, GCEnvDDL
+	GuiControl, Settings:Hide, GCTokenLabel
+	GuiControl, Settings:Hide, GCTokenDisplay
+	GuiControl, Settings:Hide, GCTokenEditBtn
+	GuiControl, Settings:Hide, GCStatus
+	GuiControl, Settings:Hide, GCStatusText
+	GuiControl, Settings:Hide, GCTestBtn
+	GuiControl, Settings:Hide, GCDashboardBtn
+	GuiControl, Settings:Hide, GCNotifyGroup
+	GuiControl, Settings:Hide, GCEmailTplLabel
+	GuiControl, Settings:Hide, GCEmailTplCombo
+	GuiControl, Settings:Hide, GCEmailTplRefresh
+	GuiControl, Settings:Hide, GCSMSTplLabel
+	GuiControl, Settings:Hide, GCSMSTplCombo
+	GuiControl, Settings:Hide, GCSMSTplRefresh
+	GuiControl, Settings:Hide, GCNotifyHint
 	
 	; Show selected tab
 	if (tabName = "General")
@@ -8712,6 +9250,56 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, PrintPDFHint
 		GuiControl, Settings:Show, PrintPDFBtn
 	}
+	else if (tabName = "GoCardless")
+	{
+		GuiControl, Settings:Show, TabGoCardlessBg
+		GuiControl, Settings:Show, PanelGoCardless
+		GuiControl, Settings:Show, GCHeader
+		GuiControl, Settings:Show, GCConnection
+		GuiControl, Settings:Show, GCEnable
+		GuiControl, Settings:Show, Toggle_GoCardlessEnabled
+		GuiControl, Settings:Show, GCApiConfig
+		; Environment selector only for developers
+		if (IsDeveloperMode()) {
+			GuiControl, Settings:Show, GCEnvLabel
+			GuiControl, Settings:Show, GCEnvDDL
+		}
+		GuiControl, Settings:Show, GCTokenLabel
+		GuiControl, Settings:Show, GCTokenDisplay
+		GuiControl, Settings:Show, GCTokenEditBtn
+		GuiControl, Settings:Show, GCStatus
+		GuiControl, Settings:Show, GCStatusText
+		GuiControl, Settings:Show, GCTestBtn
+		GuiControl, Settings:Show, GCDashboardBtn
+		GuiControl, Settings:Show, GCNotifyGroup
+		GuiControl, Settings:Show, GCEmailTplLabel
+		GuiControl, Settings:Show, GCEmailTplCombo
+		GuiControl, Settings:Show, GCEmailTplRefresh
+		GuiControl, Settings:Show, GCSMSTplLabel
+		GuiControl, Settings:Show, GCSMSTplCombo
+		GuiControl, Settings:Show, GCSMSTplRefresh
+		GuiControl, Settings:Show, GCNotifyHint
+		; Apply enable/disable state based on toggle
+		if (Settings_GoCardlessEnabled) {
+			GuiControl, Settings:Enable, GCEnvDDL
+			GuiControl, Settings:Enable, GCTokenEditBtn
+			GuiControl, Settings:Enable, GCTestBtn
+			GuiControl, Settings:Enable, GCDashboardBtn
+			GuiControl, Settings:Enable, GCEmailTplCombo
+			GuiControl, Settings:Enable, GCEmailTplRefresh
+			GuiControl, Settings:Enable, GCSMSTplCombo
+			GuiControl, Settings:Enable, GCSMSTplRefresh
+		} else {
+			GuiControl, Settings:Disable, GCEnvDDL
+			GuiControl, Settings:Disable, GCTokenEditBtn
+			GuiControl, Settings:Disable, GCTestBtn
+			GuiControl, Settings:Disable, GCDashboardBtn
+			GuiControl, Settings:Disable, GCEmailTplCombo
+			GuiControl, Settings:Disable, GCEmailTplRefresh
+			GuiControl, Settings:Disable, GCSMSTplCombo
+			GuiControl, Settings:Disable, GCSMSTplRefresh
+		}
+	}
 	else if (tabName = "Developer")
 	{
 		GuiControl, Settings:Show, TabDeveloperBg
@@ -8776,6 +9364,10 @@ Return
 
 SettingsTabPrint:
 ShowSettingsTab("Print")
+Return
+
+SettingsTabGoCardless:
+ShowSettingsTab("GoCardless")
 Return
 
 SettingsTabDeveloper:
@@ -13001,6 +13593,7 @@ LoadSettings()
 	IniRead, Settings_ShowBtn_Refresh, %IniFilename%, Toolbar, ShowBtn_Refresh, 1
 	IniRead, Settings_ShowBtn_Print, %IniFilename%, Toolbar, ShowBtn_Print, 1
 	IniRead, Settings_ShowBtn_QRCode, %IniFilename%, Toolbar, ShowBtn_QRCode, 1
+	IniRead, Settings_ShowBtn_GoCardless, %IniFilename%, Toolbar, ShowBtn_GoCardless, 0
 	IniRead, Settings_ToolbarOffsetX, %IniFilename%, Toolbar, OffsetX, 0
 	IniRead, Settings_ToolbarOffsetY, %IniFilename%, Toolbar, OffsetY, 0
 	IniRead, Settings_QRCode_Text1, %IniFilename%, QRCode, Text1, %A_Space%
@@ -13018,6 +13611,13 @@ LoadSettings()
 	IniRead, Settings_PDFOutputFolder, %IniFilename%, Toolbar, PDFOutputFolder, %A_Space%
 	IniRead, Settings_PDFPrintBtnOffsetRight, %IniFilename%, Toolbar, PDFPrintBtnOffsetRight, 0
 	IniRead, Settings_PDFPrintBtnOffsetBottom, %IniFilename%, Toolbar, PDFPrintBtnOffsetBottom, 0
+	
+	; GoCardless settings (token is loaded separately via LoadGHLCredentials)
+	IniRead, Settings_GoCardlessEnabled, %IniFilename%, GoCardless, Enabled, 0
+	IniRead, Settings_GoCardlessEnvironment, %IniFilename%, GoCardless, Environment, sandbox
+	IniRead, Settings_GCEmailTemplateID, %IniFilename%, GoCardless, EmailTemplateID, %A_Space%
+	IniRead, Settings_GCEmailTemplateName, %IniFilename%, GoCardless, EmailTemplateName, (none selected)
+	IniRead, Settings_GCSMSEnabled, %IniFilename%, GoCardless, SMSEnabled, 0
 	
 	; Load GHL agency domain - check if migration needed for existing users
 	IniRead, GHL_AgencyDomain, %IniFilename%, GHL, AgencyDomain, %A_Space%
@@ -13142,6 +13742,7 @@ SaveSettings()
 	IniWrite, %Settings_ShowBtn_Refresh%, %IniFilename%, Toolbar, ShowBtn_Refresh
 	IniWrite, %Settings_ShowBtn_Print%, %IniFilename%, Toolbar, ShowBtn_Print
 	IniWrite, %Settings_ShowBtn_QRCode%, %IniFilename%, Toolbar, ShowBtn_QRCode
+	IniWrite, %Settings_ShowBtn_GoCardless%, %IniFilename%, Toolbar, ShowBtn_GoCardless
 	IniWrite, %Settings_ToolbarOffsetX%, %IniFilename%, Toolbar, OffsetX
 	IniWrite, %Settings_ToolbarOffsetY%, %IniFilename%, Toolbar, OffsetY
 	IniWrite, %Settings_QRCode_Text1%, %IniFilename%, QRCode, Text1
@@ -13159,6 +13760,14 @@ SaveSettings()
 	IniWrite, %Settings_RoomCaptureFolder%, %IniFilename%, Toolbar, RoomCaptureFolder
 	IniWrite, %Settings_EnablePDF%, %IniFilename%, Toolbar, EnablePDF
 	IniWrite, %Settings_PDFOutputFolder%, %IniFilename%, Toolbar, PDFOutputFolder
+	
+	; Save GoCardless settings (token is saved separately via SaveGHLCredentials)
+	IniWrite, %Settings_GoCardlessEnabled%, %IniFilename%, GoCardless, Enabled
+	IniWrite, %Settings_GoCardlessEnvironment%, %IniFilename%, GoCardless, Environment
+	IniWrite, %Settings_GCEmailTemplateID%, %IniFilename%, GoCardless, EmailTemplateID
+	IniWrite, %Settings_GCEmailTemplateName%, %IniFilename%, GoCardless, EmailTemplateName
+	IniWrite, %Settings_GCSMSEnabled%, %IniFilename%, GoCardless, SMSEnabled
+	SaveGHLCredentials()  ; Save API keys to encrypted credentials file
 	
 	; Update invoice folder monitor
 	if (Settings_InvoiceWatchFolder != "" && FileExist(Settings_InvoiceWatchFolder))

@@ -1,9 +1,13 @@
 {
-  "version": "2.5.17",
+  "version": "2.5.18",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Enhanced GHL product lookup logging for debugging",
+  "release_notes": "Fixed config loading from credentials.json for SKU lookup",
   "changelog": [
+    "FIX: LOCATION_ID now defined at module level for product/price API calls",
+    "FIX: Config now loads API key from credentials.json (not just INI)",
+    "FIX: Handle UTF-8 BOM in credentials.json",
+    "IMPROVED: Support both credentials.json and ghl_credentials.json filenames",
     "IMPROVED: Added detailed logging for GHL product SKU lookup process",
     "FIX: Installer now removes old script files (sync_ps_invoice.exe etc.)",
     "FIX: GHL product SKU lookup now fetches price-level SKUs",
