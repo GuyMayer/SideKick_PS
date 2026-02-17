@@ -1,18 +1,34 @@
 {
-  "version": "2.5.7",
+  "version": "2.5.8",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
+  "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
   "changelog": [
-    "NEW: SKU field (Product_Code) extracted from ProSelect XML for product matching",
-    "NEW: Full tax details extracted (tax_label, tax_rate, price_includes_tax)",
-    "NEW: Product line code and name extracted for categorization",
-    "NEW: Size and Template_Name fields for product identification",
-    "NEW: ProSelect item ID preserved for traceability",
-    "IMPROVED: All ProSelect fields passed through unchanged - no string merging",
-    "IMPROVED: Invoice items include all fields needed for Xero/QuickBooks sync"
+    "NEW: Setup Wizard auto-loads GHL tags, opportunity tags, and email templates after setup",
+    "NEW: Setup Wizard offers to launch ProSelect and wait up to 60s for print template loading",
+    "NEW: Manual button in General Settings opens online documentation",
+    "NEW: Docs button in About tab links to field mapping documentation",
+    "NEW: Website sitemap.xml and robots.txt for search engine indexing",
+    "NEW: JSON-LD schema for Google and AI search (SoftwareApplication, FAQPage)",
+    "NEW: Open Graph and Twitter Card meta tags for social sharing",
+    "IMPROVED: App Settings group box simplified - removed ProSelect version display",
+    "IMPROVED: Silent refresh functions for tags and templates (no dialogs during setup)"
   ],
   "versions": [
+    {
+      "version": "2.5.7",
+      "build_date": "2026-02-17",
+      "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
+      "changelog": [
+        "NEW: SKU field (Product_Code) extracted from ProSelect XML for product matching",
+        "NEW: Full tax details extracted (tax_label, tax_rate, price_includes_tax)",
+        "NEW: Product line code and name extracted for categorization",
+        "NEW: Size and Template_Name fields for product identification",
+        "NEW: ProSelect item ID preserved for traceability",
+        "IMPROVED: All ProSelect fields passed through unchanged - no string merging",
+        "IMPROVED: Invoice items include all fields needed for Xero/QuickBooks sync"
+      ]
+    },
     {
       "version": "2.5.6",
       "build_date": "2026-02-12",

@@ -12,6 +12,38 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.8 (2026-02-17)
+
+### New Features
+- **Setup Wizard Auto-Refresh**: Wizard now auto-loads GHL tags, opportunity tags, and email templates after setup
+- **ProSelect Auto-Launch**: Wizard offers to launch ProSelect and waits up to 60 seconds for print template loading
+- **Manual Button**: Added "📖 Manual" button in General Settings to open online documentation
+- **Docs Button**: Added documentation button in About tab linking to field mapping docs
+- **Website SEO**: Added sitemap.xml and robots.txt for search engine indexing
+- **JSON-LD Schema**: Added SoftwareApplication and FAQPage schema for Google and AI search
+- **Social Meta Tags**: Added Open Graph and Twitter Card meta tags for social sharing
+
+### Improvements
+- **App Settings Simplified**: Removed ProSelect version display from General Settings group box
+- **Silent Refresh Functions**: Tags and templates load silently during wizard (no dialog interruptions)
+
+---
+
+## v2.5.7 (2026-02-17)
+
+### New Features
+- **SKU Field Extraction**: Product_Code extracted from ProSelect XML for product matching
+- **Tax Details**: Full tax info extracted (tax_label, tax_rate, price_includes_tax)
+- **Product Line Fields**: Product line code and name for categorization
+- **Size/Template Fields**: Size and Template_Name for product identification
+- **Item ID Tracking**: ProSelect item ID preserved for traceability
+
+### Improvements
+- **No String Merging**: All ProSelect fields passed through unchanged to GHL
+- **Xero/QuickBooks Ready**: Invoice items include all fields needed for accounting sync
+
+---
+
 ## v2.5.6 (2026-02-12)
 
 ### New Features
