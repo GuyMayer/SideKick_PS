@@ -2878,6 +2878,14 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
     
     for item in invoice_items:
         item_price = float(item['price'])
+        item_qty = int(item['quantity'])
+        
+        # Skip items with qty <= 0 (bundled free items like Mat/Frame included with main product)
+        # GHL API rejects items with qty < 0.1
+        if item_qty <= 0:
+            debug_log(f"Skipping item with qty={item_qty}: {item.get('name', 'Unknown')}")
+            continue
+        
         item_name = str(item['name'])
         item_description = str(item['description'])
         item_sku = item.get('sku', '')
