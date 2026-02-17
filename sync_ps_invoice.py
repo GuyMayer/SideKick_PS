@@ -110,9 +110,11 @@ DEBUG_LOCATION_ID = ""  # Leave empty to use INI value (set to override for test
 
 # Debug log folder in AppData (hidden from user)
 DEBUG_LOG_FOLDER = os.path.join(os.environ.get('APPDATA', os.path.expanduser("~")), "SideKick_PS", "Logs")
-if DEBUG_MODE:
-    os.makedirs(DEBUG_LOG_FOLDER, exist_ok=True)  # Only create if logging enabled
+os.makedirs(DEBUG_LOG_FOLDER, exist_ok=True)  # Always create - needed for error log
 DEBUG_LOG_FILE = os.path.join(DEBUG_LOG_FOLDER, f"sync_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+
+# Error log - ALWAYS written (even when DEBUG_MODE is off) for critical errors
+ERROR_LOG_FILE = os.path.join(DEBUG_LOG_FOLDER, f"sync_error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 
 # Progress file for non-blocking GUI updates (AHK reads this)
 PROGRESS_FILE = os.path.join(os.environ.get('TEMP', '.'), 'sidekick_sync_progress.txt')
@@ -225,6 +227,92 @@ def upload_debug_log_to_gist() -> str | None:
     except Exception as e:
         print(f"GIST UPLOAD ERROR: {e}")
         return None
+
+
+def upload_error_log_to_gist() -> str | None:
+    """Upload error log to private GitHub Gist for developer review.
+    
+    This is called on critical errors to ensure error details are captured
+    even when DEBUG_MODE is off.
+
+    Returns:
+        str | None: The Gist URL if successful, None otherwise.
+    """
+    if not GIST_ENABLED or not os.path.exists(ERROR_LOG_FILE):
+        return None
+
+    try:
+        with open(ERROR_LOG_FILE, 'r', encoding='utf-8') as f:
+            log_content = f.read()
+
+        if not log_content.strip():
+            return None  # Don't upload empty error logs
+
+        # Get computer name, location ID and timestamp for description
+        computer_name = os.environ.get('COMPUTERNAME', 'Unknown')
+        location_id = CONFIG.get('LOCATION_ID', 'Unknown') if 'CONFIG' in globals() else 'Unknown'
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+
+        gist_data = {
+            "description": f"SideKick ERROR Log - {computer_name} - {location_id} - {timestamp}",
+            "public": False,
+            "files": {
+                f"{location_id}_sync_error_{timestamp}.log": {
+                    "content": log_content
+                }
+            }
+        }
+
+        response = requests.post(
+            "https://api.github.com/gists",
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept": "application/vnd.github.v3+json"
+            },
+            json=gist_data,
+            timeout=30
+        )
+
+        if response.status_code == 201:
+            gist_url = response.json().get('html_url', '')
+            print(f"ERROR LOG UPLOADED: {gist_url}")
+            return gist_url
+        else:
+            print(f"ERROR GIST UPLOAD FAILED: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"ERROR GIST UPLOAD ERROR: {e}")
+        return None
+
+
+def error_log(message: str, data=None, exception: Exception = None) -> None:
+    """Write error to error log file - ALWAYS enabled for critical errors.
+    
+    This log is written regardless of DEBUG_MODE setting to ensure
+    critical errors are always captured for diagnostics.
+    """
+    import traceback
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    log_line = f"[{timestamp}] ERROR: {message}"
+    if data is not None:
+        if isinstance(data, (dict, list)):
+            log_line += f"\n{json.dumps(data, indent=2, default=str)}"
+        else:
+            log_line += f"\n{data}"
+    if exception:
+        log_line += f"\nException: {type(exception).__name__}: {exception}"
+        log_line += f"\nTraceback:\n{traceback.format_exc()}"
+    
+    # Always write to error log file
+    try:
+        with open(ERROR_LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write(log_line + "\n" + "="*60 + "\n")
+    except Exception:
+        pass  # Don't fail if we can't write error log
+    
+    # Also print to stderr for visibility
+    print(f"ERROR: {message}", file=sys.stderr)
+
 
 def debug_log(message, data=None):
     """Write debug info to log file and console"""
@@ -858,6 +946,7 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
 
     except Exception as e:
         debug_log(f"XML PARSING ERROR: {e}", {"traceback": str(e)})
+        error_log(f"XML PARSING FAILED: {xml_path}", {"error": str(e)}, exception=e)
         print(f"Error parsing XML: {e}")
         return None
 
@@ -2558,10 +2647,15 @@ def _create_invoice_item(item: dict) -> dict:
     """
     # Pass through ALL ProSelect fields unchanged - no merging/fallback
     # GHL product matching requires exact string matches
+    # CRITICAL: GHL requires non-empty name, so fallback to Description if Product_Name is empty
+    product_name = item.get('product', '')
+    description = item.get('description', '')
+    
     return {
-        # GHL invoice line item fields (using ProSelect Product_Name for product matching)
-        "name": item.get('product', ''),  # Product_Name - for GHL product name matching
-        "description": item.get('description', ''),  # Description - full line item description
+        # GHL invoice line item fields
+        # Use Product_Name for GHL matching; fallback to Description if empty (required by GHL)
+        "name": product_name if product_name else description,
+        "description": description,  # Description - full line item description
         "quantity": item['quantity'],
         "price": float(item['price']),
         "currency": "GBP",
@@ -3153,11 +3247,21 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
                 error_msg = "Contact not found - link client to GHL first"
             print(f"✗ {error_msg}")
             print(f"  Response: {response.text}")
+            # Log error for diagnostics (always - even when DEBUG_MODE off)
+            error_log(f"GHL Invoice Creation Failed: {error_msg}", {
+                "status_code": response.status_code,
+                "response": response.text[:2000],
+                "contact_id": contact_id,
+                "invoice_name": invoice_name,
+                "items_count": len(ghl_items),
+                "payload_preview": {k: v for k, v in payload.items() if k != 'items'}
+            })
             return {'success': False, 'error': error_msg, 'status_code': response.status_code}
 
     except requests.exceptions.RequestException as e:
         error_msg = f"Network error: {str(e)}"
         print(f"✗ Error creating invoice: {error_msg}")
+        error_log(f"GHL Invoice Network Error: {error_msg}", {"contact_id": contact_id}, exception=e)
         return {'success': False, 'error': error_msg}
 
 def _verify_contact_update(contact_id: str, headers: dict) -> None:
@@ -3703,6 +3807,7 @@ def _process_sync(
     if not ps_data:
         print("Failed to parse XML")
         write_progress(current_step, total_steps, "Failed to parse XML", 'error')
+        error_log("XML PARSING FAILED", {"xml_path": xml_path})
         sys.exit(1)
 
     client_name = f"{ps_data.get('first_name')} {ps_data.get('last_name')}"
@@ -3721,6 +3826,12 @@ def _process_sync(
     if not contact_id:
         print("✗ No GHL Contact ID in XML")
         write_progress(current_step, total_steps, "No GHL Contact ID in XML", 'error')
+        error_log("NO GHL CONTACT ID IN XML", {
+            "xml_path": xml_path,
+            "client_name": client_name,
+            "email": ps_data.get('email'),
+            "album_name": album_name
+        })
         return {'success': False, 'error': 'No GHL Contact ID in XML (Client_ID field)'}
 
     # Step 2: Contact sheet (optional)
@@ -3837,4 +3948,28 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # Catch any unhandled exception and log it
+        import traceback
+        error_log("UNHANDLED EXCEPTION IN MAIN", {
+            "args": sys.argv,
+            "exception": str(e),
+            "type": type(e).__name__
+        }, exception=e)
+        
+        # Write to progress file so AHK knows there was an error
+        write_progress(0, 1, f"Critical error: {e}", 'error')
+        
+        # Also upload error log to gist if enabled
+        if GIST_ENABLED:
+            try:
+                upload_error_log_to_gist()
+            except Exception:
+                pass
+        
+        print(f"\nCRITICAL ERROR: {e}")
+        print(f"Error log saved to: {ERROR_LOG_FILE}")
+        traceback.print_exc()
+        sys.exit(1)
