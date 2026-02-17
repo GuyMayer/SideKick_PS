@@ -19,6 +19,8 @@ AI INSTRUCTIONS - When publishing a new version:
 - **Recalibration Shortcut**: Ctrl+Shift+Click PDF icon to recalibrate Print button position
 - **Transparent Toolbar**: Toolbar background now transparent, showing only colored buttons
 - **Braille Grab Handle**: New ⣿ grab handle icon with solid dark background for easy dragging
+- **Simple Toolbar Drag**: Click and drag grab handle to reposition (no Ctrl required)
+- **Flexible Y Positioning**: Toolbar can now be positioned above title bar area (negative Y offset allowed)
 
 ### Improvements
 - **Calibration Prompt**: Yellow centered GUI with clear instructions explaining why calibration is needed

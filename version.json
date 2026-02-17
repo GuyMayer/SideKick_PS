@@ -1,13 +1,27 @@
 {
-  "version": "2.5.6",
-  "build_date": "2026-02-12",
+  "version": "2.5.7",
+  "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
+  "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
   "changelog": [
-    "FIX: GHL API updated to new endpoint for PIT token support",
-    "IMPROVED: API keys now stored only in credentials.json (removed from INI)"
+    "NEW: SKU field (Product_Code) extracted from ProSelect XML for product matching",
+    "NEW: Full tax details extracted (tax_label, tax_rate, price_includes_tax)",
+    "NEW: Product line code and name extracted for categorization",
+    "NEW: Size and Template_Name fields for product identification",
+    "NEW: ProSelect item ID preserved for traceability",
+    "IMPROVED: All ProSelect fields passed through unchanged - no string merging",
+    "IMPROVED: Invoice items include all fields needed for Xero/QuickBooks sync"
   ],
   "versions": [
+    {
+      "version": "2.5.6",
+      "build_date": "2026-02-12",
+      "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
+      "changelog": [
+        "FIX: GHL API updated to new endpoint for PIT token support",
+        "IMPROVED: API keys now stored only in credentials.json (removed from INI)"
+      ]
+    },
     {
       "version": "2.5.3",
       "build_date": "2026-02-09",
