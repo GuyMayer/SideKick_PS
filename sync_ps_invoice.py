@@ -2741,17 +2741,9 @@ def _convert_to_ghl_items(invoice_items: list) -> list:
             "currency": "GBP"
         }
         
-        # Add tax info if item is taxable AND has price > 0
-        # GHL Invoice API rejects taxes on $0 items
-        if item.get('taxable', False) and item.get('tax_rate', 0) > 0 and item_price > 0:
-            # GHL requires lowercase: "exclusive" or "inclusive"
-            calc_type = "inclusive" if item.get('price_includes_tax', False) else "exclusive"
-            ghl_item["taxes"] = [{
-                "_id": "default",  # GHL default tax ID
-                "name": item.get('tax_label', 'VAT'),
-                "rate": float(item.get('tax_rate', 20)),
-                "calculation": calc_type
-            }]
+        # NOTE: Per-item taxes removed - GHL API rejects our tax format
+        # Tax info is shown in Order Summary line description instead
+        # "taxes":[] is the default, no need to set it
         
         ghl_items.append(ghl_item)
     

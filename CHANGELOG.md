@@ -12,6 +12,13 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.12 (2026-02-17)
+
+### Bug Fixes
+- **GHL Invoice Sync**: Removed per-item tax format that GHL API rejects (tax breakdown shown in Order Summary line)
+
+---
+
 ## v2.5.11 (2026-02-17)
 
 ### Bug Fixes
