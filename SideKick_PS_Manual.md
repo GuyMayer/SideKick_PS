@@ -1,6 +1,6 @@
 # SideKick PS — User Manual
 
-**Version 2.4.72** | February 2026 | © Zoom Photography
+**Version 2.5.19** | February 2026 | © Zoom Photography
 
 ---
 
@@ -13,18 +13,19 @@
 5. [GHL Client Lookup](#ghl-client-lookup)
 6. [Invoice Sync](#invoice-sync)
 7. [Invoice Deletion](#invoice-deletion)
-8. [Payment Plan Calculator](#payment-plan-calculator)
-9. [Room Capture](#room-capture)
-10. [Room Capture Email](#room-capture-email)
-11. [Open GHL Contact](#open-ghl-contact)
-12. [Quick Print](#quick-print)
-13. [SD Card Download](#sd-card-download)
-14. [Settings](#settings)
-15. [Keyboard Shortcuts](#keyboard-shortcuts)
-16. [System Tray](#system-tray)
-17. [Licensing & Activation](#licensing--activation)
-18. [Troubleshooting](#troubleshooting)
-19. [Support](#support)
+8. [GoCardless Integration](#gocardless-integration)
+9. [Payment Plan Calculator](#payment-plan-calculator)
+10. [Room Capture](#room-capture)
+11. [Room Capture Email](#room-capture-email)
+12. [Open GHL Contact](#open-ghl-contact)
+13. [Quick Print](#quick-print)
+14. [SD Card Download](#sd-card-download)
+15. [Settings](#settings)
+16. [Keyboard Shortcuts](#keyboard-shortcuts)
+17. [System Tray](#system-tray)
+18. [Licensing & Activation](#licensing--activation)
+19. [Troubleshooting](#troubleshooting)
+20. [Support](#support)
 
 ---
 
@@ -247,6 +248,82 @@ Delete the last synced invoice from GHL.
 - Only the most recent invoice for the current client can be deleted
 - The client must have a Client ID in the album name
 - Payment schedules associated with the invoice are also cancelled
+
+---
+
+## GoCardless Integration
+
+**Toolbar button:** GC (GoCardless)
+
+Manage Direct Debit payments through GoCardless — check mandates, send setup links, and create payment plans.
+
+### What is GoCardless?
+
+GoCardless is a Direct Debit payment platform ideal for photography payment plans. It allows you to collect recurring payments automatically from your clients' bank accounts via BACS Direct Debit in the UK.
+
+### Checking for Existing Mandates
+
+1. Import a client using **GHL Client Lookup** first
+2. Click the **GC** button on the toolbar
+3. SideKick PS searches GoCardless for matching customer by email
+4. If a mandate exists, you'll see:
+   - ✅ Mandate status (active/pending)
+   - Bank name
+   - Option to **Create Payment Plan**
+5. If no mandate exists, you can **Send Mandate Request**
+
+### Sending a Mandate Request
+
+If the client doesn't have a mandate:
+
+1. Click **Send Mandate Request**
+2. SideKick creates a GoCardless Billing Request with a setup link
+3. Choose to send via GHL **Email**, **SMS**, or both
+4. The client receives a link to authorize Direct Debit payments
+5. Once they complete setup, their mandate becomes active
+
+### Creating a Payment Plan
+
+When a client has an active mandate:
+
+1. First, create a payment plan in the **Payment Calculator** with GoCardless DD as the payment type
+2. Click the **GC** button to check the mandate
+3. Click **Create Payment Plan**
+4. The dialog auto-populates from your PayPlan lines:
+   - **Plan Name** — defaults to ShootNo-LastName
+   - **Amount** — per-payment amount (from DD payments only)
+   - **Payments** — count of DD payments found
+   - **Day** — day of month for collection
+
+### DD Payment Filtering
+
+The payment plan dialog **only includes Direct Debit payments**:
+
+| ✅ Included | ❌ Skipped |
+|------------|------------|
+| GoCardless DD | Credit Card |
+| Direct Debit | Cash |
+| BACS | Cheque |
+| DD | Bank Transfer |
+
+This ensures only appropriate payments are submitted to GoCardless. Non-DD payments (deposits paid by card, etc.) are skipped automatically.
+
+### Duplicate Plan Names
+
+If you create multiple plans for the same shoot (e.g., client adds more products later), GoCardless requires unique names. SideKick automatically handles this:
+
+- First plan: `P26001-Smith`
+- Second plan: `P26001-Smith-1`
+- Third plan: `P26001-Smith-2`
+
+The dialog shows the actual name used after creation.
+
+### Tips
+
+- **Mandate setup takes 2-3 business days** — plan ahead before the first payment date
+- GoCardless deducts fees (1% + 20p, capped at £4) from each payment
+- Payments are collected automatically on the scheduled dates
+- Failed payments are automatically retried by GoCardless
 
 ---
 
@@ -481,6 +558,17 @@ Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+
 | **Create contact sheet** | Upload a contact sheet JPG with invoices |
 | **Contact/Opportunity tags** | Tags to apply during invoice sync |
 | **Save local copies** | Save contact sheet copies to a local folder |
+
+### GoCardless Tab
+
+| Setting | Description |
+|---|---|
+| **Enable GoCardless** | Master toggle for GoCardless features |
+| **Environment** | Sandbox (testing) or Live (production) |
+| **API Token** | Your GoCardless access token (stored encrypted) |
+| **Email Template** | GHL email template for mandate request emails |
+| **SMS Template** | GHL SMS template for mandate request texts |
+| **🔄 Refresh** | Fetch available templates from GHL |
 
 ### Hotkeys Tab
 

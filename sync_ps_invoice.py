@@ -3438,6 +3438,18 @@ def _handle_invoice_success(
     }
     if schedule_ids:
         result['schedule_ids'] = schedule_ids
+    
+    # Include future payment info for GoCardless integration
+    if payments:
+        today = datetime.now().strftime('%Y-%m-%d')
+        future_payments = [p for p in payments if p.get('date', '') > today]
+        if future_payments:
+            result['future_payments'] = {
+                'count': len(future_payments),
+                'total': sum(p.get('amount', 0) for p in future_payments),
+                'payments': future_payments
+            }
+    
     return result
 
 
@@ -3783,6 +3795,50 @@ def list_email_templates():
         print(f"ERROR|{str(e)}")
 
 
+def list_sms_templates():
+    """List all SMS templates from GHL - outputs ID|Name format for AHK parsing."""
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Version": "2021-07-28",
+        "Accept": "application/json"
+    }
+
+    try:
+        config = load_config()
+        location_id = config.get('LOCATION_ID', '')
+
+        url = f"https://services.leadconnectorhq.com/locations/{location_id}/templates"
+        params = {
+            'type': 'sms',
+            'limit': 100
+        }
+
+        debug_log("LIST SMS TEMPLATES REQUEST", {"url": url, "params": params})
+
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        debug_log("LIST SMS TEMPLATES RESPONSE", {
+            "status_code": response.status_code,
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+
+        if response.status_code == 200:
+            data = response.json()
+            templates = data.get('templates', [])
+
+            if not templates:
+                print("NO_TEMPLATES")
+            else:
+                for t in templates:
+                    t_id = t.get('id', '') or t.get('_id', '')
+                    t_name = t.get('name', 'Unnamed')
+                    print(f"{t_id}|{t_name}")
+        else:
+            print(f"API_ERROR|{response.status_code}")
+    except Exception as e:
+        debug_log("LIST SMS TEMPLATES EXCEPTION", {"error": str(e)})
+        print(f"ERROR|{str(e)}")
+
+
 def _list_snippets_fallback(headers: dict, location_id: str):
     """Fallback to snippets API if templates endpoint not available."""
     try:
@@ -4076,6 +4132,8 @@ def _parse_cli_args():
                             help='GHL email template/snippet ID to use (used with --send-room-email)')
         parser.add_argument('--list-email-templates', action='store_true',
                             help='List available email templates/snippets from GHL and exit')
+        parser.add_argument('--list-sms-templates', action='store_true',
+                            help='List available SMS templates from GHL and exit')
         parser.add_argument('--void-invoice', type=str, default='',
                             help='Void a GHL invoice by ID (after payment refund)')
     return parser.parse_args()
@@ -4213,6 +4271,10 @@ def main() -> None:
 
     if args.list_email_templates:
         list_email_templates()
+        sys.exit(0)
+
+    if args.list_sms_templates:
+        list_sms_templates()
         sys.exit(0)
 
     if args.delete_invoice:
