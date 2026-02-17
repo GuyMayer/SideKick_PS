@@ -5578,12 +5578,6 @@ ToolTip, %tt%
 SetTimer, RemoveToolTip, -5000
 Return
 
-TT_PSVersion:
-tt := "DETECTED PROSELECT VERSION`n`nShows which ProSelect version was detected.`nSideKick uses this to optimize automation commands."
-ToolTip, %tt%
-SetTimer, RemoveToolTip, -5000
-Return
-
 TT_GHLEnable:
 tt := "ENABLE GHL INTEGRATION`n`nConnect SideKick to your GoHighLevel CRM account.`nRequires a valid GHL API key to function."
 ToolTip, %tt%
@@ -5717,23 +5711,19 @@ CreateGeneralPanel()
 	Gui, Settings:Add, Button, x540 y321 w60 h26 gEditRecurringOptions vGenRecurOptionsBtn, Edit
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; PROSELECT GROUP BOX (y380)
+	; APP SETTINGS GROUP BOX (y380)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y380 w480 h115 vGenProSelectGroup, ProSelect
+	Gui, Settings:Add, GroupBox, x195 y380 w480 h80 vGenProSelectGroup, App Settings
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	DetectProSelectVersion()
-	psVer := ProSelectVersion ? ProSelectVersion : "Not detected"
-	
-	Gui, Settings:Add, Text, x210 y410 w120 BackgroundTrans vGenPSVersionLabel, Detected Version:
-	Gui, Settings:Add, Text, x340 y410 w200 BackgroundTrans vGenPSVersionValue gTT_PSVersion HwndHwndPSVersion, %psVer%
-	RegisterSettingsTooltip(HwndPSVersion, "DETECTED PROSELECT VERSION`n`nShows which ProSelect version was automatically detected.`nSideKick uses this to optimize automation commands`nand window handling for your specific version.`n`nIf showing 'Not detected' ensure ProSelect is installed.")
 	
 	; Buttons row
-	Gui, Settings:Add, Button, x210 y450 w150 h30 gCreateSideKickShortcut vGenShortcutBtn, 🚀 Desktop Shortcut
-	Gui, Settings:Add, Button, x380 y450 w100 h30 gExportSettings vGenExportBtn, 📤 Export
-	Gui, Settings:Add, Button, x490 y450 w100 h30 gImportSettings vGenImportBtn, 📥 Import
+	Gui, Settings:Add, Button, x210 y410 w110 h30 gCreateSideKickShortcut vGenShortcutBtn, 🚀 Shortcut
+	Gui, Settings:Add, Button, x330 y410 w100 h30 gOpenUserManual vGenManualBtn HwndHwndGenManual, 📖 Manual
+	RegisterSettingsTooltip(HwndGenManual, "USER MANUAL`n`nOpen the online documentation and user guide.`nLearn about features, setup, and troubleshooting.")
+	Gui, Settings:Add, Button, x440 y410 w70 h30 gExportSettings vGenExportBtn, 📤 Export
+	Gui, Settings:Add, Button, x520 y410 w70 h30 gImportSettings vGenImportBtn, 📥 Import
 }
 
 CreateGHLPanel()
@@ -7194,6 +7184,10 @@ CreateAboutPanel()
 	Gui, Settings:Add, Text, x560 y330 w100 BackgroundTrans gOpenUserManual vAboutManualLink Hidden HwndHwndAboutManual, 📖 User Manual
 	RegisterSettingsTooltip(HwndAboutManual, "USER MANUAL`n`nOpen the full user manual in your browser.`n`nIncludes:`n• Getting started guide`n• Feature documentation`n• Keyboard shortcuts`n• Troubleshooting tips")
 	
+	Gui, Settings:Font, s9 Norm c%linkColor%, Segoe UI
+	Gui, Settings:Add, Text, x560 y350 w100 BackgroundTrans gOpenDocsPage vAboutDocsLink Hidden HwndHwndAboutDocs, 📚 Docs
+	RegisterSettingsTooltip(HwndAboutDocs, "DOCUMENTATION`n`nOpen the ProSelect to GHL field mapping guide.`n`nIncludes:`n• Invoice line item mapping`n• SKU/Product Code sync`n• Xero integration fields`n• QuickBooks integration fields`n• Tax configuration checklist")
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; DIAGNOSTICS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
@@ -7855,9 +7849,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GenRecurOptionsEdit
 	GuiControl, Settings:Hide, GenRecurOptionsBtn
 	GuiControl, Settings:Hide, GenProSelectGroup
-	GuiControl, Settings:Hide, GenPSVersionLabel
-	GuiControl, Settings:Hide, GenPSVersionValue
 	GuiControl, Settings:Hide, GenShortcutBtn
+	GuiControl, Settings:Hide, GenManualBtn
 	GuiControl, Settings:Hide, GenExportBtn
 	GuiControl, Settings:Hide, GenImportBtn
 	
@@ -7965,6 +7958,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, AboutAuthorValue
 	GuiControl, Settings:Hide, AboutEmailLink
 	GuiControl, Settings:Hide, AboutManualLink
+	GuiControl, Settings:Hide, AboutDocsLink
 	GuiControl, Settings:Hide, AboutWhatsNewButton
 	GuiControl, Settings:Hide, AboutSendLogsButton
 	GuiControl, Settings:Hide, AboutLogPath
@@ -8169,9 +8163,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GenRecurOptionsEdit
 		GuiControl, Settings:Show, GenRecurOptionsBtn
 		GuiControl, Settings:Show, GenProSelectGroup
-		GuiControl, Settings:Show, GenPSVersionLabel
-		GuiControl, Settings:Show, GenPSVersionValue
 		GuiControl, Settings:Show, GenShortcutBtn
+		GuiControl, Settings:Show, GenManualBtn
 		GuiControl, Settings:Show, GenExportBtn
 		GuiControl, Settings:Show, GenImportBtn
 	}
@@ -8383,6 +8376,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, AboutAuthorValue
 		GuiControl, Settings:Show, AboutEmailLink
 		GuiControl, Settings:Show, AboutManualLink
+		GuiControl, Settings:Show, AboutDocsLink
 		GuiControl, Settings:Show, AboutWhatsNewButton
 		GuiControl, Settings:Show, AboutSendLogsButton
 		GuiControl, Settings:Show, AboutLogPath
@@ -8611,11 +8605,11 @@ DevPushWebsite:
 	
 	; Step 1: Sync files (33%)
 	GuiControl, Settings:, DevWebProgress, 25
-	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && copy /y website_ps\index.html docs\index.html >nul 2>&1 && xcopy /s /y /q website_ps\images\* docs\images\ >nul 2>&1", , Hide
+	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && copy /y website_ps\*.html docs\ >nul 2>&1 && copy /y website_ps\*.xml docs\ >nul 2>&1 && copy /y website_ps\*.txt docs\ >nul 2>&1 && copy /y website_ps\CNAME docs\ >nul 2>&1 && xcopy /s /y /q website_ps\images\* docs\images\ >nul 2>&1", , Hide
 	
 	; Step 2: Stage files (50%)
 	GuiControl, Settings:, DevWebProgress, 50
-	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git add website_ps/index.html docs/index.html website_ps/images/* docs/images/* 2>nul", , Hide
+	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git add website_ps/* docs/* 2>nul", , Hide
 	
 	; Step 3: Check for changes and commit (75%)
 	GuiControl, Settings:, DevWebProgress, 75
@@ -10894,6 +10888,225 @@ RefreshGHLOppTags:
 	return
 }
 
+; ============================================================================
+; Silent refresh functions (no dialogs) - used by Setup Wizard
+; ============================================================================
+RefreshGHLTagsSilent:
+{
+	global GHL_API_Key, GHL_LocationID, GHL_CachedTags, Settings_GHLTags
+	
+	if (!GHL_API_Key || GHL_API_Key = "" || !GHL_LocationID || GHL_LocationID = "")
+		return
+	
+	try {
+		http := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+		http.SetTimeouts(10000, 10000, 10000, 10000)
+		tagsUrl := "https://services.leadconnectorhq.com/locations/" . GHL_LocationID . "/tags"
+		http.open("GET", tagsUrl, false)
+		http.SetRequestHeader("Authorization", "Bearer " . GHL_API_Key)
+		http.SetRequestHeader("Version", "2021-07-28")
+		http.send()
+		
+		if (http.status >= 200 && http.status < 300) {
+			responseText := http.responseText
+			tagNames := []
+			pos := 1
+			while (pos := RegExMatch(responseText, """name""\s*:\s*""([^""]+)""", match, pos)) {
+				tagNames.Push(match1)
+				pos += StrLen(match)
+			}
+			
+			GHL_CachedTags := ""
+			for i, tagName in tagNames {
+				if (GHL_CachedTags != "")
+					GHL_CachedTags .= "|"
+				GHL_CachedTags .= tagName
+			}
+			
+			IniWrite, %GHL_CachedTags%, %IniFilename%, GHL, CachedTags
+			
+			currentValue := Settings_GHLTags
+			newList := currentValue
+			if (GHL_CachedTags != "") {
+				if (newList != "")
+					newList .= "||"
+				newList .= GHL_CachedTags
+			}
+			GuiControl, Settings:, GHLTagsEdit, |%newList%
+			if (currentValue != "")
+				GuiControl, Settings:ChooseString, GHLTagsEdit, %currentValue%
+		}
+	}
+	return
+}
+
+RefreshGHLOppTagsSilent:
+{
+	global GHL_API_Key, GHL_LocationID, GHL_CachedOppTags, Settings_GHLOppTags
+	
+	if (!GHL_API_Key || GHL_API_Key = "" || !GHL_LocationID || GHL_LocationID = "")
+		return
+	
+	try {
+		http := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+		http.SetTimeouts(15000, 15000, 15000, 15000)
+		oppUrl := "https://services.leadconnectorhq.com/opportunities/search"
+		http.open("POST", oppUrl, false)
+		http.SetRequestHeader("Authorization", "Bearer " . GHL_API_Key)
+		http.SetRequestHeader("Version", "2021-07-28")
+		http.SetRequestHeader("Content-Type", "application/json")
+		
+		payload := "{""locationId"": """ . GHL_LocationID . """, ""limit"": 100}"
+		http.send(payload)
+		
+		if (http.status >= 200 && http.status < 300) {
+			responseText := http.responseText
+			allTags := {}
+			pos := 1
+			while (pos := RegExMatch(responseText, """tags""\s*:\s*\[([^\]]*)\]", match, pos)) {
+				tagsContent := match1
+				tagPos := 1
+				while (tagPos := RegExMatch(tagsContent, """([^""]+)""", tagMatch, tagPos)) {
+					tagName := tagMatch1
+					if (tagName != "")
+						allTags[tagName] := true
+					tagPos += StrLen(tagMatch)
+				}
+				pos += StrLen(match)
+			}
+			
+			GHL_CachedOppTags := ""
+			for tagName, _ in allTags {
+				if (GHL_CachedOppTags != "")
+					GHL_CachedOppTags .= "|"
+				GHL_CachedOppTags .= tagName
+			}
+			
+			IniWrite, %GHL_CachedOppTags%, %IniFilename%, GHL, CachedOppTags
+			
+			currentValue := Settings_GHLOppTags
+			newList := currentValue
+			if (GHL_CachedOppTags != "") {
+				if (newList != "")
+					newList .= "||"
+				newList .= GHL_CachedOppTags
+			}
+			GuiControl, Settings:, GHLOppTagsEdit, |%newList%
+			if (currentValue != "")
+				GuiControl, Settings:ChooseString, GHLOppTagsEdit, %currentValue%
+		}
+	}
+	return
+}
+
+; ============================================================================
+; Silent refresh for Email Templates (no dialogs) - used by Setup Wizard
+; ============================================================================
+RefreshEmailTemplatesSilent:
+{
+	global GHL_CachedEmailTemplates, Settings_EmailTemplateName
+	
+	tempFile := A_Temp . "\ghl_email_templates.json"
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
+	
+	if (scriptCmd = "")
+		return
+	
+	FileDelete, %tempFile%
+	
+	tempCmd := A_Temp . "\sk_email_tpl_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileAppend, % "@" . scriptCmd . " > """ . tempFile . """ 2>&1`n", %tempCmd%
+	RunWait, %ComSpec% /c "%tempCmd%", , Hide
+	FileDelete, %tempCmd%
+	
+	FileRead, result, %tempFile%
+	FileDelete, %tempFile%
+	
+	if (InStr(result, "ERROR") || result = "")
+		return
+	
+	GHL_CachedEmailTemplates := result
+	
+	newList := "SELECT"
+	Loop, Parse, result, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2) {
+			newList .= "|" . parts[2]
+		}
+	}
+	
+	GuiControl, Settings:, PrintEmailTplCombo, |%newList%
+	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)" && Settings_EmailTemplateName != "SELECT")
+		GuiControl, Settings:ChooseString, PrintEmailTplCombo, %Settings_EmailTemplateName%
+	else
+		GuiControl, Settings:ChooseString, PrintEmailTplCombo, SELECT
+	
+	return
+}
+
+; ============================================================================
+; Silent refresh for ProSelect Print Templates (no dialogs) - used by Setup Wizard
+; ============================================================================
+RefreshPrintTemplatesSilent:
+{
+	global Settings_PrintTemplateOptions, Settings_PrintTemplate_PayPlan, Settings_PrintTemplate_Standard
+	
+	if !WinExist("ahk_exe ProSelect.exe")
+		return
+	
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe,, 2
+	
+	Send, !f
+	Sleep, 300
+	Send, p
+	Sleep, 300
+	Send, {Right}
+	Sleep, 300
+	Send, {Enter}
+	Sleep, 1000
+	
+	WinWait, Print Order/Invoice Report, , 3
+	if ErrorLevel {
+		return
+	}
+	
+	ControlGet, cbList, List,, ComboBox5, Print Order/Invoice Report
+	if (ErrorLevel || cbList = "") {
+		Send, {Escape}
+		return
+	}
+	
+	Send, {Escape}
+	Sleep, 200
+	
+	Gui, Settings:Show
+	
+	StringReplace, cbList, cbList, `n, |, All
+	Settings_PrintTemplateOptions := cbList
+	
+	GuiControl, Settings:, PrintPayPlanCombo, |SELECT|%cbList%
+	GuiControl, Settings:, PrintStandardCombo, |SELECT|%cbList%
+	
+	if (InStr("|" . cbList . "|", "|" . Settings_PrintTemplate_PayPlan . "|"))
+		GuiControl, Settings:ChooseString, PrintPayPlanCombo, %Settings_PrintTemplate_PayPlan%
+	else
+		GuiControl, Settings:ChooseString, PrintPayPlanCombo, SELECT
+	
+	if (InStr("|" . cbList . "|", "|" . Settings_PrintTemplate_Standard . "|"))
+		GuiControl, Settings:ChooseString, PrintStandardCombo, %Settings_PrintTemplate_Standard%
+	else
+		GuiControl, Settings:ChooseString, PrintStandardCombo, SELECT
+	
+	IniWrite, %Settings_PrintTemplateOptions%, %IniFilename%, Toolbar, PrintTemplateOptions
+	
+	return
+}
+
 TestGHLConnection:
 ; Test API connection with detailed status
 if (!GHL_API_Key || GHL_API_Key = "")
@@ -11085,7 +11298,89 @@ GHLWizardApiKeyStep:
 	; Update status
 	GuiControl, Settings:, GHLStatusText, ✅ Connected
 	
-	DarkMsgBox("Setup Complete", "GHL Integration is now configured!`n`nLocation ID: " . GHL_LocationID . "`nAPI Key: " . apiKeyDisplay . "`n`nYou can test the connection using the 'Test' button.", "success", {rememberPosition: true})
+	; Auto-refresh GHL data after successful setup
+	ToolTip, Loading GHL data...
+	Sleep, 500
+	
+	; Fetch GHL contact tags silently
+	Gosub, RefreshGHLTagsSilent
+	Sleep, 300
+	
+	; Fetch GHL opportunity tags silently
+	Gosub, RefreshGHLOppTagsSilent
+	Sleep, 300
+	
+	; Fetch GHL email templates silently
+	ToolTip, Loading email templates...
+	Gosub, RefreshEmailTemplatesSilent
+	Sleep, 300
+	
+	; Detect ProSelect version
+	DetectProSelectVersion()
+	
+	; Fetch ProSelect print templates - launch ProSelect if needed
+	psWasRunning := WinExist("ahk_exe ProSelect.exe")
+	
+	if (!psWasRunning) {
+		; ProSelect not running - ask user if we should launch it
+		result := DarkMsgBox("📋 Load Print Templates?", "ProSelect is not running.`n`nWould you like to launch ProSelect to load your print templates?`n`n(This may take up to 60 seconds)", "YesNo", {rememberPosition: true})
+		
+		if (result = "Yes") {
+			ToolTip, Launching ProSelect...
+			
+			; Try to find and launch ProSelect
+			psPath := ""
+			if FileExist("C:\Program Files\Pro Studio Software\ProSelect 2025\ProSelect.exe")
+				psPath := "C:\Program Files\Pro Studio Software\ProSelect 2025\ProSelect.exe"
+			else if FileExist("C:\Program Files\Pro Studio Software\ProSelect 2024\ProSelect.exe")
+				psPath := "C:\Program Files\Pro Studio Software\ProSelect 2024\ProSelect.exe"
+			else if FileExist("C:\Program Files\Pro Studio Software\ProSelect 2022\ProSelect.exe")
+				psPath := "C:\Program Files\Pro Studio Software\ProSelect 2022\ProSelect.exe"
+			else if FileExist("C:\Program Files\TimeExposure\ProSelect\ProSelect.exe")
+				psPath := "C:\Program Files\TimeExposure\ProSelect\ProSelect.exe"
+			
+			if (psPath != "") {
+				Run, "%psPath%"
+				
+				; Wait up to 60 seconds for ProSelect to fully load
+				ToolTip, Waiting for ProSelect to load (up to 60 seconds)...
+				startTime := A_TickCount
+				timeout := 60000  ; 60 seconds
+				
+				Loop {
+					if WinExist("ahk_exe ProSelect.exe") {
+						; Window exists, wait a bit more for full initialization
+						Sleep, 5000
+						ToolTip, ProSelect detected - loading templates...
+						Sleep, 2000
+						break
+					}
+					if (A_TickCount - startTime > timeout) {
+						ToolTip
+						DarkMsgBox("Timeout", "ProSelect did not start within 60 seconds.`n`nYou can manually refresh print templates later from Settings > Print.", "warning", {rememberPosition: true})
+						break
+					}
+					Sleep, 1000
+					elapsed := Round((A_TickCount - startTime) / 1000)
+					ToolTip, Waiting for ProSelect to load... (%elapsed%s)
+				}
+			} else {
+				ToolTip
+				DarkMsgBox("ProSelect Not Found", "Could not find ProSelect installation.`n`nYou can manually refresh print templates later from Settings > Print.", "warning", {rememberPosition: true})
+			}
+		}
+	}
+	
+	; Now fetch templates if ProSelect is running
+	if WinExist("ahk_exe ProSelect.exe") {
+		ToolTip, Loading ProSelect templates...
+		Gosub, RefreshPrintTemplatesSilent
+		Sleep, 300
+	}
+	
+	ToolTip
+	
+	DarkMsgBox("Setup Complete", "GHL Integration is now configured!`n`nLocation ID: " . GHL_LocationID . "`nAPI Key: " . apiKeyDisplay . "`n`nTags, templates, and data have been loaded automatically.", "success", {rememberPosition: true})
 }
 Return
 
@@ -11184,7 +11479,11 @@ Run, mailto:guy@zoom-photo.co.uk
 Return
 
 OpenUserManual:
-Run, https://github.com/GuyMayer/SideKick_PS/blob/main/SideKick_PS_Manual.md
+Run, https://sidekick.zoom-photo.uk/docs.html
+Return
+
+OpenDocsPage:
+Run, https://sidekick.zoom-photo.uk/docs.html
 Return
 
 ShowWhatsNew:
