@@ -277,18 +277,35 @@ Payments collected via GoCardless automatically match with invoices in accountin
 
 ---
 
-## 11. Recommended Implementation for SideKick_PS
+## 11. Implemented Features in SideKick_PS
 
-### Phase 1: Basic Integration
-1. Create `gocardless_payments.py` script
-2. Add "Direct Debit" button to Payment Calculator GUI
-3. Generate mandate link and copy to clipboard
-4. Manual: Send link to customer via email
+### GoCardless Toolbar Button
+Click the GC toolbar button to:
+1. Check if current client has an existing GoCardless mandate
+2. View mandate status and bank details if found
+3. Send billing request link via GHL email/SMS templates
+
+### Payment Plan Dialog
+When mandate exists, press **Create Payment Plan** to:
+- Auto-populate from existing PayPlan lines in ProSelect
+- Only includes DD payment types (GoCardless, Direct Debit, BACS)
+- Skips non-DD payments (Card, Cash, Cheque, Bank Transfer, etc.)
+- Pre-fills: amount, payment count, and start day
+
+### DD Payment Type Filtering
+The dialog scans `PayPlanLine[]` array and filters by PayType:
+- ✅ **Included**: "GoCardless", "Direct Debit", "DD", "BACS"
+- ❌ **Skipped**: "Card", "Cash", "Cheque", "Bank Transfer", etc.
+
+This ensures only Direct Debit payments are submitted to GoCardless.
+
+---
+
+## 12. Future Enhancements
 
 ### Phase 2: Automated Flow
-1. Store GoCardless credentials in `credentials.json`
-2. Auto-create mandate link when Payment Calculator used
-3. Optional: Auto-send email via GHL
+1. Auto-create mandate link when Payment Calculator used
+2. Optional: Auto-send email via GHL
 
 ### Phase 3: Full Integration
 1. Webhook server for payment status updates
@@ -307,11 +324,11 @@ RedirectUrl=https://your-studio.com/payment-complete
 
 ---
 
-## 12. Sample Python Module Structure
+## 13. Sample Python Module Structure
 
 ```
 SideKick_PS/
-├── gocardless_payments.py      # Main GoCardless client
+├── gocardless_api.py           # Main GoCardless CLI client
 ├── gocardless_webhooks.py      # Webhook handler (Flask/FastAPI)
 └── credentials.json            # API keys (gitignored)
 ```
@@ -320,12 +337,13 @@ SideKick_PS/
 
 ## Next Steps
 
-1. **Sign up** for GoCardless account (sandbox first)
-2. **Get API credentials** from GoCardless dashboard
-3. **Create** `gocardless_payments.py` script
-4. **Add** button to Payment Calculator in SideKick_PS.ahk
-5. **Test** with sandbox environment
-6. **Go live** after testing
+1. ✅ **Sign up** for GoCardless account (sandbox first)
+2. ✅ **Get API credentials** from GoCardless dashboard
+3. ✅ **Create** `gocardless_api.py` script
+4. ✅ **Add** button to toolbar in SideKick_PS.ahk
+5. ✅ **Add** Payment Plan dialog with DD filtering
+6. **Test** with sandbox environment
+7. **Go live** after testing
 
 ---
 

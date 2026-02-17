@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SideKick PS — ProSelect Automation for Photographers</title>
     <meta name="description" content="Automate invoices, payments & client management between ProSelect and GoHighLevel. One-click invoice sync, payment calculator, and CRM integration.">
-    <meta name="keywords" content="ProSelect automation, GoHighLevel integration, photographer workflow, invoice sync, CRM integration, photography business software">
+    <meta name="keywords" content="ProSelect automation, GoHighLevel integration, GoCardless Direct Debit, photographer workflow, invoice sync, CRM integration, photography business software">
     <meta name="author" content="Zoom Photography">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://sidekick.zoom-photo.uk/">
@@ -82,10 +82,11 @@
                     "One-click client data import from GoHighLevel to ProSelect",
                     "Automatic invoice sync from ProSelect to GHL",
                     "Smart payment plan calculator with auto-entry",
+                    "GoCardless Direct Debit integration for UK payment plans",
                     "Session timer and workflow tracking",
                     "Product SKU matching for Xero and QuickBooks integration"
                 ],
-                "keywords": "ProSelect, GoHighLevel, GHL, photographer automation, invoice sync, CRM integration, photography business"
+                "keywords": "ProSelect, GoHighLevel, GHL, GoCardless, Direct Debit, photographer automation, invoice sync, CRM integration, photography business"
             },
             {
                 "@type": "WebPage",
@@ -371,10 +372,6 @@
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Product SKU lookup — matches ProSelect codes to GHL products automatically
-                        </li>
-                        <li class="flex items-start gap-3 text-sm text-gray-300">
-                            <span class="text-brand-accent mt-0.5">✓</span>
                             Past payments recorded, future payments scheduled as recurring
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
@@ -421,6 +418,36 @@
                 <div class="order-1 md:order-2">
                     <!-- Payment calculator with payment plan -->
                     <img src="images/Calc_PS.webp" alt="SideKick PS Payment Calculator" class="w-full max-w-md mx-auto rounded-xl shadow-2xl border border-white/10" loading="lazy">
+                </div>
+            </div>
+
+            <!-- Feature 2b: GoCardless Direct Debit (UK Beta) -->
+            <div class="max-w-2xl mb-24">
+                <div>
+                    <div class="feature-icon bg-teal-500/10 text-teal-400 mb-4">🏦</div>
+                    <div class="flex items-center gap-3 mb-3">
+                        <h3 class="text-2xl font-bold text-white">GoCardless Direct Debit</h3>
+                        <span class="px-2 py-0.5 text-xs font-semibold bg-teal-500/20 text-teal-400 rounded-full">UK BETA</span>
+                    </div>
+                    <p class="text-gray-300 mb-6">Collect payment plans via UK Direct Debit. Check mandates, send setup links, and create recurring payments — all from the SideKick toolbar. No more chasing late payments.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Check if client has existing Direct Debit mandate
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Send mandate setup link via GHL email or SMS templates
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Auto-populate payment plans from your PayPlan schedule
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            BACS Direct Debit — low fees (1% + 20p, capped at £4)
+                        </li>
+                    </ul>
                 </div>
             </div>
 
