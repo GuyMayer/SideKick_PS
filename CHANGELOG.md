@@ -12,6 +12,37 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.19 (2026-02-17)
+
+### New Features
+- **GoCardless Integration**: New toolbar button for Direct Debit mandate management
+- **GoCardless Settings Tab**: Configure API token, environment, and notification templates
+- **Mandate Checking**: Click GC button to check if client has existing mandate
+- **Send Mandate Request**: Create billing request and send setup link via GHL email/SMS
+- **Secure Token Storage**: GoCardless API token stored in credentials.json (base64 encoded)
+
+### Improvements
+- **Persistent Templates**: Email/SMS template selections now save immediately on change
+- **Room Capture Templates**: Email template selection now remembered across sessions
+- **SELECT Option**: Template dropdowns include "SELECT" to skip that notification type
+
+---
+
+## v2.5.18 (2026-02-17)
+
+### Bug Fixes
+- **CRITICAL: GHL Product Lookup Crash**: Fixed `LOCATION_ID` undefined at module level - fetch_ghl_products() was failing silently
+- **Config Not Loading API Key**: Now checks `credentials.json` in AppData first (was only checking INI files)
+- **UTF-8 BOM Handling**: credentials.json now read with `utf-8-sig` encoding to handle Windows BOM
+- **Duplicate Credentials Filenames**: Now supports both `credentials.json` and `ghl_credentials.json`
+- **IniWrite Syntax Error**: Fixed empty first parameter in AHK IniWrite call
+
+### Improvements
+- **Clean Invoice Display**: Clear ProSelect description when GHL product found by SKU (prevents duplicate info)
+- **Tax on Invoice Items**: Add taxes array to GHL line items when item has tax_rate > 0
+
+---
+
 ## v2.5.15 (2026-02-17)
 
 ### Bug Fixes

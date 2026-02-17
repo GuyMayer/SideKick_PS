@@ -1,19 +1,34 @@
 {
-  "version": "2.5.18",
+  "version": "2.5.19",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fixed config loading from credentials.json for SKU lookup",
+  "release_notes": "GoCardless Direct Debit integration with mandate checking and GHL notifications",
   "changelog": [
-    "FIX: LOCATION_ID now defined at module level for product/price API calls",
-    "FIX: Config now loads API key from credentials.json (not just INI)",
-    "FIX: Handle UTF-8 BOM in credentials.json",
-    "IMPROVED: Support both credentials.json and ghl_credentials.json filenames",
-    "IMPROVED: Added detailed logging for GHL product SKU lookup process",
-    "FIX: Installer now removes old script files (sync_ps_invoice.exe etc.)",
-    "FIX: GHL product SKU lookup now fetches price-level SKUs",
-    "FIX: Skip items with qty=0 (bundled Mat/Frame items)"
+    "NEW: GoCardless toolbar button - check mandates and send setup links",
+    "NEW: GoCardless settings tab with API config and GHL template selectors",
+    "NEW: Mandate check - searches GoCardless for existing customer mandates",
+    "NEW: Send mandate request via GHL email and/or SMS templates",
+    "NEW: GoCardless API token stored securely in credentials.json",
+    "IMPROVED: Email/SMS template dropdowns now persistent (saved immediately)",
+    "IMPROVED: Room Capture email template now persistent across sessions",
+    "FIX: SELECT option added to template dropdowns to skip notifications"
   ],
   "versions": [
+    {
+      "version": "2.5.19",
+      "build_date": "2026-02-17",
+      "release_notes": "GoCardless Direct Debit integration with mandate checking and GHL notifications",
+      "changelog": [
+        "NEW: GoCardless toolbar button - check mandates and send setup links",
+        "NEW: GoCardless settings tab with API config and GHL template selectors",
+        "NEW: Mandate check - searches GoCardless for existing customer mandates",
+        "NEW: Send mandate request via GHL email and/or SMS templates",
+        "NEW: GoCardless API token stored securely in credentials.json",
+        "IMPROVED: Email/SMS template dropdowns now persistent (saved immediately)",
+        "IMPROVED: Room Capture email template now persistent across sessions",
+        "FIX: SELECT option added to template dropdowns to skip notifications"
+      ]
+    },
     {
       "version": "2.5.10",
       "build_date": "2026-02-17",
