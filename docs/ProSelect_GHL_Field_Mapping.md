@@ -12,8 +12,8 @@ SideKick PS extracts order data from ProSelect XML exports and syncs it to GoHig
 
 | ProSelect XML Field | GHL Invoice Field | Description | Example Value |
 |---------------------|-------------------|-------------|---------------|
-| `Product_Code` | `sku` | **Primary matching key** for products | `smp75`, `bm75p`, `l20wtb` |
-| `Product_Name` | `name` | Product name for GHL product matching | `Fujifilm DP2 Lustre` |
+| `Product_Code` | `sku` | **Primary matching key** - used to look up GHL product | `smp75`, `com1a`, `l20wtb` |
+| `Product_Name` | `name` | Falls back to this if SKU not found in GHL | `Fujifilm DP2 Lustre` |
 | `Description` | `description` | Full line item description | `Single 8x10/ 5x7 Print M 10.0 x 8.0 in Fujifilm DP2 Lustre` |
 | `Extended_Price` | `price` | Line item total price | `195.00` |
 | `Quantity` | `quantity` | Number of items | `1` |
@@ -21,6 +21,22 @@ SideKick PS extracts order data from ProSelect XML exports and syncs it to GoHig
 | `Size` | `size` | Product dimensions | `10.0x8.0` |
 | `Template_Name` | `template` | ProSelect template used | `Single 8x10/ 5x7 Print` |
 | `ID` | `ps_item_id` | ProSelect internal item ID | `50` |
+
+### GHL Product SKU Lookup
+
+When syncing invoices, SideKick PS automatically matches ProSelect products to GHL products:
+
+1. **SKU Lookup**: The `Product_Code` from ProSelect is used to search GHL products
+2. **Price-Level SKUs**: GHL stores SKUs on the Price level (not product level), so SideKick fetches all prices for each product
+3. **Name Replacement**: If a matching SKU is found, the **GHL product name** replaces the ProSelect product name on the invoice
+4. **Fallback**: If no SKU match, the original `Product_Name` from ProSelect is used
+
+**Example:**
+```
+ProSelect: Product_Name="Luster Print", Product_Code="com1a"
+GHL:       Product="Composite 1 - 43x13", Price SKU="com1a"
+Result:    Invoice line item name = "Composite 1 - 43x13"
+```
 
 ### Tax Information
 
