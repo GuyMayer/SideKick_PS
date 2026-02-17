@@ -1582,10 +1582,36 @@ CreateFloatingToolbar()
 	grabHandleWidth := Round(16 * DPI_Scale)
 	toolbarWidth := toolbarWidth + grabHandleWidth
 	
+	; Calculate toolbar position and sample background color BEFORE creating GUI
+	; This ensures we sample the actual screen content, not our own toolbar
+	initialBgColor := "333333"  ; Default fallback
+	if (Settings_ToolbarAutoBG) {
+		; Get ProSelect window position
+		WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
+		if (psX != "" && psW != "") {
+			; Calculate where toolbar will be positioned
+			closeButtonOffset := Round(300 * DPI_Scale)
+			futureX := psX + psW - (toolbarWidth + closeButtonOffset) + Settings_ToolbarOffsetX
+			futureY := psY + Settings_ToolbarOffsetY
+			
+			; Sample screen at future toolbar position (center point)
+			sampleX := futureX + (toolbarWidth // 2)
+			sampleY := futureY + (toolbarHeight // 2)
+			
+			PixelGetColor, sampledColor, %sampleX%, %sampleY%, RGB
+			if (sampledColor != "") {
+				r := (sampledColor >> 16) & 0xFF
+				g := (sampledColor >> 8) & 0xFF
+				b := sampledColor & 0xFF
+				initialBgColor := Format("{:02X}{:02X}{:02X}", r, g, b)
+			}
+		}
+	}
+	
 	; Solid toolbar with colored buttons - no transparency (allows click-through)
 	; Buttons fill 100% of toolbar area, background color only shows if button colors fail
 	Gui, Toolbar:New, +AlwaysOnTop +ToolWindow -Caption +HwndToolbarHwnd
-	Gui, Toolbar:Color, 333333  ; Dark gray fallback if buttons don't cover fully
+	Gui, Toolbar:Color, %initialBgColor%
 	Gui, Toolbar:Font, s%fontSize% w300, Segoe UI
 	
 	; Get icon color from settings
@@ -1750,15 +1776,12 @@ return
 ; Returns dominant color as hex string (RRGGBB)
 ; =====================================================
 SampleScreenBackgroundColor(x, y, w, h) {
-	; Sample a grid of pixels and find the dominant color
-	; Use a 5x3 grid (15 sample points) for efficiency
+	; Sample pixels from screen at toolbar position
+	; Toolbar must be hidden before calling this!
 	sampleCount := 0
 	rTotal := 0, gTotal := 0, bTotal := 0
 	
-	; Hide toolbar temporarily to sample what's behind it
-	Gui, Toolbar:Hide
-	Sleep, 20  ; Brief pause to ensure screen updates
-	
+	; Sample a 5x3 grid within the toolbar area
 	stepX := w // 5
 	stepY := h // 3
 	
@@ -1984,13 +2007,9 @@ if (!foundMonitor) {
 if (newX < 0)
 	newX := 0
 
-; Check if toolbar position changed - update background if auto-blend enabled
-if (Settings_ToolbarAutoBG && (newX != Toolbar_LastPosX || newY != Toolbar_LastPosY)) {
-	Toolbar_LastPosX := newX
-	Toolbar_LastPosY := newY
-	; Schedule background update after a small delay to avoid flicker during window moves
-	SetTimer, UpdateToolbarBackground, -100
-}
+; Track position for drag detection (don't auto-update background on position change - causes flashing)
+Toolbar_LastPosX := newX
+Toolbar_LastPosY := newY
 
 ; Show toolbar
 Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
@@ -2009,12 +2028,25 @@ UpdateToolbarBackground:
 	if (tbX = "" || tbW = "")
 		return
 	
-	; Sample the screen behind the toolbar
-	bgColor := SampleScreenBackgroundColor(tbX, tbY, tbW, tbH)
+	; Hide toolbar and wait for screen to repaint
+	Gui, Toolbar:Hide
+	Sleep, 200
 	
-	; Apply color to toolbar and show it again
-	Gui, Toolbar:Color, %bgColor%
-	Gui, Toolbar:Show, NoActivate
+	; Sample screen at toolbar center position
+	sampleX := tbX + (tbW // 2)
+	sampleY := tbY + (tbH // 2)
+	
+	PixelGetColor, sampledColor, %sampleX%, %sampleY%, RGB
+	if (sampledColor != "") {
+		r := (sampledColor >> 16) & 0xFF
+		g := (sampledColor >> 8) & 0xFF
+		b := sampledColor & 0xFF
+		bgColorHex := Format("{:02X}{:02X}{:02X}", r, g, b)
+		Gui, Toolbar:Color, %bgColorHex%
+	}
+	
+	; Show toolbar again
+	Gui, Toolbar:Show, x%tbX% y%tbY% w%tbW% h%tbH% NoActivate
 }
 Return
 
@@ -2076,8 +2108,9 @@ Toolbar_GrabHandle:
 	SaveSettings()
 	SetTimer, PositionToolbar, 200  ; Resume auto-positioning
 	
-	; Update toolbar background color to match new position
-	Gosub, UpdateToolbarBackground
+	; Recreate toolbar to sample background at new position (avoids flashing hide/show)
+	if (Settings_ToolbarAutoBG)
+		CreateFloatingToolbar()
 	
 	ToolTip, Position saved!
 	SetTimer, RemoveGrabTooltip, -1000
