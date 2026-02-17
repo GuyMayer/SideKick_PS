@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.20"
+#define MyAppVersion "2.5.21"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -84,6 +84,7 @@ Source: "Release\_upm.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourced
 Source: "Release\_ccs.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\_fgc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\_ugc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_gca.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; License and version info
 Source: "Release\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -163,6 +164,7 @@ begin
     end;
   end;
 end;
+
 
 
 

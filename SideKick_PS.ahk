@@ -314,6 +314,7 @@ global Settings_RoundingInDeposit := 1  ; Add rounding errors to deposit (1) or 
 global GHL_CachedTags := ""  ; Cached list of contact tags from GHL
 global GHL_CachedOppTags := ""  ; Cached list of opportunity tags from GHL
 global GHL_CachedEmailTemplates := ""  ; Cached list of email templates from GHL (id|name format)
+global GHL_CachedSMSTemplates := ""  ; Cached list of SMS templates from GHL (id|name format)
 global Settings_CurrentTab := "General"
 global PayCalcOpen := false  ; Track if Payment Calculator window is open
 
@@ -365,6 +366,12 @@ global Settings_GCEmailTemplateID := ""      ; GHL email template ID for mandate
 global Settings_GCEmailTemplateName := "(none selected)"  ; GHL email template name for mandate link
 global Settings_GCSMSTemplateID := ""        ; GHL SMS template ID for mandate link
 global Settings_GCSMSTemplateName := "(none selected)"  ; GHL SMS template name for mandate link
+global Settings_GCAutoSetup := false         ; Auto prompt GoCardless setup after invoice sync with future payments
+global GC_TemplateRefreshing := false        ; Flag to prevent saving during template refresh
+global GC_BuildingPanel := false             ; Flag to prevent saving during initial panel build
+global Settings_GCNamePart1 := "Shoot No"    ; PayPlan name format part 1
+global Settings_GCNamePart2 := "Surname"     ; PayPlan name format part 2
+global Settings_GCNamePart3 := "(none)"      ; PayPlan name format part 3
 global Settings_QRCode_Text1 := ""
 global Settings_QRCode_Text2 := ""
 global Settings_QRCode_Text3 := ""
@@ -495,9 +502,9 @@ if !FileExist(IniFilename) && FileExist(A_ScriptDir . "\SideKick_PS.ini") {
 }
 
 ; MIGRATION: If credentials.json exists in script folder but not AppData, copy it
-credFile := IniFolder . "\ghl_credentials.json"
-if !FileExist(credFile) && FileExist(A_ScriptDir . "\ghl_credentials.json") {
-	FileCopy, %A_ScriptDir%\ghl_credentials.json, %credFile%
+credFile := IniFolder . "\credentials.json"
+if !FileExist(credFile) && FileExist(A_ScriptDir . "\credentials.json") {
+	FileCopy, %A_ScriptDir%\credentials.json, %credFile%
 }
 
 PayPlanLine := []
@@ -1369,11 +1376,11 @@ LogHelperInfo() {
 ; GHL Credentials - stored in JSON to avoid INI line length limits
 ; ============================================================
 
-; Get the path to the GHL credentials file
+; Get the path to the credentials file
 GetCredentialsFilePath() {
 	global IniFilename
 	SplitPath, IniFilename, , iniDir
-	return iniDir . "\ghl_credentials.json"
+	return iniDir . "\credentials.json"
 }
 
 ; Load GHL API credentials from JSON file
@@ -1483,7 +1490,7 @@ GetPythonPath() {
 ; Returns: full path to .exe if exists, otherwise full path to .py
 GetScriptPath(scriptName) {
 	; Script name mapping - internal names to cryptic filenames (for exe distribution)
-	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc"}
+	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc", "gocardless_api": "_gca"}
 	
 	; Get the actual filename (use mapped name for production, original for dev)
 	if (A_IsCompiled && scriptMap.HasKey(scriptName)) {
@@ -1522,9 +1529,12 @@ GetScriptCommand(scriptName, args := "") {
 	}
 	
 	; Otherwise, run via Python
-	; Quote Python path for compatibility with start /b (needs quotes around executable)
+	; Don't quote Python path unless it contains spaces (causes cmd /c issues)
 	pythonPath := GetPythonPath()
-	return """" . pythonPath . """ """ . scriptPath . """ " . args
+	if (InStr(pythonPath, " "))
+		return """" . pythonPath . """ """ . scriptPath . """ " . args
+	else
+		return pythonPath . " """ . scriptPath . """ " . args
 }
 
 ShowAbout:
@@ -3569,10 +3579,32 @@ Toolbar_GoCardless:
 		return
 	}
 	
-	; Check if we have a GHL contact loaded
+	; Check if we have a GHL contact loaded - if not, try to auto-fetch from album name
 	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {
-		DarkMsgBox("No Client Selected", "Please fetch a client from GHL first using the Client button.", "warning")
-		return
+		; Try to extract Client ID from ProSelect album name
+		albumContactId := ""
+		if WinExist("ProSelect ahk_exe ProSelect.exe")
+		{
+			WinGetTitle, psTitle, ahk_exe ProSelect.exe
+			; Look for GHL Client ID pattern in album name (20+ alphanumeric chars after underscore)
+			if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch))
+				albumContactId := idMatch1
+		}
+		
+		if (albumContactId != "") {
+			; Auto-fetch client data from GHL
+			ToolTip, Fetching client from GHL...
+			GHL_ContactData := FetchGHLData(albumContactId)
+			ToolTip
+			
+			if (!GHL_ContactData.success) {
+				DarkMsgBox("GHL Fetch Failed", "Could not fetch client data from GHL.`n`n" . GHL_ContactData.error, "error")
+				return
+			}
+		} else {
+			DarkMsgBox("No Client Found", "No GHL Client ID in album name.`n`nPlease fetch a client from GHL first using the Client button,`nor ensure the album name contains a GHL Client ID.", "warning")
+			return
+		}
 	}
 	
 	clientName := GHL_ContactData.firstName . " " . GHL_ContactData.lastName
@@ -3597,8 +3629,23 @@ Toolbar_GoCardless:
 	}
 	
 	if (mandateResult.hasMandate) {
-		; Customer already has an active mandate
-		DarkMsgBox("Mandate Active", "✅ " . clientName . " already has an active Direct Debit mandate.`n`nMandate ID: " . mandateResult.mandateId . "`nStatus: " . mandateResult.mandateStatus . "`nBank: " . mandateResult.bankName, "success")
+		; Customer has an active mandate - ask if they want to set up a payment plan
+		mandateId := mandateResult.mandateId
+		mandateStatus := mandateResult.mandateStatus
+		bankName := mandateResult.bankName
+		existingPlans := Trim(mandateResult.plans)
+		
+		; Build message with existing plans if any
+		plansMsg := ""
+		if (existingPlans != "") {
+			plansMsg := "`n`n⚠️ Existing Plans:`n" . existingPlans
+		}
+		
+		MsgBox, 0x24, Mandate Active - Add PayPlan?, ✅ %clientName% has an active Direct Debit mandate.`n`nMandate ID: %mandateId%`nStatus: %mandateStatus%`nBank: %bankName%%plansMsg%`n`nWould you like to set up a PayPlan for this client?
+		IfMsgBox, Yes
+		{
+			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+		}
 		return
 	}
 	
@@ -4756,6 +4803,10 @@ if (Settings_GoCardlessEnabled) {
 	GuiControl, Settings:Enable, GCEmailTplRefresh
 	GuiControl, Settings:Enable, GCSMSTplCombo
 	GuiControl, Settings:Enable, GCSMSTplRefresh
+	GuiControl, Settings:Enable, Toggle_GCAutoSetup
+	GuiControl, Settings:Enable, GCNamePart1DDL
+	GuiControl, Settings:Enable, GCNamePart2DDL
+	GuiControl, Settings:Enable, GCNamePart3DDL
 } else {
 	GuiControl, Settings:Disable, GCEnvDDL
 	GuiControl, Settings:Disable, GCTokenEditBtn
@@ -4765,8 +4816,19 @@ if (Settings_GoCardlessEnabled) {
 	GuiControl, Settings:Disable, GCEmailTplRefresh
 	GuiControl, Settings:Disable, GCSMSTplCombo
 	GuiControl, Settings:Disable, GCSMSTplRefresh
+	GuiControl, Settings:Disable, Toggle_GCAutoSetup
+	GuiControl, Settings:Disable, GCNamePart1DDL
+	GuiControl, Settings:Disable, GCNamePart2DDL
+	GuiControl, Settings:Disable, GCNamePart3DDL
 }
 CreateFloatingToolbar()
+Return
+
+ToggleClick_GCAutoSetup:
+Toggle_GCAutoSetup_State := !Toggle_GCAutoSetup_State
+UpdateToggleSlider("Settings", "GCAutoSetup", Toggle_GCAutoSetup_State, 630)
+Settings_GCAutoSetup := Toggle_GCAutoSetup_State
+IniWrite, %Settings_GCAutoSetup%, %IniFilename%, GoCardless, AutoSetup
 Return
 
 ToggleClick_OpenInvoiceURL:
@@ -5625,6 +5687,8 @@ SyncProgress_UpdateTimer:
 					if (status = "success") {
 						GuiControl, SyncProgress:, SyncProgress_Title, ✓ Sync Complete
 						GuiControl, SyncProgress:, SyncProgress_Bar, 100
+						; Check for GoCardless prompt after sync success
+						SetTimer, CheckGoCardlessAfterSync, -2500
 					} else {
 						GuiControl, SyncProgress:, SyncProgress_Title, ✗ Sync Failed
 						; Store error message for showing after GUI closes
@@ -6001,6 +6065,12 @@ Return
 
 TT_GCSMS:
 tt := "SMS MANDATE LINK`n`nAlso send the mandate signup link via SMS.`nRequires valid phone number in GHL contact."
+ToolTip, %tt%
+SetTimer, RemoveToolTip, -5000
+Return
+
+TT_GCAutoSetup:
+tt := "AUTO-PROMPT GOCARDLESS`n`nWhen enabled, automatically prompts you after syncing`nan invoice with future payments to set up GoCardless.`n`nThe GC toolbar button works regardless of this setting."
 ToolTip, %tt%
 SetTimer, RemoveToolTip, -5000
 Return
@@ -8147,6 +8217,9 @@ CreateGoCardlessPanel()
 {
 	global
 	
+	; Prevent change handlers from firing during initial GUI build
+	GC_BuildingPanel := true
+	
 	; Theme-aware colors
 	if (Settings_DarkMode) {
 		headerColor := "4FC3F7"
@@ -8170,10 +8243,10 @@ CreateGoCardlessPanel()
 	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vGCHeader Hidden, 💳 GoCardless Integration
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; CONNECTION GROUP BOX (y55 to y165)
+	; CONNECTION GROUP BOX (y55 to y195)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y55 w480 h110 vGCConnection Hidden, Connection
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h140 vGCConnection Hidden, Connection
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
@@ -8182,53 +8255,67 @@ CreateGoCardlessPanel()
 	RegisterSettingsTooltip(HwndGCEnable, "ENABLE GOCARDLESS INTEGRATION`n`nConnect SideKick to GoCardless Direct Debit.`nAllows creating mandates and collecting payments.`n`nRequires a valid GoCardless API token.")
 	CreateToggleSlider("Settings", "GoCardlessEnabled", 630, 78, Settings_GoCardlessEnabled)
 	
+	; Auto-setup toggle (under enable)
+	Gui, Settings:Add, Text, x210 y115 w340 BackgroundTrans vGCAutoSetupLabel Hidden gTT_GCAutoSetup HwndHwndGCAutoSetup, Auto-prompt GoCardless after invoice sync
+	RegisterSettingsTooltip(HwndGCAutoSetup, "AUTO-PROMPT GOCARDLESS`n`nWhen enabled, automatically prompts to set up`nGoCardless payments after syncing an invoice`nthat has future payment dates.`n`nIf disabled you can still use the GC toolbar button.")
+	CreateToggleSlider("Settings", "GCAutoSetup", 630, 113, Settings_GCAutoSetup)
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y150 w440 BackgroundTrans vGCAutoHint Hidden, Applies to invoices with future payment dates.
+	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; API CONFIGURATION GROUP BOX (y170 to y320)
+	; API CONFIGURATION GROUP BOX (y200 to y350)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y170 w480 h150 vGCApiConfig Hidden, API Configuration
+	Gui, Settings:Add, GroupBox, x195 y200 w480 h150 vGCApiConfig Hidden, API Configuration
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Environment selector
-	Gui, Settings:Add, Text, x210 y195 w90 BackgroundTrans vGCEnvLabel Hidden gTT_GCEnv HwndHwndGCEnv, Environment:
+	Gui, Settings:Add, Text, x210 y225 w90 BackgroundTrans vGCEnvLabel Hidden gTT_GCEnv HwndHwndGCEnv, Environment:
 	RegisterSettingsTooltip(HwndGCEnv, "ENVIRONMENT`n`nSandbox: For testing (no real money)`nLive: Production (real transactions)`n`nStart with Sandbox to test your setup.")
-	Gui, Settings:Add, DropDownList, x305 y192 w150 vGCEnvDDL Hidden Choose1 gGCEnvChanged, Sandbox|Live
+	Gui, Settings:Add, DropDownList, x305 y222 w150 vGCEnvDDL Hidden Choose1 gGCEnvChanged, Sandbox|Live
 	if (Settings_GoCardlessEnvironment = "live")
 		GuiControl, Settings:ChooseString, GCEnvDDL, Live
 	
 	; API Token display (masked)
-	Gui, Settings:Add, Text, x210 y228 w90 BackgroundTrans vGCTokenLabel Hidden gTT_GCToken HwndHwndGCToken, API Token:
+	Gui, Settings:Add, Text, x210 y258 w90 BackgroundTrans vGCTokenLabel Hidden gTT_GCToken HwndHwndGCToken, API Token:
 	RegisterSettingsTooltip(HwndGCToken, "GOCARDLESS API TOKEN`n`nYour GoCardless access token.`nGet it from: GoCardless Dashboard > Developers > Create > Access token`n`nTokens are stored in the INI file.")
 	tokenDisplay := Settings_GoCardlessToken ? SubStr(Settings_GoCardlessToken, 1, 12) . "..." . SubStr(Settings_GoCardlessToken, -4) : "Not configured"
 	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
-	Gui, Settings:Add, Edit, x305 y225 w250 h25 vGCTokenDisplay Hidden ReadOnly, %tokenDisplay%
-	Gui, Settings:Add, Button, x560 y223 w100 h28 gEditGCToken vGCTokenEditBtn Hidden, Edit
+	Gui, Settings:Add, Edit, x305 y255 w250 h25 vGCTokenDisplay Hidden ReadOnly, %tokenDisplay%
+	Gui, Settings:Add, Button, x560 y253 w100 h28 gEditGCToken vGCTokenEditBtn Hidden, Edit
 	
 	; Status row
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y268 w60 BackgroundTrans vGCStatus Hidden, Status:
+	Gui, Settings:Add, Text, x210 y298 w60 BackgroundTrans vGCStatus Hidden, Status:
 	statusText := Settings_GoCardlessToken ? "✅ Token Set" : "❌ Not configured"
 	statusColor := Settings_GoCardlessToken ? "00FF00" : "FF6B6B"
 	Gui, Settings:Font, s10 Norm c%statusColor%, Segoe UI
-	Gui, Settings:Add, Text, x275 y268 w120 BackgroundTrans vGCStatusText Hidden HwndHwndGCStatus, %statusText%
+	Gui, Settings:Add, Text, x275 y298 w120 BackgroundTrans vGCStatusText Hidden HwndHwndGCStatus, %statusText%
 	RegisterSettingsTooltip(HwndGCStatus, "CONNECTION STATUS`n`n✅ Token Set = API token configured`n`nUse 'Test' to verify the token works.")
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x455 y265 w100 h26 gTestGCConnection vGCTestBtn Hidden HwndHwndGCTest, Test
-	RegisterSettingsTooltip(HwndGCTest, "TEST CONNECTION`n`nVerify your API token works by making`na test request to the GoCardless API.")
-	Gui, Settings:Add, Button, x560 y265 w100 h26 gOpenGCDashboard vGCDashboardBtn Hidden, 🔗 Dashboard
+	Gui, Settings:Add, Button, x405 y295 w60 h26 gTestGCConnection vGCTestBtn Hidden HwndHwndGCTest, Test
+	RegisterSettingsTooltip(HwndGCTest, "TEST CONNECTION`n`nVerify your API token works by making`na test request to the GoCardless API.`n`nWill show your creditor name if successful.")
+	Gui, Settings:Add, Button, x470 y295 w110 h26 gListEmptyMandates vGCEmptyMandatesBtn Hidden HwndHwndGCEmpty, No Plans
+	RegisterSettingsTooltip(HwndGCEmpty, "LIST MANDATES WITHOUT PLANS`n`nScans ALL active GoCardless mandates and`nfinds those with no payment plans set up.`n`nUseful for:`n• Follow-up reminders to clients`n• Finding forgotten mandates`n• Identifying setup issues`n`nResults can be copied to clipboard`nfor Excel or email follow-up.")
+	Gui, Settings:Add, Button, x585 y295 w85 h26 gOpenGCDashboard vGCDashboardBtn Hidden HwndHwndGCDash, Dashboard
+	RegisterSettingsTooltip(HwndGCDash, "GOCARDLESS DASHBOARD`n`nOpen the GoCardless web dashboard`nin your browser.`n`nOpens Sandbox or Live dashboard based`non your Environment setting.")
+	
+	; Progress bar for No Plans scan
+	Gui, Settings:Add, Progress, x405 y325 w265 h12 vGCProgressBar Hidden Range0-100 c00BFFF Background3D3D3D, 0
+	Gui, Settings:Add, Text, x405 y340 w265 h18 vGCProgressText Hidden cAAAAAA, 
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; MANDATE NOTIFICATIONS GROUP BOX (y330 to y450)
+	; MANDATE NOTIFICATIONS GROUP BOX (y360 to y480)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y330 w480 h130 vGCNotifyGroup Hidden, Mandate Link Notifications
+	Gui, Settings:Add, GroupBox, x195 y360 w480 h130 vGCNotifyGroup Hidden, Mandate Link Notifications
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Email Template selector
-	Gui, Settings:Add, Text, x210 y355 w95 h22 BackgroundTrans vGCEmailTplLabel Hidden HwndHwndGCEmailTpl, Email Template:
+	Gui, Settings:Add, Text, x210 y385 w95 h22 BackgroundTrans vGCEmailTplLabel Hidden HwndHwndGCEmailTpl, Email Template:
 	RegisterSettingsTooltip(HwndGCEmailTpl, "EMAIL TEMPLATE`n`nSelect a GHL email template to send the mandate link.`nThe mandate URL will be inserted into the template.`n`nClick 🔄 to fetch templates from GHL.")
 	
 	; Build template list for ComboBox (SELECT first, then cached options)
@@ -8244,21 +8331,23 @@ CreateGoCardlessPanel()
 			}
 		}
 	}
-	Gui, Settings:Add, ComboBox, x310 y353 w200 r10 vGCEmailTplCombo Hidden gGCEmailTplChanged, %gcTplList%
+	Gui, Settings:Add, ComboBox, x310 y383 w200 r10 vGCEmailTplCombo Hidden gGCEmailTplChanged, %gcTplList%
 	if (Settings_GCEmailTemplateName != "" && Settings_GCEmailTemplateName != "(none selected)" && Settings_GCEmailTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, GCEmailTplCombo, %Settings_GCEmailTemplateName%
-	Gui, Settings:Add, Button, x515 y352 w40 h27 gRefreshGCEmailTemplates vGCEmailTplRefresh Hidden HwndHwndGCEmailRefresh, 🔄
+	else
+		GuiControl, Settings:Choose, GCEmailTplCombo, 1  ; Select "SELECT" by default
+	Gui, Settings:Add, Button, x515 y382 w40 h27 gRefreshGCEmailTemplates vGCEmailTplRefresh Hidden HwndHwndGCEmailRefresh, 🔄
 	RegisterSettingsTooltip(HwndGCEmailRefresh, "REFRESH EMAIL TEMPLATES`n`nFetch available email templates from GHL.")
 	
 	; SMS Template selector
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y390 w95 h22 BackgroundTrans vGCSMSTplLabel Hidden HwndHwndGCSMSTpl, SMS Template:
+	Gui, Settings:Add, Text, x210 y420 w95 h22 BackgroundTrans vGCSMSTplLabel Hidden HwndHwndGCSMSTpl, SMS Template:
 	RegisterSettingsTooltip(HwndGCSMSTpl, "SMS TEMPLATE`n`nSelect a GHL SMS template to send the mandate link.`nChoose SELECT to skip SMS notification.`n`nClick 🔄 to fetch templates from GHL.")
 	
 	; Build SMS template list (SELECT first, then cached options)
 	gcSmsTplList := "SELECT"
-	if (GHL_CachedEmailTemplates != "") {
-		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	if (GHL_CachedSMSTemplates != "") {
+		Loop, Parse, GHL_CachedSMSTemplates, `n, `r
 		{
 			if (A_LoopField = "")
 				continue
@@ -8268,14 +8357,54 @@ CreateGoCardlessPanel()
 			}
 		}
 	}
-	Gui, Settings:Add, ComboBox, x310 y388 w200 r10 vGCSMSTplCombo Hidden gGCSMSTplChanged, %gcSmsTplList%
+	Gui, Settings:Add, ComboBox, x310 y418 w200 r10 vGCSMSTplCombo Hidden gGCSMSTplChanged, %gcSmsTplList%
 	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)" && Settings_GCSMSTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, GCSMSTplCombo, %Settings_GCSMSTemplateName%
-	Gui, Settings:Add, Button, x515 y387 w40 h27 gRefreshGCSMSTemplates vGCSMSTplRefresh Hidden HwndHwndGCSMSRefresh, 🔄
+	else
+		GuiControl, Settings:Choose, GCSMSTplCombo, 1  ; Select "SELECT" by default
+	Gui, Settings:Add, Button, x515 y417 w40 h27 gRefreshGCSMSTemplates vGCSMSTplRefresh Hidden HwndHwndGCSMSRefresh, 🔄
 	RegisterSettingsTooltip(HwndGCSMSRefresh, "REFRESH SMS TEMPLATES`n`nFetch available templates from GHL.")
 	
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y420 w440 BackgroundTrans vGCNotifyHint Hidden, Choose SELECT to skip sending that notification type.
+	Gui, Settings:Add, Text, x210 y450 w440 BackgroundTrans vGCNotifyHint Hidden, Choose SELECT to skip sending that notification type.
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; PLAN NAMING GROUP BOX (y500 to y590)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y500 w480 h90 vGCAutoGroup Hidden, Plan Naming
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y525 w60 BackgroundTrans vGCNamingLabel Hidden HwndHwndGCNaming, Format:
+	RegisterSettingsTooltip(HwndGCNaming, "PLAN NAME FORMAT`n`nChoose up to 3 fields to include in the`nGoCardless instalment schedule name.`n`nFields are joined with ' - ' separator.")
+	
+	; Name format dropdowns (3 in a row)
+	gcNameOptions := "(none)|Shoot No|Surname|First Name|Full Name|GHL ID|Album Name"
+	Gui, Settings:Add, DropDownList, x275 y522 w115 vGCNamePart1DDL Hidden gGCNamePartChanged Choose1, %gcNameOptions%
+	Gui, Settings:Add, Text, x393 y525 w10 BackgroundTrans vGCNameSep1 Hidden, -
+	Gui, Settings:Add, DropDownList, x408 y522 w115 vGCNamePart2DDL Hidden gGCNamePartChanged Choose1, %gcNameOptions%
+	Gui, Settings:Add, Text, x526 y525 w10 BackgroundTrans vGCNameSep2 Hidden, -
+	Gui, Settings:Add, DropDownList, x541 y522 w115 vGCNamePart3DDL Hidden gGCNamePartChanged Choose1, %gcNameOptions%
+	
+	; Example preview
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y558 w60 BackgroundTrans vGCNameExLabel Hidden, Example:
+	Gui, Settings:Font, s9 Norm c4FC3F7, Segoe UI
+	Gui, Settings:Add, Text, x275 y558 w380 BackgroundTrans vGCNameExample Hidden, P26005 - Smith - abc123xyz
+	
+	; Set saved values
+	if (Settings_GCNamePart1 != "")
+		GuiControl, Settings:ChooseString, GCNamePart1DDL, %Settings_GCNamePart1%
+	if (Settings_GCNamePart2 != "")
+		GuiControl, Settings:ChooseString, GCNamePart2DDL, %Settings_GCNamePart2%
+	if (Settings_GCNamePart3 != "")
+		GuiControl, Settings:ChooseString, GCNamePart3DDL, %Settings_GCNamePart3%
+	
+	; Update example based on saved values
+	UpdateGCNameExample()
+	
+	; Done building panel - allow change handlers to work normally
+	GC_BuildingPanel := false
 	
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -8310,31 +8439,22 @@ TestGCConnection:
 	
 	ToolTip, Testing GoCardless connection...
 	
-	; Determine API URL based on environment
-	gcApiUrl := (Settings_GoCardlessEnvironment = "live") ? "https://api.gocardless.com" : "https://api-sandbox.gocardless.com"
+	; Use Python script for GoCardless API test
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	scriptCmd := GetScriptCommand("gocardless_api", "--test-connection" . envFlag)
 	
-	; Test connection using PowerShell
-	testScript := A_Temp . "\gc_test_" . A_TickCount . ".ps1"
-	resultFile := A_Temp . "\gc_test_result_" . A_TickCount . ".txt"
+	if (scriptCmd = "") {
+		ToolTip
+		DarkMsgBox("Error", "gocardless_api script not found.", "error")
+		return
+	}
 	
-	psScript := "try {`n"
-	psScript .= "  $headers = @{ 'Authorization' = 'Bearer " . Settings_GoCardlessToken . "'; 'GoCardless-Version' = '2015-07-06' }`n"
-	psScript .= "  $response = Invoke-RestMethod -Uri '" . gcApiUrl . "/creditors' -Headers $headers -TimeoutSec 10`n"
-	psScript .= "  $creditorName = $response.creditors[0].name`n"
-	psScript .= "  $creditorId = $response.creditors[0].id`n"
-	psScript .= "  Write-Output ""SUCCESS|$creditorName|$creditorId""`n"
-	psScript .= "} catch {`n"
-	psScript .= "  Write-Output ""ERROR|$($_.Exception.Message)""`n"
-	psScript .= "}"
+	; Run the script and capture output
+	tempResult := A_Temp . "\gc_test_result_" . A_TickCount . ".txt"
+	RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
 	
-	FileDelete, %testScript%
-	FileAppend, %psScript%, %testScript%
-	
-	RunWait, powershell.exe -ExecutionPolicy Bypass -File "%testScript%" > "%resultFile%" 2>&1, , Hide
-	
-	FileRead, testResult, %resultFile%
-	FileDelete, %testScript%
-	FileDelete, %resultFile%
+	FileRead, testResult, %tempResult%
+	FileDelete, %tempResult%
 	
 	ToolTip
 	
@@ -8358,6 +8478,278 @@ OpenGCDashboard:
 	Run, %gcDashUrl%
 return
 
+ListEmptyMandates:
+	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment, GC_EmptyMandatesList, GC_EmptyMandatesArray, Settings_ShootArchivePath
+	
+	if (Settings_GoCardlessToken = "") {
+		DarkMsgBox("Error", "No API token configured.`n`nPlease enter your GoCardless API token first.", "error")
+		return
+	}
+	
+	GuiControl, Settings:, GCProgressBar, 0
+	GuiControl, Settings:, GCProgressText, Fetching mandates from GoCardless...
+	
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	scriptCmd := GetScriptCommand("gocardless_api", "--list-empty-mandates" . envFlag)
+	
+	if (scriptCmd = "") {
+		ToolTip
+		DarkMsgBox("Error", "gocardless_api script not found.", "error")
+		return
+	}
+	
+	tempResult := A_Temp . "\gc_empty_mandates_" . A_TickCount . ".txt"
+	RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
+	
+	FileRead, mandatesOutput, %tempResult%
+	FileDelete, %tempResult%
+	
+	ToolTip
+	
+	if (InStr(mandatesOutput, "NO_EMPTY_MANDATES")) {
+		DarkMsgBox("All Mandates Have Plans", "✅ Great news!`n`nAll active mandates have payment plans assigned.", "success")
+		return
+	}
+	
+	; Parse results and build display - store in array for sorting
+	GC_EmptyMandatesList := ""
+	GC_EmptyMandatesArray := []
+	mandateCount := 0
+	
+	; Get archive path for shoot number lookup
+	archivePath := Settings_ShootArchivePath
+	if (archivePath = "")
+		archivePath := "D:\Shoot_Archive"
+	
+	; First pass - count total mandates for progress bar
+	totalMandates := 0
+	Loop, Parse, mandatesOutput, `n, `r
+	{
+		if (A_LoopField = "" || InStr(A_LoopField, "ERROR"))
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 5)
+			totalMandates++
+	}
+	
+	; Show progress bar and text
+	GuiControl, Settings:, GCProgressBar, 0
+	GuiControl, Settings:, GCProgressText, Looking up shoot numbers...
+	
+	; Second pass - process mandates with progress
+	currentMandate := 0
+	Loop, Parse, mandatesOutput, `n, `r
+	{
+		if (A_LoopField = "" || InStr(A_LoopField, "ERROR"))
+			continue
+		
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 5) {
+			mandateId := parts[1]
+			customerName := parts[2]
+			email := parts[3]
+			createdAt := parts[4]
+			bankName := parts[5]
+			
+			currentMandate++
+			
+			; Update progress bar
+			progress := Round((currentMandate / totalMandates) * 100)
+			GuiControl, Settings:, GCProgressBar, %progress%
+			GuiControl, Settings:, GCProgressText, % "Processing " . currentMandate . " of " . totalMandates . "..."
+			Sleep, 1  ; Allow GUI to redraw
+			
+			; Try to find shoot number by searching archive for surname
+			shootNo := ""
+			nameParts := StrSplit(customerName, " ")
+			surname := nameParts[nameParts.Length()]
+			if (surname != "" && StrLen(surname) >= 2) {
+				Loop, Files, %archivePath%\*, D
+				{
+					if (InStr(A_LoopFileName, surname)) {
+						; Extract shoot number from folder name (format: P26001_Surname_...)
+						if (RegExMatch(A_LoopFileName, "i)(P\d{5})", match)) {
+							shootNo := match1
+							break
+						}
+					}
+				}
+			}
+			
+			mandateCount++
+			GC_EmptyMandatesArray.Push({mandateId: mandateId, name: customerName, email: email, date: createdAt, shootNo: shootNo, raw: A_LoopField})
+		}
+	}
+	
+	; Clear progress bar
+	GuiControl, Settings:, GCProgressBar, 0
+	GuiControl, Settings:, GCProgressText, 
+	
+	; Sort by date (newest first) - simple bubble sort for AHK
+	Loop, % GC_EmptyMandatesArray.Length() - 1
+	{
+		i := A_Index
+		Loop, % GC_EmptyMandatesArray.Length() - i
+		{
+			j := A_Index
+			if (GC_EmptyMandatesArray[j].date < GC_EmptyMandatesArray[j+1].date) {
+				temp := GC_EmptyMandatesArray[j]
+				GC_EmptyMandatesArray[j] := GC_EmptyMandatesArray[j+1]
+				GC_EmptyMandatesArray[j+1] := temp
+			}
+		}
+	}
+	
+	; Build display text and raw list (now sorted newest first)
+	displayText := ""
+	Loop, % GC_EmptyMandatesArray.Length()
+	{
+		m := GC_EmptyMandatesArray[A_Index]
+		shootDisplay := m.shootNo != "" ? m.shootNo : "---"
+		displayText .= m.date . " | " . shootDisplay . " | " . m.name . " | " . m.email . "`n"
+		GC_EmptyMandatesList .= m.raw . "`n"
+	}
+	
+	if (mandateCount = 0) {
+		DarkMsgBox("No Results", "Could not parse mandate data.`n`nCheck the debug log for details.", "warning")
+		return
+	}
+	
+	; Show GUI with results - 50% wider (750 instead of 500)
+	Gui, GCEmptyMandates:New, +AlwaysOnTop +ToolWindow -MinimizeBox +Resize
+	Gui, GCEmptyMandates:Color, 2D2D2D, 3D3D3D
+	Gui, GCEmptyMandates:Font, s10 cWhite, Segoe UI
+	
+	headerText := mandateCount . " mandate(s) without payment plans (newest first):"
+	Gui, GCEmptyMandates:Add, Text, x15 y15 w720 cCCCCCC, %headerText%
+	
+	Gui, GCEmptyMandates:Font, s9 cWhite, Consolas
+	Gui, GCEmptyMandates:Add, Edit, x15 y45 w720 h250 vGC_EmptyMandatesEdit ReadOnly Background3D3D3D cWhite, %displayText%
+	
+	Gui, GCEmptyMandates:Font, s10 cWhite, Segoe UI
+	Gui, GCEmptyMandates:Add, Button, x120 y305 w120 h30 gGC_CopyEmptyMandates, Copy to Clipboard
+	Gui, GCEmptyMandates:Add, Button, x250 y305 w120 h30 gGC_FindAlbumFromList, Find Album
+	Gui, GCEmptyMandates:Add, Button, x380 y305 w100 h30 gGC_CloseEmptyMandates, Close
+	
+	Gui, GCEmptyMandates:Show, w750 h350, Mandates Without Plans
+return
+
+GC_FindAlbumFromList:
+	global GC_EmptyMandatesArray, Settings_ShootArchivePath
+	
+	; Get selected text from edit control
+	Gui, GCEmptyMandates:Submit, NoHide
+	GuiControlGet, editContent,, GC_EmptyMandatesEdit
+	
+	; Get current selection
+	ControlGet, selectedText, Selected,, Edit1, Mandates Without Plans
+	
+	if (selectedText = "") {
+		DarkMsgBox("No Selection", "Please select a line (or part of a name) to search for.", "warning")
+		return
+	}
+	
+	; Extract surname from selection - take first word or use the whole thing
+	searchTerm := Trim(selectedText)
+	
+	; If it looks like they selected a whole line, try to extract the name part
+	if (InStr(searchTerm, "|")) {
+		parts := StrSplit(searchTerm, "|")
+		; Format is: date | name | email | bank
+		; Try to get name from second part
+		if (parts.Length() >= 2) {
+			namePart := Trim(parts[2])
+			; Get surname (last word of name)
+			nameParts := StrSplit(namePart, " ")
+			searchTerm := nameParts[nameParts.Length()]
+		}
+	} else {
+		; Just use first word if multiple
+		searchParts := StrSplit(searchTerm, " ")
+		searchTerm := searchParts[searchParts.Length()]  ; Use last word (likely surname)
+	}
+	
+	if (searchTerm = "" || StrLen(searchTerm) < 2) {
+		DarkMsgBox("Invalid Search", "Please select a valid name to search for.", "warning")
+		return
+	}
+	
+	; Search archive folder for matching albums
+	archivePath := Settings_ShootArchivePath
+	if (archivePath = "") {
+		archivePath := "D:\Shoot_Archive"
+	}
+	
+	ToolTip, Searching for "%searchTerm%" in archive...
+	
+	foundFolders := ""
+	foundCount := 0
+	
+	Loop, Files, %archivePath%\*, D
+	{
+		if (InStr(A_LoopFileName, searchTerm)) {
+			foundCount++
+			foundFolders .= A_LoopFileName . "`n"
+		}
+	}
+	
+	ToolTip
+	
+	if (foundCount = 0) {
+		DarkMsgBox("No Albums Found", "No folders matching '" . searchTerm . "' found in:`n" . archivePath, "warning")
+		return
+	}
+	
+	if (foundCount = 1) {
+		; Open the single found folder
+		folderName := Trim(foundFolders)
+		fullPath := archivePath . "\" . folderName
+		Run, explorer.exe "%fullPath%"
+		return
+	}
+	
+	; Multiple matches - show selection
+	MsgBox, 0x24, Multiple Albums Found, Found %foundCount% folders matching "%searchTerm%":`n`n%foundFolders%`nOpen the first match?
+	IfMsgBox, Yes
+	{
+		firstFolder := ""
+		Loop, Parse, foundFolders, `n, `r
+		{
+			if (A_LoopField != "") {
+				firstFolder := A_LoopField
+				break
+			}
+		}
+		if (firstFolder != "") {
+			fullPath := archivePath . "\" . firstFolder
+			Run, explorer.exe "%fullPath%"
+		}
+	}
+return
+
+GC_CopyEmptyMandates:
+	global GC_EmptyMandatesArray
+	
+	; Format for clipboard: Date, ShootNo, Name, Email
+	clipText := "Date`tShootNo`tName`tEmail`n"
+	Loop, % GC_EmptyMandatesArray.Length()
+	{
+		m := GC_EmptyMandatesArray[A_Index]
+		shootDisplay := m.shootNo != "" ? m.shootNo : "---"
+		clipText .= m.date . "`t" . shootDisplay . "`t" . m.name . "`t" . m.email . "`n"
+	}
+	
+	Clipboard := clipText
+	ToolTip, Copied to clipboard!
+	SetTimer, RemoveToolTip, -1500
+return
+
+GC_CloseEmptyMandates:
+GCEmptyMandatesGuiClose:
+GCEmptyMandatesGuiEscape:
+	Gui, GCEmptyMandates:Destroy
+return
+
 UpdateGCStatus() {
 	global Settings_GoCardlessToken
 	if (Settings_GoCardlessToken != "") {
@@ -8375,115 +8767,71 @@ UpdateGCStatus() {
 
 GC_CheckCustomerMandate(customerEmail) {
 	; Check if a customer has an existing active mandate in GoCardless
-	; Returns object: {hasMandate: bool, mandateId: string, mandateStatus: string, bankName: string, customerId: string, error: string}
-	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment
+	; Returns object: {hasMandate: bool, mandateId: string, mandateStatus: string, bankName: string, customerId: string, plans: string, error: string}
+	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment, DebugLogFile
 	
-	result := {hasMandate: false, mandateId: "", mandateStatus: "", bankName: "", customerId: "", error: ""}
+	result := {hasMandate: false, mandateId: "", mandateStatus: "", bankName: "", customerId: "", plans: "", error: ""}
 	
 	if (Settings_GoCardlessToken = "") {
 		result.error := "No API token configured"
 		return result
 	}
 	
-	gcApiUrl := (Settings_GoCardlessEnvironment = "live") ? "https://api.gocardless.com" : "https://api-sandbox.gocardless.com"
+	; Use Python script for GoCardless API calls
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	scriptCmd := GetScriptCommand("gocardless_api", "--check-mandate """ . customerEmail . """" . envFlag)
 	
-	; Step 1: Search for customer by email
-	psScript := "
-	(
-try {
-	$headers = @{
-		'Authorization' = 'Bearer " . Settings_GoCardlessToken . "'
-		'GoCardless-Version' = '2015-07-06'
-		'Content-Type' = 'application/json'
+	FileAppend, % A_Now . " - GC_CheckCustomerMandate - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
+	
+	if (scriptCmd = "") {
+		result.error := "gocardless_api script not found"
+		return result
 	}
 	
-	# Search for customer by email
-	$custResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/customers?email=" . customerEmail . "' -Headers $headers -TimeoutSec 15
-	
-	if ($custResponse.customers.Count -eq 0) {
-		Write-Output 'NO_CUSTOMER'
-		exit
-	}
-	
-	$customerId = $custResponse.customers[0].id
-	
-	# Get mandates for this customer
-	$mandateResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/mandates?customer=$customerId' -Headers $headers -TimeoutSec 15
-	
-	if ($mandateResponse.mandates.Count -eq 0) {
-		Write-Output ""NO_MANDATE|$customerId""
-		exit
-	}
-	
-	# Look for active mandate
-	foreach ($mandate in $mandateResponse.mandates) {
-		if ($mandate.status -eq 'active' -or $mandate.status -eq 'pending_submission' -or $mandate.status -eq 'submitted') {
-			$bankAccountId = $mandate.links.customer_bank_account
-			$bankName = 'Unknown'
-			
-			# Try to get bank account details
-			try {
-				$bankResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/customer_bank_accounts/$bankAccountId' -Headers $headers -TimeoutSec 10
-				$bankName = $bankResponse.customer_bank_accounts.bank_name
-				if (-not $bankName) { $bankName = 'Bank account' }
-			} catch {}
-			
-			Write-Output ""MANDATE_FOUND|$customerId|$($mandate.id)|$($mandate.status)|$bankName""
-			exit
-		}
-	}
-	
-	# No active mandate found
-	Write-Output ""NO_ACTIVE_MANDATE|$customerId""
-} catch {
-	Write-Output ""ERROR|$($_.Exception.Message)""
-}
-	)"
-	
-	; Execute PowerShell script
-	tempScript := A_Temp . "\gc_check_mandate_" . A_TickCount . ".ps1"
+	; Run the script and capture output
 	tempResult := A_Temp . "\gc_check_result_" . A_TickCount . ".txt"
+	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
+	FileAppend, % A_Now . " - GC_CheckCustomerMandate - fullCmd: " . fullCmd . "`n", %DebugLogFile%
 	
-	FileDelete, %tempScript%
-	FileAppend, %psScript%, %tempScript%
+	RunWait, %fullCmd%, , Hide
 	
-	RunWait, powershell.exe -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
-	
-	FileRead, psOutput, %tempResult%
-	FileDelete, %tempScript%
+	FileRead, scriptOutput, %tempResult%
+	FileAppend, % A_Now . " - GC_CheckCustomerMandate - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
 	FileDelete, %tempResult%
 	
-	psOutput := Trim(psOutput)
+	scriptOutput := Trim(scriptOutput)
 	
-	if (InStr(psOutput, "NO_CUSTOMER")) {
+	; Check for empty output
+	if (scriptOutput = "") {
+		result.error := "No response from GoCardless API"
+		return result
+	}
+	
+	if (InStr(scriptOutput, "NO_CUSTOMER")) {
 		; No customer found - no mandate
 		return result
 	}
-	else if (InStr(psOutput, "NO_MANDATE|")) {
-		parts := StrSplit(psOutput, "|")
+	else if (InStr(scriptOutput, "NO_MANDATE|")) {
+		parts := StrSplit(scriptOutput, "|")
 		result.customerId := parts[2]
 		return result
 	}
-	else if (InStr(psOutput, "NO_ACTIVE_MANDATE|")) {
-		parts := StrSplit(psOutput, "|")
-		result.customerId := parts[2]
-		return result
-	}
-	else if (InStr(psOutput, "MANDATE_FOUND|")) {
-		parts := StrSplit(psOutput, "|")
+	else if (InStr(scriptOutput, "MANDATE_FOUND|")) {
+		parts := StrSplit(scriptOutput, "|")
 		result.hasMandate := true
 		result.customerId := parts[2]
 		result.mandateId := parts[3]
 		result.mandateStatus := parts[4]
 		result.bankName := parts[5]
+		result.plans := parts[6]  ; May be empty if no active plans
 		return result
 	}
-	else if (InStr(psOutput, "ERROR|")) {
-		result.error := StrReplace(psOutput, "ERROR|", "")
+	else if (InStr(scriptOutput, "ERROR|")) {
+		result.error := StrReplace(scriptOutput, "ERROR|", "")
 		return result
 	}
 	else {
-		result.error := "Unexpected response: " . SubStr(psOutput, 1, 100)
+		result.error := "Unexpected response: " . SubStr(scriptOutput, 1, 100)
 		return result
 	}
 }
@@ -8502,94 +8850,42 @@ GC_SendMandateRequest(contactData, sendEmail, sendSMS) {
 	
 	ToolTip, Creating GoCardless billing request...
 	
-	gcApiUrl := (Settings_GoCardlessEnvironment = "live") ? "https://api.gocardless.com" : "https://api-sandbox.gocardless.com"
+	; Step 1: Create billing request flow using Python script
+	; Build JSON for the contact data
+	contactJson := "{""email"": """ . clientEmail . """, ""first_name"": """ . contactData.firstName . """, ""last_name"": """ . contactData.lastName . """}"
 	
-	; Step 1: Create billing request flow in GoCardless
-	psScript := "
-	(
-try {
-	$headers = @{
-		'Authorization' = 'Bearer " . Settings_GoCardlessToken . "'
-		'GoCardless-Version' = '2015-07-06'
-		'Content-Type' = 'application/json'
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	scriptCmd := GetScriptCommand("gocardless_api", "--create-billing-request """ . contactJson . """" . envFlag)
+	
+	if (scriptCmd = "") {
+		ToolTip
+		DarkMsgBox("Error", "gocardless_api script not found.", "error")
+		return
 	}
 	
-	# Create a billing request flow (redirect flow for mandate setup)
-	$body = @{
-		billing_request_flows = @{
-			redirect_uri = 'https://example.com/mandate-complete'
-			exit_uri = 'https://example.com/mandate-exit'
-			prefilled_customer = @{
-				email = '" . clientEmail . "'
-				given_name = '" . contactData.firstName . "'
-				family_name = '" . contactData.lastName . "'
-			}
-			lock_customer_details = @{
-				enabled = $true
-			}
-		}
-	} | ConvertTo-Json -Depth 5
-	
-	# First create a billing request
-	$brBody = @{
-		billing_requests = @{
-			mandate_request = @{
-				scheme = 'bacs'
-			}
-		}
-	} | ConvertTo-Json -Depth 5
-	
-	$brResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/billing_requests' -Method POST -Headers $headers -Body $brBody -TimeoutSec 30
-	$billingRequestId = $brResponse.billing_requests.id
-	
-	# Create flow for this billing request
-	$flowBody = @{
-		billing_request_flows = @{
-			redirect_uri = 'https://pay.gocardless.com/complete'
-			exit_uri = 'https://pay.gocardless.com/exit'
-			links = @{
-				billing_request = $billingRequestId
-			}
-		}
-	} | ConvertTo-Json -Depth 5
-	
-	$flowResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/billing_request_flows' -Method POST -Headers $headers -Body $flowBody -TimeoutSec 30
-	$authoriseUrl = $flowResponse.billing_request_flows.authorisation_url
-	
-	Write-Output ""SUCCESS|$billingRequestId|$authoriseUrl""
-} catch {
-	Write-Output ""ERROR|$($_.Exception.Message)""
-}
-	)"
-	
-	tempScript := A_Temp . "\gc_create_br_" . A_TickCount . ".ps1"
+	; Run the script and capture output
 	tempResult := A_Temp . "\gc_br_result_" . A_TickCount . ".txt"
+	RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
 	
-	FileDelete, %tempScript%
-	FileAppend, %psScript%, %tempScript%
-	
-	RunWait, powershell.exe -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
-	
-	FileRead, psOutput, %tempResult%
-	FileDelete, %tempScript%
+	FileRead, scriptOutput, %tempResult%
 	FileDelete, %tempResult%
 	
-	psOutput := Trim(psOutput)
+	scriptOutput := Trim(scriptOutput)
 	
-	if (InStr(psOutput, "ERROR|")) {
+	if (InStr(scriptOutput, "ERROR|")) {
 		ToolTip
-		errMsg := StrReplace(psOutput, "ERROR|", "")
+		errMsg := StrReplace(scriptOutput, "ERROR|", "")
 		DarkMsgBox("GoCardless Error", "Failed to create billing request.`n`n" . errMsg, "error")
 		return
 	}
 	
-	if (!InStr(psOutput, "SUCCESS|")) {
+	if (!InStr(scriptOutput, "SUCCESS|")) {
 		ToolTip
-		DarkMsgBox("GoCardless Error", "Unexpected response from GoCardless.`n`n" . SubStr(psOutput, 1, 200), "error")
+		DarkMsgBox("GoCardless Error", "Unexpected response from GoCardless.`n`n" . SubStr(scriptOutput, 1, 200), "error")
 		return
 	}
 	
-	parts := StrSplit(psOutput, "|")
+	parts := StrSplit(scriptOutput, "|")
 	billingRequestId := parts[2]
 	mandateUrl := parts[3]
 	
@@ -8639,7 +8935,7 @@ try {
 		tempResult := A_Temp . "\gc_email_result_" . A_TickCount . ".txt"
 		FileDelete, %tempScript%
 		FileAppend, %emailScript%, %tempScript%
-		RunWait, powershell.exe -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
+		RunWait, %ComSpec% /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
 		FileRead, emailResult, %tempResult%
 		FileDelete, %tempScript%
 		FileDelete, %tempResult%
@@ -8676,7 +8972,7 @@ try {
 		tempResult := A_Temp . "\gc_sms_result_" . A_TickCount . ".txt"
 		FileDelete, %tempScript%
 		FileAppend, %smsScript%, %tempScript%
-		RunWait, powershell.exe -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
+		RunWait, %ComSpec% /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
 		FileRead, smsResult, %tempResult%
 		FileDelete, %tempScript%
 		FileDelete, %tempResult%
@@ -8703,6 +8999,400 @@ try {
 	DarkMsgBox("Mandate Request Sent", resultMsg, "success")
 }
 
+; Show dialog for setting up a GoCardless payment plan using an existing mandate
+GC_ShowPayPlanDialog(contactData, mandateResult) {
+	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment, DebugLogFile
+	global GC_PP_ContactData, GC_PP_MandateResult
+	global GC_PP_Amount, GC_PP_Count, GC_PP_DayOfMonth, GC_PP_Name
+	global PayPlanLine, PayNo, DownpaymentLineAdded
+	
+	; Store data for GUI handlers
+	GC_PP_ContactData := contactData
+	GC_PP_MandateResult := mandateResult
+	
+	clientName := contactData.name ? contactData.name : contactData.fullName
+	mandateId := mandateResult.mandateId
+	bankName := mandateResult.bankName
+	
+	; Build default name from shoot number and surname
+	shootNo := contactData.shootNo ? contactData.shootNo : ""
+	lastName := contactData.lastName ? contactData.lastName : ""
+	defaultName := shootNo . "-" . lastName
+	if (defaultName = "-")
+		defaultName := clientName
+	
+	; Read existing payment lines and filter for DD payments only
+	; PayPlanLine format: day,month,year,PayType,Amount
+	ddPayments := []
+	ddPaymentCount := 0
+	ddTotalAmount := 0
+	ddFirstDay := 0
+	ddCommonAmount := 0
+	
+	startIdx := DownpaymentLineAdded ? 0 : 1
+	endIdx := DownpaymentLineAdded ? PayNo : PayNo
+	
+	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Scanning PayPlanLine " . startIdx . " to " . endIdx . "`n", %DebugLogFile%
+	
+	Loop
+	{
+		idx := startIdx + A_Index - 1
+		if (idx > endIdx)
+			break
+		
+		lineData := PayPlanLine[idx]
+		if (lineData = "")
+			continue
+		
+		parts := StrSplit(lineData, ",")
+		if (parts.Length() < 5)
+			continue
+		
+		payType := parts[4]
+		payAmount := parts[5]
+		payDay := parts[1]
+		
+		; Check if this is a DD payment type (case-insensitive)
+		; Match: GoCardless, DD, Direct Debit, BACS
+		isDDPayment := false
+		if (InStr(payType, "GoCardless") || InStr(payType, "Direct Debit") || InStr(payType, " DD") || payType = "DD" || InStr(payType, "BACS"))
+			isDDPayment := true
+		
+		if (!isDDPayment) {
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Skipping non-DD payment: " . payType . "`n", %DebugLogFile%
+			continue
+		}
+		
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found DD payment: " . lineData . "`n", %DebugLogFile%
+		
+		ddPayments.Push(lineData)
+		ddPaymentCount++
+		ddTotalAmount += payAmount
+		
+		; Track first day and common amount for defaults
+		if (ddFirstDay = 0)
+			ddFirstDay := payDay
+		if (ddCommonAmount = 0)
+			ddCommonAmount := payAmount
+	}
+	
+	; Set defaults - use found DD payments if any, otherwise use defaults
+	defaultAmount := ddCommonAmount > 0 ? ddCommonAmount : 50.00
+	defaultCount := ddPaymentCount > 0 ? ddPaymentCount : 12
+	defaultDay := ddFirstDay > 0 ? ddFirstDay : 15
+	
+	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found " . ddPaymentCount . " DD payments, total £" . ddTotalAmount . "`n", %DebugLogFile%
+	global GC_PP_DDPayments  ; Store DD payments for single payment mode
+	
+	; Create dark-themed GUI
+	Gui, GCPayPlan:New, +AlwaysOnTop +ToolWindow -MinimizeBox
+	Gui, GCPayPlan:Color, 2D2D2D, 3D3D3D
+	Gui, GCPayPlan:Font, s10 cWhite, Segoe UI
+	
+	; Header
+	Gui, GCPayPlan:Add, Text, x15 y15 w350 cCCCCCC, Create GoCardless Payments
+	Gui, GCPayPlan:Font, s9 cWhite, Segoe UI
+	
+	; Client info
+	Gui, GCPayPlan:Add, Text, x15 y45 w80 cAAAAAA, Client:
+	Gui, GCPayPlan:Add, Text, x100 y45 w270, %clientName%
+	Gui, GCPayPlan:Add, Text, x15 y65 w80 cAAAAAA, Bank:
+	Gui, GCPayPlan:Add, Text, x100 y65 w270, %bankName%
+	
+	; Separator
+	Gui, GCPayPlan:Add, Text, x15 y90 w355 h1 0x10  ; SS_ETCHEDHORZ
+	
+	; Mode selector - Radio buttons
+	Gui, GCPayPlan:Add, Text, x15 y105 w80 cAAAAAA, Mode:
+	Gui, GCPayPlan:Add, Radio, x100 y105 w150 vGC_PP_ModeInstalment Checked gGC_PP_ModeChange, Instalment Schedule
+	Gui, GCPayPlan:Add, Radio, x260 y105 w120 vGC_PP_ModeSingle gGC_PP_ModeChange, Single Payments
+	
+	; Plan Name
+	Gui, GCPayPlan:Add, Text, x15 y135 w80 cAAAAAA vGC_PP_LblName, Plan Name:
+	Gui, GCPayPlan:Add, Edit, x100 y132 w270 h24 vGC_PP_Name Background3D3D3D cWhite, %defaultName%
+	
+	; Amount - pre-populate from DD payments
+	Gui, GCPayPlan:Add, Text, x15 y165 w80 cAAAAAA vGC_PP_LblAmount, Amount (£):
+	Gui, GCPayPlan:Add, Edit, x100 y162 w100 h24 vGC_PP_Amount Background3D3D3D cWhite, %defaultAmount%
+	
+	; Number of payments - pre-populate from DD payment count
+	Gui, GCPayPlan:Add, Text, x15 y195 w80 cAAAAAA vGC_PP_LblCount, Payments:
+	Gui, GCPayPlan:Add, Edit, x100 y192 w60 h24 vGC_PP_Count Number Background3D3D3D cWhite, %defaultCount%
+	Gui, GCPayPlan:Add, Text, x165 y195 w100 cAAAAAA vGC_PP_LblMonthly, (monthly)
+	
+	; Day of month
+	Gui, GCPayPlan:Add, Text, x15 y225 w80 cAAAAAA vGC_PP_LblDay, Day:
+	Gui, GCPayPlan:Add, Edit, x100 y222 w60 h24 vGC_PP_DayOfMonth Number Background3D3D3D cWhite, 15
+	Gui, GCPayPlan:Add, Text, x165 y225 w200 cAAAAAA vGC_PP_LblDayHelp, of each month (1-28, or -1 for last)
+	
+	; Single payment info (hidden by default)
+	singleInfo := ddPaymentCount . " DD payments found (£" . Format("{:.2f}", ddTotalAmount) . " total)"
+	Gui, GCPayPlan:Add, Text, x15 y165 w355 vGC_PP_SingleInfo Hidden cAAAAAA, %singleInfo%
+	
+	; Build payment list for display
+	paymentListText := ""
+	GC_PP_DDPayments := []
+	Loop, % ddPayments.Length()
+	{
+		parts := StrSplit(ddPayments[A_Index], ",")
+		if (parts.Length() >= 5) {
+			payDay := parts[1]
+			payMonth := parts[2]
+			payYear := parts[3]
+			payAmount := parts[5]
+			dateStr := Format("{:02d}/{:02d}/{}", payDay, payMonth, payYear)
+			amountStr := Format("£{:.2f}", payAmount)
+			paymentListText .= dateStr . "  " . amountStr . "`n"
+			; Store ISO date and amount for API
+			GC_PP_DDPayments.Push({date: Format("{}-{:02d}-{:02d}", payYear, payMonth, payDay), amount: payAmount})
+		}
+	}
+	if (paymentListText = "")
+		paymentListText := "(No DD payments found in PayPlan)"
+	
+	Gui, GCPayPlan:Add, Edit, x15 y185 w355 h70 vGC_PP_PaymentList ReadOnly Background3D3D3D cWhite Hidden, %paymentListText%
+	
+	; Buttons
+	Gui, GCPayPlan:Add, Button, x60 y270 w130 h32 gGC_PP_Create Default vGC_PP_BtnCreate, Create Plan
+	Gui, GCPayPlan:Add, Button, x60 y270 w130 h32 gGC_PP_CreateSingles Hidden vGC_PP_BtnCreateSingles, Create Singles
+	Gui, GCPayPlan:Add, Button, x200 y270 w80 h32 gGC_PP_Cancel, Cancel
+	
+	Gui, GCPayPlan:Show, w385 h320, GoCardless Payments
+	return
+}
+
+GC_PP_ModeChange:
+	Gui, GCPayPlan:Submit, NoHide
+	GuiControlGet, isSingleMode,, GC_PP_ModeSingle
+	
+	if (isSingleMode) {
+		; Show single payment controls, hide instalment controls
+		GuiControl, Hide, GC_PP_LblAmount
+		GuiControl, Hide, GC_PP_Amount
+		GuiControl, Hide, GC_PP_LblCount
+		GuiControl, Hide, GC_PP_Count
+		GuiControl, Hide, GC_PP_LblMonthly
+		GuiControl, Hide, GC_PP_LblDay
+		GuiControl, Hide, GC_PP_DayOfMonth
+		GuiControl, Hide, GC_PP_LblDayHelp
+		GuiControl, Hide, GC_PP_BtnCreate
+		GuiControl, Show, GC_PP_SingleInfo
+		GuiControl, Show, GC_PP_PaymentList
+		GuiControl, Show, GC_PP_BtnCreateSingles
+	} else {
+		; Show instalment controls, hide single payment controls
+		GuiControl, Show, GC_PP_LblAmount
+		GuiControl, Show, GC_PP_Amount
+		GuiControl, Show, GC_PP_LblCount
+		GuiControl, Show, GC_PP_Count
+		GuiControl, Show, GC_PP_LblMonthly
+		GuiControl, Show, GC_PP_LblDay
+		GuiControl, Show, GC_PP_DayOfMonth
+		GuiControl, Show, GC_PP_LblDayHelp
+		GuiControl, Show, GC_PP_BtnCreate
+		GuiControl, Hide, GC_PP_SingleInfo
+		GuiControl, Hide, GC_PP_PaymentList
+		GuiControl, Hide, GC_PP_BtnCreateSingles
+	}
+	return
+
+GC_PP_CreateSingles:
+	global GC_PP_ContactData, GC_PP_MandateResult, GC_PP_DDPayments, GC_PP_Name, DebugLogFile, Settings_GoCardlessEnvironment
+	
+	Gui, GCPayPlan:Submit, NoHide
+	
+	if (GC_PP_DDPayments.Length() = 0) {
+		DarkMsgBox("No Payments", "No DD payments found in the PayPlan to create.", "warning")
+		return
+	}
+	
+	mandateId := GC_PP_MandateResult.mandateId
+	planName := GC_PP_Name
+	
+	; Confirm creation
+	payCount := GC_PP_DDPayments.Length()
+	totalAmount := 0
+	Loop, % payCount
+		totalAmount += GC_PP_DDPayments[A_Index].amount
+	
+	MsgBox, 0x24, Create Single Payments?, Create %payCount% individual one-off payments?`n`nTotal: £%totalAmount%`n`nEach payment will be named "%planName%"
+	IfMsgBox, No
+		return
+	
+	Gui, GCPayPlan:Destroy
+	
+	; Create each payment
+	successCount := 0
+	failedCount := 0
+	createdIds := ""
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	
+	Loop, % payCount
+	{
+		payment := GC_PP_DDPayments[A_Index]
+		amountPence := Round(payment.amount * 100)
+		chargeDate := payment.date
+		description := planName
+		
+		ToolTip, Creating payment %A_Index% of %payCount%...
+		
+		; Escape quotes in description
+		descEscaped := StrReplace(description, """", "\""")
+		
+		paymentJson := "{""mandate_id"": """ . mandateId . """, ""amount"": " . amountPence . ", ""description"": """ . descEscaped . """, ""charge_date"": """ . chargeDate . """}"
+		
+		FileAppend, % A_Now . " - GC_PP_CreateSingles - paymentJson: " . paymentJson . "`n", %DebugLogFile%
+		
+		scriptCmd := GetScriptCommand("gocardless_api", "--create-payment """ . paymentJson . """" . envFlag)
+		tempResult := A_Temp . "\gc_payment_result_" . A_TickCount . ".txt"
+		RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
+		FileRead, scriptOutput, %tempResult%
+		FileDelete, %tempResult%
+		
+		scriptOutput := Trim(scriptOutput)
+		FileAppend, % A_Now . " - GC_PP_CreateSingles - output: " . scriptOutput . "`n", %DebugLogFile%
+		
+		if (InStr(scriptOutput, "SUCCESS|")) {
+			successCount++
+			parts := StrSplit(scriptOutput, "|")
+			if (parts.Length() >= 2)
+				createdIds .= parts[2] . ","
+		} else {
+			failedCount++
+		}
+		
+		Sleep, 200  ; Small delay between API calls
+	}
+	
+	ToolTip
+	
+	; Show result
+	if (failedCount = 0) {
+		DarkMsgBox("Payments Created", "✅ Successfully created " . successCount . " one-off payments.`n`nPayments will be collected on their scheduled dates.", "success")
+	} else {
+		DarkMsgBox("Partial Success", "Created " . successCount . " payments.`n`nFailed: " . failedCount . "`n`nCheck the debug log for details.", "warning")
+	}
+	return
+
+GC_PP_Create:
+	global GC_PP_ContactData, GC_PP_MandateResult, DebugLogFile
+	global GC_PP_Amount, GC_PP_Count, GC_PP_DayOfMonth, GC_PP_Name
+	
+	Gui, GCPayPlan:Submit, NoHide
+	
+	; Validate inputs
+	if (GC_PP_Amount = "" || GC_PP_Amount <= 0) {
+		DarkMsgBox("Invalid Amount", "Please enter a valid amount.", "warning")
+		return
+	}
+	
+	if (GC_PP_Count = "" || GC_PP_Count <= 0) {
+		DarkMsgBox("Invalid Count", "Please enter the number of payments.", "warning")
+		return
+	}
+	
+	if (GC_PP_DayOfMonth = "" || (GC_PP_DayOfMonth < -1 || GC_PP_DayOfMonth > 28 || GC_PP_DayOfMonth = 0)) {
+		DarkMsgBox("Invalid Day", "Day must be 1-28, or -1 for last day of month.", "warning")
+		return
+	}
+	
+	; Check for duplicate plan name before creating
+	mandateId := GC_PP_MandateResult.mandateId
+	planName := GC_PP_Name
+	
+	ToolTip, Checking for existing plans...
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	checkCmd := GetScriptCommand("gocardless_api", "--list-plans """ . mandateId . """" . envFlag)
+	tempCheck := A_Temp . "\gc_check_plans_" . A_TickCount . ".txt"
+	RunWait, %ComSpec% /c %checkCmd% > "%tempCheck%" 2>&1, , Hide
+	FileRead, subsOutput, %tempCheck%
+	FileDelete, %tempCheck%
+	ToolTip
+	
+	; Check if plan name already exists
+	duplicateFound := false
+	duplicateStatus := ""
+	Loop, Parse, subsOutput, `n, `r
+	{
+		if (A_LoopField = "" || A_LoopField = "NO_PLANS")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 3) {
+			existingName := parts[2]
+			existingStatus := parts[3]
+			if (existingName = planName) {
+				duplicateFound := true
+				duplicateStatus := existingStatus
+				break
+			}
+		}
+	}
+	
+	if (duplicateFound) {
+		MsgBox, 0x134, Duplicate Plan Name, ⚠️ A plan named "%planName%" already exists for this mandate.`n`nStatus: %duplicateStatus%`n`nDo you want to create another plan with the same name?`n`n(Tip: The system will auto-add a suffix like -1, -2)
+		IfMsgBox, No
+			return
+	}
+	
+	; Convert amount to pence
+	amountPence := Round(GC_PP_Amount * 100)
+	
+	; Escape quotes in name for JSON
+	planNameEscaped := StrReplace(planName, """", "\""")
+	
+	instalmentJson := "{""mandate_id"": """ . mandateId . """, ""amount"": " . amountPence . ", ""name"": """ . planNameEscaped . """, ""count"": " . GC_PP_Count . ", ""day_of_month"": " . GC_PP_DayOfMonth . "}"
+	
+	FileAppend, % A_Now . " - GC_PP_Create - instalmentJson: " . instalmentJson . "`n", %DebugLogFile%
+	
+	; Close dialog and show progress
+	Gui, GCPayPlan:Destroy
+	ToolTip, Creating payment plan...
+	
+	; Call Python script
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	scriptCmd := GetScriptCommand("gocardless_api", "--create-instalment """ . instalmentJson . """" . envFlag)
+	FileAppend, % A_Now . " - GC_PP_Create - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
+	
+	tempResult := A_Temp . "\gc_instalment_result_" . A_TickCount . ".txt"
+	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
+	RunWait, %fullCmd%, , Hide
+	
+	FileRead, scriptOutput, %tempResult%
+	FileAppend, % A_Now . " - GC_PP_Create - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
+	FileDelete, %tempResult%
+	
+	ToolTip
+	
+	scriptOutput := Trim(scriptOutput)
+	
+	if (InStr(scriptOutput, "SUCCESS|")) {
+		parts := StrSplit(scriptOutput, "|")
+		scheduleId := parts[2]
+		actualPlanName := parts[3]
+		paymentCount := parts[4]
+		firstDate := parts[5]
+		lastDate := parts[6]
+		
+		; Format amount for display
+		amountStr := Format("£{:.2f}", GC_PP_Amount)
+		
+		DarkMsgBox("Payment Plan Created", "✅ GoCardless payment plan created successfully!`n`n📋 Plan: " . actualPlanName . "`n💰 Amount: " . amountStr . " x " . paymentCount . " payments`n📅 Schedule: " . firstDate . " to " . lastDate . "`n🔖 Schedule ID: " . scheduleId, "success")
+	}
+	else if (InStr(scriptOutput, "ERROR|")) {
+		errorMsg := StrReplace(scriptOutput, "ERROR|", "")
+		DarkMsgBox("GoCardless Error", "Failed to create payment plan.`n`n" . errorMsg, "error")
+	}
+	else {
+		DarkMsgBox("GoCardless Error", "Unexpected response from GoCardless.`n`n" . SubStr(scriptOutput, 1, 200), "error")
+	}
+return
+
+GC_PP_Cancel:
+GCPayPlanGuiClose:
+GCPayPlanGuiEscape:
+	Gui, GCPayPlan:Destroy
+return
+
 ; Toggle handler for GoCardless enabled - controls panel enable/disable state
 Toggle_GoCardlessEnabled_Changed:
 	Gui, Settings:Submit, NoHide
@@ -8720,6 +9410,10 @@ Toggle_GoCardlessEnabled_Changed:
 		GuiControl, Settings:Enable, GCEmailTplRefresh
 		GuiControl, Settings:Enable, GCSMSTplCombo
 		GuiControl, Settings:Enable, GCSMSTplRefresh
+		GuiControl, Settings:Enable, Toggle_GCAutoSetup
+		GuiControl, Settings:Enable, GCNamePart1DDL
+		GuiControl, Settings:Enable, GCNamePart2DDL
+		GuiControl, Settings:Enable, GCNamePart3DDL
 	} else {
 		GuiControl, Settings:Disable, GCEnvDDL
 		GuiControl, Settings:Disable, GCTokenEditBtn
@@ -8729,13 +9423,82 @@ Toggle_GoCardlessEnabled_Changed:
 		GuiControl, Settings:Disable, GCEmailTplRefresh
 		GuiControl, Settings:Disable, GCSMSTplCombo
 		GuiControl, Settings:Disable, GCSMSTplRefresh
+		GuiControl, Settings:Disable, Toggle_GCAutoSetup
+		GuiControl, Settings:Disable, GCNamePart1DDL
+		GuiControl, Settings:Disable, GCNamePart2DDL
+		GuiControl, Settings:Disable, GCNamePart3DDL
 	}
 	; Recreate toolbar to reflect changes
 	CreateFloatingToolbar()
 return
 
+; Toggle handler for GC Auto Setup
+Toggle_GCAutoSetup_Changed:
+	Gui, Settings:Submit, NoHide
+	GuiControlGet, toggleState,, Toggle_GCAutoSetup
+	Settings_GCAutoSetup := toggleState
+	IniWrite, %Settings_GCAutoSetup%, %IniFilename%, GoCardless, AutoSetup
+return
+
+; Handler for PayPlan name format dropdowns
+GCNamePartChanged:
+	Gui, Settings:Submit, NoHide
+	GuiControlGet, Settings_GCNamePart1,, GCNamePart1DDL
+	GuiControlGet, Settings_GCNamePart2,, GCNamePart2DDL
+	GuiControlGet, Settings_GCNamePart3,, GCNamePart3DDL
+	IniWrite, %Settings_GCNamePart1%, %IniFilename%, GoCardless, NamePart1
+	IniWrite, %Settings_GCNamePart2%, %IniFilename%, GoCardless, NamePart2
+	IniWrite, %Settings_GCNamePart3%, %IniFilename%, GoCardless, NamePart3
+	UpdateGCNameExample()
+return
+
+; Update the PayPlan name example based on current dropdown selections
+UpdateGCNameExample() {
+	global Settings_GCNamePart1, Settings_GCNamePart2, Settings_GCNamePart3
+	
+	; Sample data for preview
+	sampleData := {shootNo: "P26005", surname: "Smith", firstName: "John", fullName: "John Smith", ghlId: "abc123xyz", albumName: "2026-02-17_Smith"}
+	
+	; Build example string from selected parts
+	parts := []
+	Loop, 3 {
+		partNum := A_Index
+		partVal := Settings_GCNamePart%partNum%
+		if (partVal = "" || partVal = "(none)")
+			continue
+		if (partVal = "Shoot No")
+			parts.Push(sampleData.shootNo)
+		else if (partVal = "Surname")
+			parts.Push(sampleData.surname)
+		else if (partVal = "First Name")
+			parts.Push(sampleData.firstName)
+		else if (partVal = "Full Name")
+			parts.Push(sampleData.fullName)
+		else if (partVal = "GHL ID")
+			parts.Push(sampleData.ghlId)
+		else if (partVal = "Album Name")
+			parts.Push(sampleData.albumName)
+	}
+	
+	; Join with " - " separator
+	example := ""
+	for i, part in parts {
+		if (example != "")
+			example .= " - "
+		example .= part
+	}
+	
+	if (example = "")
+		example := "(no format selected)"
+	
+	GuiControl, Settings:, GCNameExample, %example%
+}
+
 GCEmailTplChanged:
 	Gui, Settings:Submit, NoHide
+	; Skip saving if we're in the middle of a refresh or initial build
+	if (GC_TemplateRefreshing || GC_BuildingPanel)
+		return
 	GuiControlGet, selectedTemplate,, GCEmailTplCombo
 	if (selectedTemplate = "SELECT" || selectedTemplate = "") {
 		; Clear the settings when SELECT is chosen
@@ -8764,6 +9527,9 @@ return
 
 GCSMSTplChanged:
 	Gui, Settings:Submit, NoHide
+	; Skip saving if we're in the middle of a refresh or initial build
+	if (GC_TemplateRefreshing || GC_BuildingPanel)
+		return
 	GuiControlGet, selectedTemplate,, GCSMSTplCombo
 	if (selectedTemplate = "SELECT" || selectedTemplate = "") {
 		; Clear the settings when SELECT is chosen
@@ -8773,8 +9539,8 @@ GCSMSTplChanged:
 		IniWrite, %Settings_GCSMSTemplateName%, %IniFilename%, GoCardless, SMSTemplateName
 	} else {
 		Settings_GCSMSTemplateName := selectedTemplate
-		; Look up the template ID from cached templates
-		Loop, Parse, GHL_CachedEmailTemplates, `n
+		; Look up the template ID from cached SMS templates
+		Loop, Parse, GHL_CachedSMSTemplates, `n
 		{
 			if (A_LoopField = "")
 				continue
@@ -8791,11 +9557,54 @@ GCSMSTplChanged:
 return
 
 RefreshGCSMSTemplates:
-	; Same as email templates - just refresh and update SMS dropdown
-	GoSub, RefreshGCEmailTemplates
-	; Also update SMS dropdown with SELECT first
+	; Fetch SMS templates from GHL for GoCardless mandate notifications
+	GC_TemplateRefreshing := true
+	ToolTip, Fetching SMS templates from GHL...
+	
+	; Build command using GetScriptCommand
+	tempFile := A_Temp . "\ghl_sms_templates_gc.json"
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-sms-templates")
+	
+	if (scriptCmd = "") {
+		ToolTip
+		GC_TemplateRefreshing := false
+		DarkMsgBox("Error", "Script not found: sync_ps_invoice", "error")
+		return
+	}
+	
+	; Delete any existing temp file
+	FileDelete, %tempFile%
+	
+	; Write command to temp .cmd file
+	tempCmd := A_Temp . "\sk_gc_sms_tpl_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileAppend, % "@" . scriptCmd . " > """ . tempFile . """ 2>&1`n", %tempCmd%
+	RunWait, %ComSpec% /c "%tempCmd%", , Hide
+	FileDelete, %tempCmd%
+	
+	; Read and parse the result
+	FileRead, result, %tempFile%
+	FileDelete, %tempFile%
+	
+	ToolTip
+	
+	if (InStr(result, "ERROR") || InStr(result, "NO_TEMPLATES") || result = "") {
+		GC_TemplateRefreshing := false
+		DarkMsgBox("No SMS Templates", "No SMS templates found in GHL.`n`nCreate an SMS template in GHL first.", "info")
+		return
+	}
+	
+	; Cache the SMS templates
+	GHL_CachedSMSTemplates := result
+	
+	; Save to INI for persistence
+	iniValue := StrReplace(result, "`n", "§§")
+	iniValue := StrReplace(iniValue, "`r", "")
+	IniWrite, %iniValue%, %IniFilename%, GHL, CachedSMSTemplates
+	
+	; Rebuild the dropdown with SELECT first
 	newSmsList := "SELECT"
-	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	Loop, Parse, result, `n, `r
 	{
 		if (A_LoopField = "")
 			continue
@@ -8804,15 +9613,21 @@ RefreshGCSMSTemplates:
 			newSmsList .= "|" . parts[2]
 		}
 	}
+	
 	GuiControl, Settings:, GCSMSTplCombo, |%newSmsList%
 	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)" && Settings_GCSMSTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, GCSMSTplCombo, %Settings_GCSMSTemplateName%
 	else
 		GuiControl, Settings:ChooseString, GCSMSTplCombo, SELECT
+	
+	templateCount := StrSplit(result, "`n").MaxIndex()
+	GC_TemplateRefreshing := false
+	DarkMsgBox("SMS Templates Loaded", "Loaded " . templateCount . " SMS templates from GHL.", "success", {timeout: 2})
 return
 
 RefreshGCEmailTemplates:
 	; Fetch email templates from GHL for GoCardless mandate notifications
+	GC_TemplateRefreshing := true
 	ToolTip, Fetching email templates from GHL...
 	
 	; Build command using GetScriptCommand (handles .exe vs .py automatically)
@@ -8821,6 +9636,7 @@ RefreshGCEmailTemplates:
 	
 	if (scriptCmd = "") {
 		ToolTip
+		GC_TemplateRefreshing := false
 		DarkMsgBox("Error", "Script not found: sync_ps_invoice", "error")
 		return
 	}
@@ -8842,12 +9658,18 @@ RefreshGCEmailTemplates:
 	ToolTip
 	
 	if (InStr(result, "ERROR") || result = "") {
+		GC_TemplateRefreshing := false
 		DarkMsgBox("Error", "Failed to fetch email templates from GHL.", "error")
 		return
 	}
 	
 	; Cache the templates (format: id|name per line)
 	GHL_CachedEmailTemplates := result
+	
+	; Save to INI for persistence (use same format as Print tab)
+	iniValue := StrReplace(result, "`n", "§§")
+	iniValue := StrReplace(iniValue, "`r", "")
+	IniWrite, %iniValue%, %IniFilename%, GHL, CachedEmailTemplates
 	
 	; Rebuild the dropdown with SELECT first
 	newList := "SELECT"
@@ -8868,6 +9690,7 @@ RefreshGCEmailTemplates:
 		GuiControl, Settings:ChooseString, GCEmailTplCombo, SELECT
 	
 	templateCount := StrSplit(result, "`n").MaxIndex()
+	GC_TemplateRefreshing := false
 	DarkMsgBox("Templates Loaded", "Loaded " . templateCount . " email templates from GHL.", "success", {timeout: 2})
 return
 
@@ -9300,6 +10123,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, DevWebProgressStatus
 	
 	; Hide all panels - GoCardless
+	GuiControl, Settings:Hide, TabGoCardlessBg
 	GuiControl, Settings:Hide, PanelGoCardless
 	GuiControl, Settings:Hide, GCHeader
 	GuiControl, Settings:Hide, GCConnection
@@ -9314,7 +10138,10 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GCStatus
 	GuiControl, Settings:Hide, GCStatusText
 	GuiControl, Settings:Hide, GCTestBtn
+	GuiControl, Settings:Hide, GCEmptyMandatesBtn
 	GuiControl, Settings:Hide, GCDashboardBtn
+	GuiControl, Settings:Hide, GCProgressBar
+	GuiControl, Settings:Hide, GCProgressText
 	GuiControl, Settings:Hide, GCNotifyGroup
 	GuiControl, Settings:Hide, GCEmailTplLabel
 	GuiControl, Settings:Hide, GCEmailTplCombo
@@ -9323,6 +10150,18 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GCSMSTplCombo
 	GuiControl, Settings:Hide, GCSMSTplRefresh
 	GuiControl, Settings:Hide, GCNotifyHint
+	GuiControl, Settings:Hide, GCAutoGroup
+	GuiControl, Settings:Hide, GCAutoSetupLabel
+	GuiControl, Settings:Hide, Toggle_GCAutoSetup
+	GuiControl, Settings:Hide, GCAutoHint
+	GuiControl, Settings:Hide, GCNamingLabel
+	GuiControl, Settings:Hide, GCNamePart1DDL
+	GuiControl, Settings:Hide, GCNameSep1
+	GuiControl, Settings:Hide, GCNamePart2DDL
+	GuiControl, Settings:Hide, GCNameSep2
+	GuiControl, Settings:Hide, GCNamePart3DDL
+	GuiControl, Settings:Hide, GCNameExLabel
+	GuiControl, Settings:Hide, GCNameExample
 	
 	; Show selected tab
 	if (tabName = "General")
@@ -9681,7 +10520,10 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GCStatus
 		GuiControl, Settings:Show, GCStatusText
 		GuiControl, Settings:Show, GCTestBtn
+		GuiControl, Settings:Show, GCEmptyMandatesBtn
 		GuiControl, Settings:Show, GCDashboardBtn
+		GuiControl, Settings:Show, GCProgressBar
+		GuiControl, Settings:Show, GCProgressText
 		GuiControl, Settings:Show, GCNotifyGroup
 		GuiControl, Settings:Show, GCEmailTplLabel
 		GuiControl, Settings:Show, GCEmailTplCombo
@@ -9690,6 +10532,18 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GCSMSTplCombo
 		GuiControl, Settings:Show, GCSMSTplRefresh
 		GuiControl, Settings:Show, GCNotifyHint
+		GuiControl, Settings:Show, GCAutoGroup
+		GuiControl, Settings:Show, GCAutoSetupLabel
+		GuiControl, Settings:Show, Toggle_GCAutoSetup
+		GuiControl, Settings:Show, GCAutoHint
+		GuiControl, Settings:Show, GCNamingLabel
+		GuiControl, Settings:Show, GCNamePart1DDL
+		GuiControl, Settings:Show, GCNameSep1
+		GuiControl, Settings:Show, GCNamePart2DDL
+		GuiControl, Settings:Show, GCNameSep2
+		GuiControl, Settings:Show, GCNamePart3DDL
+		GuiControl, Settings:Show, GCNameExLabel
+		GuiControl, Settings:Show, GCNameExample
 		; Apply enable/disable state based on toggle
 		if (Settings_GoCardlessEnabled) {
 			GuiControl, Settings:Enable, GCEnvDDL
@@ -9700,6 +10554,10 @@ ShowSettingsTab(tabName)
 			GuiControl, Settings:Enable, GCEmailTplRefresh
 			GuiControl, Settings:Enable, GCSMSTplCombo
 			GuiControl, Settings:Enable, GCSMSTplRefresh
+			GuiControl, Settings:Enable, Toggle_GCAutoSetup
+			GuiControl, Settings:Enable, GCNamePart1DDL
+			GuiControl, Settings:Enable, GCNamePart2DDL
+			GuiControl, Settings:Enable, GCNamePart3DDL
 		} else {
 			GuiControl, Settings:Disable, GCEnvDDL
 			GuiControl, Settings:Disable, GCTokenEditBtn
@@ -9709,6 +10567,10 @@ ShowSettingsTab(tabName)
 			GuiControl, Settings:Disable, GCEmailTplRefresh
 			GuiControl, Settings:Disable, GCSMSTplCombo
 			GuiControl, Settings:Disable, GCSMSTplRefresh
+			GuiControl, Settings:Disable, Toggle_GCAutoSetup
+			GuiControl, Settings:Disable, GCNamePart1DDL
+			GuiControl, Settings:Disable, GCNamePart2DDL
+			GuiControl, Settings:Disable, GCNamePart3DDL
 		}
 	}
 	else if (tabName = "Developer")
@@ -13223,6 +14085,133 @@ Toggle_AutoSendLogs:
 	SaveSettings()
 Return
 
+; Timer handler to check for GoCardless setup after sync with future payments
+CheckGoCardlessAfterSync:
+	; Only proceed if GoCardless is enabled AND auto-setup is on
+	if (!Settings_GoCardlessEnabled || Settings_GoCardlessToken = "" || !Settings_GCAutoSetup)
+		return
+	
+	; Read the result JSON to check for future payments
+	resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+	if (!FileExist(resultFile))
+		return
+	
+	FileRead, resultJson, %resultFile%
+	if (resultJson = "")
+		return
+	
+	; Check if there are future payments
+	if (!InStr(resultJson, """future_payments"""))
+		return
+	
+	; Extract future_payments info
+	futureCount := 0
+	futureTotal := 0
+	clientName := ""
+	customerEmail := ""
+	contactId := ""
+	
+	if (RegExMatch(resultJson, """count""\s*:\s*(\d+)", m))
+		futureCount := m1
+	if (RegExMatch(resultJson, """total""\s*:\s*(\d+(?:\.\d+)?)", m))
+		futureTotal := m1
+	if (RegExMatch(resultJson, """client_name""\s*:\s*""([^""]*)""", m))
+		clientName := m1
+	if (RegExMatch(resultJson, """email""\s*:\s*""([^""]*)""", m))
+		customerEmail := m1
+	if (RegExMatch(resultJson, """contact_id""\s*:\s*""([^""]*)""", m))
+		contactId := m1
+	
+	; If no future payments, exit
+	if (futureCount = 0 || futureTotal = 0)
+		return
+	
+	; Format total for display
+	formattedTotal := "£" . Format("{:.2f}", futureTotal / 100)
+	
+	; Show prompt asking if they want to set up GoCardless
+	result := DarkMsgBox("Set Up GoCardless Payments?", "This order has " . futureCount . " future payment(s) totaling " . formattedTotal . ".`n`nWould you like to set up Direct Debit payments via GoCardless for " . clientName . "?", "question", {buttons: ["Set Up GoCardless", "Not Now"]})
+	
+	if (result != "Set Up GoCardless")
+		return
+	
+	; Check mandate status
+	if (customerEmail = "") {
+		DarkMsgBox("Missing Email", "Cannot check GoCardless mandate - no email address found for this customer.", "warning")
+		return
+	}
+	
+	ToolTip, Checking GoCardless mandate status...
+	mandateResult := GC_CheckCustomerMandate(customerEmail)
+	ToolTip
+	
+	if (mandateResult.error != "") {
+		DarkMsgBox("GoCardless Error", "Could not check mandate status:`n`n" . mandateResult.error, "error")
+		return
+	}
+	
+	if (mandateResult.hasMandate) {
+		; Customer has active mandate - offer to set up payment plan
+		bankInfo := mandateResult.bankName != "" ? " (" . mandateResult.bankName . ")" : ""
+		planResult := DarkMsgBox("Mandate Found", clientName . " already has an active Direct Debit mandate" . bankInfo . ".`n`nMandate ID: " . mandateResult.mandateId . "`n`nWould you like to set up a payment plan using this mandate?", "success", {buttons: ["Set Up PayPlan", "Cancel"]})
+		
+		if (planResult = "Set Up PayPlan") {
+			; Store data for PayPlan dialog
+			global GC_PayPlan_ContactData := {}
+			GC_PayPlan_ContactData.name := clientName
+			GC_PayPlan_ContactData.email := customerEmail
+			GC_PayPlan_ContactData.contactId := contactId
+			GC_PayPlan_ContactData.mandateId := mandateResult.mandateId
+			GC_PayPlan_ContactData.customerId := mandateResult.customerId
+			GC_PayPlan_ContactData.futurePaymentsJson := resultJson
+			; TODO: Show PayPlan dialog
+			DarkMsgBox("Coming Soon", "Payment plan creation will be available in a future update.`n`nMandate ID: " . mandateResult.mandateId, "info")
+		}
+	} else {
+		; No mandate - offer to send mandate request
+		sendResult := DarkMsgBox("No Mandate Found", clientName . " does not have an active Direct Debit mandate.`n`nWould you like to send a mandate setup request via email/SMS?", "info", {buttons: ["Send Request", "Cancel"]})
+		
+		if (sendResult = "Send Request") {
+			; Build contact data object
+			contactData := {}
+			contactData.name := clientName
+			contactData.email := customerEmail
+			contactData.id := contactId
+			contactData.phone := ""
+			
+			; Try to get phone from result JSON
+			if (RegExMatch(resultJson, """phone""\s*:\s*""([^""]*)""", m))
+				contactData.phone := m1
+			
+			; Determine send methods based on settings
+			sendEmail := (Settings_GCEmailTemplateID != "")
+			sendSMS := (Settings_GCSMSTemplateID != "") && (contactData.phone != "")
+			
+			if (!sendEmail && !sendSMS) {
+				DarkMsgBox("No Templates", "Please configure email and/or SMS templates in GoCardless settings first.", "warning")
+				return
+			}
+			
+			ToolTip, Sending mandate request...
+			gcResult := GC_SendMandateRequest(contactData, sendEmail, sendSMS)
+			ToolTip
+			
+			if (gcResult.success) {
+				sentVia := ""
+				if (sendEmail && sendSMS)
+					sentVia := "Email and SMS"
+				else if (sendEmail)
+					sentVia := "Email"
+				else if (sendSMS)
+					sentVia := "SMS"
+				DarkMsgBox("Request Sent", "Mandate setup link sent to " . clientName . " via " . sentVia . ".`n`nBilling Request: " . gcResult.billingRequestId, "success")
+			} else {
+				DarkMsgBox("Send Failed", "Could not send mandate request:`n`n" . gcResult.error, "error")
+			}
+		}
+	}
+Return
+
 ; Timer handler for auto-sending logs on sync complete (silent, no prompts)
 AutoSendLogsOnComplete:
 	SendDebugLogsSilent()
@@ -13960,6 +14949,9 @@ LoadSettings()
 	; Load cached email templates (stored with §§ as newline separator)
 	IniRead, cachedEmailTpls, %IniFilename%, GHL, CachedEmailTemplates, %A_Space%
 	GHL_CachedEmailTemplates := StrReplace(cachedEmailTpls, "§§", "`n")
+	; Load cached SMS templates (stored with §§ as newline separator)
+	IniRead, cachedSMSTpls, %IniFilename%, GHL, CachedSMSTemplates, %A_Space%
+	GHL_CachedSMSTemplates := StrReplace(cachedSMSTpls, "§§", "`n")
 	IniRead, Settings_RoundingInDeposit, %IniFilename%, GHL, RoundingInDeposit, 1
 	IniRead, Settings_GHLInvoiceWarningShown, %IniFilename%, GHL, InvoiceWarningShown, 0
 	IniRead, Settings_MediaFolderID, %IniFilename%, GHL, MediaFolderID, %A_Space%
@@ -14035,6 +15027,10 @@ LoadSettings()
 	IniRead, Settings_GCEmailTemplateName, %IniFilename%, GoCardless, EmailTemplateName, SELECT
 	IniRead, Settings_GCSMSTemplateID, %IniFilename%, GoCardless, SMSTemplateID, %A_Space%
 	IniRead, Settings_GCSMSTemplateName, %IniFilename%, GoCardless, SMSTemplateName, SELECT
+	IniRead, Settings_GCAutoSetup, %IniFilename%, GoCardless, AutoSetup, 0
+	IniRead, Settings_GCNamePart1, %IniFilename%, GoCardless, NamePart1, Shoot No
+	IniRead, Settings_GCNamePart2, %IniFilename%, GoCardless, NamePart2, Surname
+	IniRead, Settings_GCNamePart3, %IniFilename%, GoCardless, NamePart3, (none)
 	
 	; Load GHL agency domain - check if migration needed for existing users
 	IniRead, GHL_AgencyDomain, %IniFilename%, GHL, AgencyDomain, %A_Space%
@@ -14183,7 +15179,7 @@ SaveSettings()
 	IniWrite, %Settings_GoCardlessEnvironment%, %IniFilename%, GoCardless, Environment
 	IniWrite, %Settings_GCEmailTemplateID%, %IniFilename%, GoCardless, EmailTemplateID
 	IniWrite, %Settings_GCEmailTemplateName%, %IniFilename%, GoCardless, EmailTemplateName
-	IniWrite, %Settings_GCSMSEnabled%, %IniFilename%, GoCardless, SMSEnabled
+	IniWrite, %Settings_GCAutoSetup%, %IniFilename%, GoCardless, AutoSetup
 	SaveGHLCredentials()  ; Save API keys to encrypted credentials file
 	
 	; Update invoice folder monitor

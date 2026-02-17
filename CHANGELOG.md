@@ -12,7 +12,7 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
-## v2.5.19 (2026-02-17)
+## v2.5.22 (2026-02-17)
 
 ### New Features
 - **GoCardless Integration**: New toolbar button for Direct Debit mandate management
@@ -20,11 +20,27 @@ AI INSTRUCTIONS - When publishing a new version:
 - **Mandate Checking**: Click GC button to check if client has existing mandate
 - **Send Mandate Request**: Create billing request and send setup link via GHL email/SMS
 - **Secure Token Storage**: GoCardless API token stored in credentials.json (base64 encoded)
+- **Payment Plan Dialog**: Create GoCardless instalment schedules with pre-populated values from PayPlan
+- **DD Payment Filtering**: Payment plan dialog auto-filters for DD payments only (GoCardless, Direct Debit, BACS) - skips Card, Cash, Cheque, etc.
+- **Duplicate Plan Names**: Automatically adds -1, -2 suffix when creating multiple plans for the same shoot
+- **SMS Template Refresh**: Separate SMS template fetch from GHL (email and SMS templates now independent)
+- **Existing Plans Display**: Shows existing instalment schedules and one-off payments when checking mandate
+- **One-Off Payments**: Lists one-off payments alongside instalment schedules for complete payment history
+- **Single Payment Mode**: Payment dialog now supports creating individual one-off payments matching ProSelect PayPlan dates
+- **List Empty Mandates**: New button in GC settings to list all mandates without payment plans (for follow-up)
 
 ### Improvements
+- **Instalment Schedules**: Uses GoCardless instalment_schedules API (not subscriptions) for proper payment plan support
 - **Persistent Templates**: Email/SMS template selections now save immediately on change
 - **Room Capture Templates**: Email template selection now remembered across sessions
 - **SELECT Option**: Template dropdowns include "SELECT" to skip that notification type
+- **Duplicate Check**: Warns before creating plan with same name as existing schedule
+
+### Bug Fixes
+- **Live Environment Flag**: Fixed GoCardless API calls not passing --live flag (was always using sandbox)
+- **SMS Template Cache**: Fixed SMS dropdown using email template cache instead of SMS templates
+- **Template Dropdown Default**: Shows "SELECT" when no templates loaded
+- **Template Persistence**: Fixed GC email/SMS templates being reset when Settings dialog opened
 
 ---
 

@@ -161,6 +161,7 @@ $scriptNameMap = @{
     "update_ghl_contact" = "_ugc"
     "sync_ps_invoice" = "_sps"
     "upload_ghl_media" = "_upm"
+    "gocardless_api" = "_gca"
 }
 
 $pythonFiles = @(
@@ -168,7 +169,8 @@ $pythonFiles = @(
     "fetch_ghl_contact",
     "update_ghl_contact",
     "sync_ps_invoice",
-    "upload_ghl_media"
+    "upload_ghl_media",
+    "gocardless_api"
 )
 
 $compiledCount = 0
