@@ -603,24 +603,107 @@ def _decode_api_key(ghl_config: dict, key_name: str = None) -> str:
         raise ValueError("No API key found in INI file (need API_Key_B64 or API_Key_V2_B64)")
 
 
+def _find_ini_file() -> str:
+    """Find the INI file with valid GHL config, checking multiple paths.
+    
+    Returns:
+        str: Path to the INI file with valid API key.
+    
+    Raises:
+        FileNotFoundError: If no valid INI file found.
+    """
+    possible_paths = [
+        INI_FILE,  # Script directory
+        os.path.join(os.path.dirname(SCRIPT_DIR), "SideKick_PS.ini"),  # Parent dir
+        os.path.join(os.environ.get('APPDATA', ''), "SideKick_PS", "SideKick_PS.ini"),  # AppData
+    ]
+    
+    for ini_path in possible_paths:
+        if os.path.exists(ini_path):
+            try:
+                config = _parse_ini_file(ini_path)
+                ghl = config.get('GHL', {})
+                # Check if API key exists in this INI
+                if ghl.get('API_Key_B64') or ghl.get('API_Key_V2_B64'):
+                    debug_log(f"Using INI file with API key: {ini_path}")
+                    return ini_path
+                else:
+                    debug_log(f"INI file found but no API key: {ini_path}")
+            except Exception as e:
+                debug_log(f"Error parsing INI {ini_path}: {e}")
+                continue
+    
+    # If no INI with API key found, return first existing one for better error message
+    for ini_path in possible_paths:
+        if os.path.exists(ini_path):
+            return ini_path
+    
+    raise FileNotFoundError(f"INI file not found. Checked: {possible_paths}")
+
+
 def load_config() -> dict:
-    """Load configuration from INI file (handles malformed multi-line values).
+    """Load configuration from INI file and/or credentials.json.
+
+    API credentials can be in either:
+    - INI file: [GHL] section with API_Key_B64 or API_Key_V2_B64
+    - credentials.json: %APPDATA%/SideKick_PS/ghl_credentials.json with api_key_b64
 
     Returns:
         dict: Configuration dictionary with API_KEY and LOCATION_ID.
     """
-    config = _parse_ini_file(INI_FILE)
-
-    if 'GHL' not in config:
-        raise ValueError(f"[GHL] section not found in {INI_FILE}")
-
-    ghl = config['GHL']
-    api_key = _decode_api_key(ghl)
-    location_id = ghl.get('LocationID', '')
+    import json
+    import base64
     
-    # Tag settings (configurable)
-    sync_tag = ghl.get('SyncTag', 'PS Invoice')  # Tag added when invoice synced
-    opportunity_tags = ghl.get('OpportunityTags', 'ProSelect,Invoice Synced')  # Tags for opportunities
+    api_key = ""
+    location_id = ""
+    sync_tag = "PS Invoice"
+    opportunity_tags = "ProSelect,Invoice Synced"
+    
+    # Try to load from credentials.json (primary source)
+    # Check both "credentials.json" and legacy "ghl_credentials.json" names
+    credentials_paths = [
+        os.path.join(SCRIPT_DIR, "credentials.json"),
+        os.path.join(os.environ.get('APPDATA', ''), "SideKick_PS", "credentials.json"),
+        os.path.join(SCRIPT_DIR, "ghl_credentials.json"),
+        os.path.join(os.environ.get('APPDATA', ''), "SideKick_PS", "ghl_credentials.json"),
+    ]
+    
+    for cred_path in credentials_paths:
+        if os.path.exists(cred_path):
+            try:
+                with open(cred_path, 'r', encoding='utf-8-sig') as f:  # utf-8-sig handles BOM
+                    creds = json.load(f)
+                api_key_b64 = creds.get('api_key_b64', '')
+                if api_key_b64:
+                    api_key = base64.b64decode(api_key_b64).decode('utf-8')
+                    location_id = creds.get('location_id', '')
+                    debug_log(f"Loaded API key from credentials.json: {cred_path}")
+                    break
+            except Exception as e:
+                debug_log(f"Error loading credentials.json {cred_path}: {e}")
+    
+    # Also load INI for other settings (tags, etc.) and fallback API key
+    try:
+        ini_path = _find_ini_file()
+        config = _parse_ini_file(ini_path)
+        ghl = config.get('GHL', {})
+        
+        # Use INI API key only if credentials.json didn't have one
+        if not api_key:
+            api_key = _decode_api_key(ghl)
+        
+        # Use INI location_id only if credentials.json didn't have one
+        if not location_id:
+            location_id = ghl.get('LocationID', '')
+        
+        # Tag settings from INI
+        sync_tag = ghl.get('SyncTag', sync_tag)
+        opportunity_tags = ghl.get('OpportunityTags', opportunity_tags)
+    except Exception as e:
+        debug_log(f"Error loading INI: {e}")
+    
+    if not api_key:
+        raise ValueError("No API key found in credentials.json or INI file")
 
     # DEBUG: Override location ID if debug mode is on
     if DEBUG_MODE and DEBUG_LOCATION_ID:
@@ -638,11 +721,13 @@ def load_config() -> dict:
 try:
     CONFIG = load_config()
     API_KEY = CONFIG['API_KEY']
+    LOCATION_ID = CONFIG['LOCATION_ID']  # Module-level for product/price lookups
     debug_log("Config loaded successfully", {"location_id": CONFIG.get('LOCATION_ID'), "api_key_set": bool(API_KEY)})
 except Exception as e:
     print(f"⚠ Config Error: {e}")
     debug_log("CONFIG ERROR", str(e))
     API_KEY = ""
+    LOCATION_ID = ""
 
 # Cache for business details
 _BUSINESS_DETAILS_CACHE = None
