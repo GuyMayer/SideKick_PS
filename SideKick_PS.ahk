@@ -337,7 +337,7 @@ global Settings_PDFPrintBtnOffsetRight := 0  ; Print button X offset from right 
 global Settings_PDFPrintBtnOffsetBottom := 0 ; Print button Y offset from bottom edge (calibrated)
 global PDF_CalibrationMode := false          ; True when Ctrl+Shift+Click triggers calibration
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow, Auto
-global Settings_ToolbarAutoBG := false        ; Auto-detect background color for toolbar
+global Settings_ToolbarAutoBG := true         ; Auto-detect background color for toolbar (default ON)
 global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
 global Settings_ToolbarOffsetX := 0  ; Toolbar X offset from default position (Ctrl+Click grab handle to adjust)
 global Settings_ToolbarOffsetY := 0  ; Toolbar Y offset from default position
@@ -1031,7 +1031,11 @@ Return
 
 ; Handle toolbar auto-background toggle
 ToolbarAutoBGChanged:
-GuiControlGet, Settings_ToolbarAutoBG,, Settings_ToolbarAutoBG_CB
+ToolbarAutoBGCheck:
+ToggleClick_ToolbarAutoBG:
+Toggle_ToolbarAutoBG_State := !Toggle_ToolbarAutoBG_State
+UpdateToggleSlider("Settings", "ToolbarAutoBG", Toggle_ToolbarAutoBG_State, 430)
+Settings_ToolbarAutoBG := Toggle_ToolbarAutoBG_State
 IniWrite, %Settings_ToolbarAutoBG%, %IniFilename%, Appearance, ToolbarAutoBG
 ; Reset cached color to force re-sample
 Toolbar_LastBGColor := ""
@@ -1552,27 +1556,27 @@ CreateFloatingToolbar()
 	btnCount++  ; Settings button (always visible)
 	
 	; Scale button dimensions for DPI
+	; Make buttons fill entire toolbar with NO gaps - eliminates click-blocking transparent areas
 	btnW := Round(44 * DPI_Scale)
-	btnH := Round(38 * DPI_Scale)
-	btnSpacing := Round(51 * DPI_Scale)
-	btnMargin := Round(2 * DPI_Scale)
-	btnY := Round(3 * DPI_Scale)
-	btnY1 := Round(1 * DPI_Scale)  ; For camera button
+	btnH := Round(40 * DPI_Scale)  ; Match toolbar height
+	btnSpacing := btnW  ; No gaps - buttons are adjacent
+	btnMargin := 0  ; No left margin
+	btnY := 0  ; Buttons at top edge
+	btnY1 := 0  ; Camera button also at top
 	fontSize := Round(16 * DPI_Scale)
 	fontSizeSmall := Round(14 * DPI_Scale)
 	
 	toolbarWidth := btnMargin + (btnCount * btnSpacing)
-	toolbarHeight := Round(43 * DPI_Scale)
+	toolbarHeight := btnH  ; Exact button height - no padding
 	
 	; Add width for grab handle on the left
 	grabHandleWidth := Round(16 * DPI_Scale)
 	toolbarWidth := toolbarWidth + grabHandleWidth
 	
-	; Transparent background with colored buttons
-	; Use 010101 for TransColor - this avoids anti-aliasing issues with button backgrounds
-	; The button backgrounds use named colors (Blue, Green, etc.) which don't anti-alias to 010101
+	; Solid toolbar with colored buttons - no transparency (allows click-through)
+	; Buttons fill 100% of toolbar area, background color only shows if button colors fail
 	Gui, Toolbar:New, +AlwaysOnTop +ToolWindow -Caption +HwndToolbarHwnd
-	Gui, Toolbar:Color, 010101
+	Gui, Toolbar:Color, 333333  ; Dark gray fallback if buttons don't cover fully
 	Gui, Toolbar:Font, s%fontSize% w300, Segoe UI
 	
 	; Get icon color from settings
@@ -1581,8 +1585,8 @@ CreateFloatingToolbar()
 	; Add grab handle on the left (vertical dots for drag indicator)
 	; Ctrl+Click to drag and reposition toolbar
 	grabX := 0
-	grabY := Round(3 * DPI_Scale)
-	grabH := Round(38 * DPI_Scale)
+	grabY := 0  ; Top edge
+	grabH := btnH  ; Match button height
 	Gui, Toolbar:Font, s20 w700, Segoe UI
 	Gui, Toolbar:Add, Text, x%grabX% y%grabY% w%grabHandleWidth% h%grabH% Center 0x200 Background333333 c%iconColor% gToolbar_GrabHandle vTB_GrabHandle +HwndTB_GrabHandle_Hwnd, ⣿
 	ToolbarTooltips[TB_GrabHandle_Hwnd] := "Drag to move toolbar"
@@ -1694,8 +1698,8 @@ CreateFloatingToolbar()
 	; Register mouse move handler for toolbar tooltips
 	OnMessage(0x200, "SettingsMouseMove")
 	
-	; Make background transparent - uses 010101 which is pure black that won't appear in anti-aliased edges
-	WinSet, TransColor, 010101, ahk_id %ToolbarHwnd%
+	; NOTE: TransColor removed - buttons now fill 100% of toolbar area
+	; No transparent gaps means no need for TransColor (which blocked clicks)
 	
 	; Re-enable interrupts and start position timer
 	Critical, Off
@@ -1995,7 +1999,7 @@ if (Settings_ToolbarAutoBG && !Toolbar_IsDragging) {
 	Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
 } else {
 	Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
-	WinSet, TransColor, 010101, ahk_id %ToolbarHwnd%
+	; NOTE: TransColor removed - buttons now fill 100% of toolbar, no transparent gaps
 }
 Return
 
@@ -6206,10 +6210,14 @@ CreateHotkeysPanel()
 	posBtnY := posLabelY - 3
 	Gui, Settings:Add, Button, x340 y%posBtnY% w120 h25 gHKResetToolbarPos vHKResetPosBtn Hidden, Reset Position
 	
-	; Auto Background checkbox
+	; Auto Background toggle
 	autoBgY := posLabelY + 30
-	Gui, Settings:Add, CheckBox, x210 y%autoBgY% vSettings_ToolbarAutoBG_CB gToolbarAutoBGChanged Checked%Settings_ToolbarAutoBG% Hidden HwndHwndHKAutoBG, Auto-blend with background
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y%autoBgY% w200 BackgroundTrans vHKAutoBlendLabel Hidden HwndHwndHKAutoBG, Auto-blend with background
 	RegisterSettingsTooltip(HwndHKAutoBG, "AUTO-BLEND BACKGROUND`n`nWhen enabled, the toolbar samples the screen area behind it and matches the background color.`n`nThis helps the toolbar blend seamlessly with ProSelect's interface instead of floating on top.")
+	autoBgToggleX := 430
+	autoBgToggleY := autoBgY - 3
+	CreateToggleSlider("Settings", "ToolbarAutoBG", autoBgToggleX, autoBgToggleY, Settings_ToolbarAutoBG)
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INSTRUCTIONS GROUP BOX
@@ -8108,7 +8116,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, HKPickColorBtn
 	GuiControl, Settings:Hide, HKToolbarPosLabel
 	GuiControl, Settings:Hide, HKResetPosBtn
-	GuiControl, Settings:Hide, Settings_ToolbarAutoBG_CB
+	GuiControl, Settings:Hide, HKAutoBlendLabel
+	GuiControl, Settings:Hide, Toggle_ToolbarAutoBG
 	
 	; Hide all panels - About
 	GuiControl, Settings:Hide, PanelAbout
@@ -8425,7 +8434,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, HKPickColorBtn
 		GuiControl, Settings:Show, HKToolbarPosLabel
 		GuiControl, Settings:Show, HKResetPosBtn
-		GuiControl, Settings:Show, Settings_ToolbarAutoBG_CB
+		GuiControl, Settings:Show, HKAutoBlendLabel
+		GuiControl, Settings:Show, Toggle_ToolbarAutoBG
 		; Restore icon color dropdown to current value
 		if (Settings_ToolbarIconColor = "White" || Settings_ToolbarIconColor = "Black" || Settings_ToolbarIconColor = "Yellow") {
 			GuiControl, Settings:, Settings_ToolbarIconColor_DDL, White|Black|Yellow
@@ -12928,7 +12938,7 @@ LoadSettings()
 	IniRead, Settings_AutoDriveDetect, %IniFilename%, FileManagement, AutoDriveDetect, 1
 	IniRead, Settings_SDCardEnabled, %IniFilename%, FileManagement, SDCardEnabled, 1
 	IniRead, Settings_ToolbarIconColor, %IniFilename%, Appearance, ToolbarIconColor, White
-	IniRead, Settings_ToolbarAutoBG, %IniFilename%, Appearance, ToolbarAutoBG, 0
+	IniRead, Settings_ToolbarAutoBG, %IniFilename%, Appearance, ToolbarAutoBG, 1
 	
 	; Toolbar button visibility
 	IniRead, Settings_ShowBtn_Client, %IniFilename%, Toolbar, ShowBtn_Client, 1

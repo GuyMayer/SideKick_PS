@@ -1,10 +1,13 @@
 {
-  "version": "2.5.12",
+  "version": "2.5.13",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GHL invoice tax fix - use taxInclusive flag per official API docs",
+  "release_notes": "GHL product lookup by SKU, toolbar improvements",
   "changelog": [
-    "FIX: GHL invoice sync - use taxInclusive boolean per official GHL API docs"
+    "NEW: GHL product lookup - use SKU to get product names from GHL (falls back to ProSelect if not found)",
+    "IMPROVED: Toolbar buttons now solid (no click-blocking transparent gaps)",
+    "IMPROVED: Auto-blend toolbar background now ON by default",
+    "FIX: Toolbar toggle now matches other Settings toggle styles"
   ],
   "versions": [
     {
