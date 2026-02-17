@@ -2647,14 +2647,30 @@ def _create_invoice_item(item: dict) -> dict:
     """
     # Pass through ALL ProSelect fields unchanged - no merging/fallback
     # GHL product matching requires exact string matches
-    # CRITICAL: GHL requires non-empty name, so fallback to Description if Product_Name is empty
+    # CRITICAL: GHL requires non-empty name, so build a rich name from available fields
     product_name = item.get('product', '')
     description = item.get('description', '')
+    template = item.get('template', '')
+    item_type = item.get('type', '')
+    
+    # Build the best possible name for GHL invoice display
+    # Priority: Product_Name > Template_Name + Description > Description alone
+    if product_name:
+        display_name = product_name
+    elif template and description and template != description:
+        # Combine template and description if they're different (e.g., "Collection 1 - Canvas Gallery Block")
+        display_name = f"{description} - {template}"
+    elif description:
+        display_name = description
+    elif template:
+        display_name = template
+    else:
+        display_name = item_type or "Item"
     
     return {
         # GHL invoice line item fields
-        # Use Product_Name for GHL matching; fallback to Description if empty (required by GHL)
-        "name": product_name if product_name else description,
+        # Use rich display name for GHL invoice (combines available fields)
+        "name": display_name,
         "description": description,  # Description - full line item description
         "quantity": item['quantity'],
         "price": float(item['price']),
@@ -2714,16 +2730,29 @@ def _convert_to_ghl_items(invoice_items: list) -> list:
     Returns:
         list: GHL-formatted items with amounts in pounds (invoice API uses pounds, not pence).
     """
-    return [
-        {
+    ghl_items = []
+    for item in invoice_items:
+        ghl_item = {
             "name": str(item['name']),
             "description": str(item['description']),
             "amount": float(item['price']),  # Invoice items use pounds (record-payment uses pence)
             "qty": int(item['quantity']),
             "currency": "GBP"
         }
-        for item in invoice_items
-    ]
+        
+        # Add tax info if item is taxable
+        # GHL Invoice API uses "taxes" array for per-item tax
+        if item.get('taxable', False) and item.get('tax_rate', 0) > 0:
+            ghl_item["taxes"] = [{
+                "_id": "default",  # GHL default tax ID
+                "name": item.get('tax_label', 'VAT'),
+                "rate": float(item.get('tax_rate', 20)),
+                "calculation": "exclusive" if not item.get('price_includes_tax', False) else "inclusive"
+            }]
+        
+        ghl_items.append(ghl_item)
+    
+    return ghl_items
 
 
 def _normalize_date(date_str: str) -> str:
