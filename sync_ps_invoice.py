@@ -3013,9 +3013,11 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
                 if ghl_product_name:
                     debug_log(f"Replacing ProSelect name '{item_name}' with GHL name '{ghl_product_name}'")
                     item_name = ghl_product_name
-                # Optionally use GHL description if better
+                    # Clear ProSelect description when using GHL name (prevents duplicate info)
+                    item_description = ""
+                # Optionally use GHL description if available
                 ghl_description = ghl_product.get('description', '')
-                if ghl_description and not item_description:
+                if ghl_description:
                     item_description = ghl_description
         
         ghl_item = {
@@ -3026,6 +3028,17 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
             "currency": "GBP",
             "taxInclusive": item.get('price_includes_tax', True)  # Per GHL docs: use boolean at item level
         }
+        
+        # Add tax if item is taxable and has a tax rate
+        if item.get('taxable', True) and item.get('tax_rate', 0) > 0:
+            tax_rate = float(item.get('tax_rate', 0))
+            tax_label = item.get('tax_label', f'VAT ({tax_rate}%)')
+            ghl_item["taxes"] = [{
+                "name": tax_label,
+                "rate": tax_rate,
+                "_id": f"tax_{int(tax_rate)}"  # GHL requires an ID
+            }]
+            debug_log(f"Added tax to item: {tax_label} @ {tax_rate}%")
         
         ghl_items.append(ghl_item)
     

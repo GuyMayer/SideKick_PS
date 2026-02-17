@@ -378,7 +378,7 @@ global Settings_PrintTemplate_Standard := "Terms of Sale"
 global Settings_PrintTemplateOptions := ""  ; Cached template options from ProSelect Print dialog
 global Settings_QuickPrintPrinter := ""  ; Selected printer for Quick Print (empty = system default)
 global Settings_EmailTemplateID := ""
-global Settings_EmailTemplateName := "(none selected)"
+global Settings_EmailTemplateName := "SELECT"
 
 ; Rooms button calibration (OCR-detected at startup)
 global RoomsBtn_Calibrated := false  ; Whether calibration has been done
@@ -3556,10 +3556,12 @@ DarkMsgBox("Coming Soon", "📥 Image Download`n`nImage download functionality t
 Return
 
 Toolbar_GoCardless:
-; GoCardless Direct Debit - send mandate link to client
+; GoCardless Direct Debit - check mandate and send link if needed
 {
 	global GHL_ContactData, Settings_GCEmailTemplateID, Settings_GCEmailTemplateName
-	global Settings_GCSMSEnabled, Settings_GoCardlessToken, Settings_GoCardlessEnvironment
+	global Settings_GCSMSTemplateID, Settings_GCSMSTemplateName
+	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment
+	global GHL_CachedEmailTemplates
 	
 	; Check if GoCardless is configured
 	if (Settings_GoCardlessToken = "") {
@@ -3573,18 +3575,59 @@ Toolbar_GoCardless:
 		return
 	}
 	
-	; Check if email template is selected
-	if (Settings_GCEmailTemplateName = "" || Settings_GCEmailTemplateName = "(none selected)" || Settings_GCEmailTemplateName = "SELECT") {
-		DarkMsgBox("No Email Template", "Please select an email template in Settings > GoCardless to send mandate links.", "warning")
+	clientName := GHL_ContactData.firstName . " " . GHL_ContactData.lastName
+	clientEmail := GHL_ContactData.email
+	
+	if (clientEmail = "") {
+		DarkMsgBox("No Email", "Client '" . clientName . "' has no email address.`n`nCannot send GoCardless mandate link.", "warning")
+		return
+	}
+	
+	; Show checking status
+	ToolTip, Checking GoCardless mandate for %clientEmail%...
+	
+	; Check if customer has existing mandate
+	mandateResult := GC_CheckCustomerMandate(clientEmail)
+	
+	ToolTip
+	
+	if (mandateResult.error) {
+		DarkMsgBox("GoCardless Error", "Could not check mandate status.`n`n" . mandateResult.error, "error")
+		return
+	}
+	
+	if (mandateResult.hasMandate) {
+		; Customer already has an active mandate
+		DarkMsgBox("Mandate Active", "✅ " . clientName . " already has an active Direct Debit mandate.`n`nMandate ID: " . mandateResult.mandateId . "`nStatus: " . mandateResult.mandateStatus . "`nBank: " . mandateResult.bankName, "success")
+		return
+	}
+	
+	; No mandate - ask if user wants to send request
+	; Check if at least one notification method is configured
+	hasEmail := (Settings_GCEmailTemplateName != "" && Settings_GCEmailTemplateName != "SELECT")
+	hasSMS := (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "SELECT")
+	
+	if (!hasEmail && !hasSMS) {
+		DarkMsgBox("No Template Selected", "No mandate found for " . clientName . ".`n`nPlease select an Email or SMS template in Settings > GoCardless to send mandate requests.", "warning")
 		ShowSettingsTab("GoCardless")
 		Gui, Settings:Show
 		return
 	}
 	
-	clientName := GHL_ContactData.firstName . " " . GHL_ContactData.lastName
-	clientEmail := GHL_ContactData.email
+	; Build notification method description
+	notifyMethods := ""
+	if (hasEmail)
+		notifyMethods .= "📧 Email: " . Settings_GCEmailTemplateName . "`n"
+	if (hasSMS)
+		notifyMethods .= "📱 SMS: " . Settings_GCSMSTemplateName . "`n"
 	
-	DarkMsgBox("Coming Soon", "💳 GoCardless Integration`n`nMandate link sending for " . clientName . " will be implemented in a future update.`n`nTemplate: " . Settings_GCEmailTemplateName . "`nSMS: " . (Settings_GCSMSEnabled ? "Yes" : "No"), "info", {timeout: 5})
+	; Show confirmation dialog
+	MsgBox, 0x24, Send Mandate Request?, No Direct Debit mandate found for:`n`n👤 %clientName%`n📧 %clientEmail%`n`nWould you like to send a mandate setup request?`n`n%notifyMethods%
+	IfMsgBox, Yes
+	{
+		; Create billing request and send notifications
+		GC_SendMandateRequest(GHL_ContactData, hasEmail, hasSMS)
+	}
 }
 Return
 
@@ -7828,7 +7871,7 @@ CreatePrintPanel()
 			}
 		}
 	}
-	Gui, Settings:Add, ComboBox, x310 y333 w200 r10 vPrintEmailTplCombo Choose1, %tplList%
+	Gui, Settings:Add, ComboBox, x310 y333 w200 r10 vPrintEmailTplCombo gPrintEmailTplChanged Choose1, %tplList%
 	; Select saved value if it exists
 	if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)" && Settings_EmailTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, PrintEmailTplCombo, %Settings_EmailTemplateName%
@@ -7965,6 +8008,32 @@ RefreshPrintTemplates:
 	templateCount := StrSplit(cbList, "|").MaxIndex()
 	ToolTip, Loaded %templateCount% print templates
 	SetTimer, RemoveToolTip, -2000
+return
+
+PrintEmailTplChanged:
+	; Room Capture email template dropdown changed - save immediately
+	Gui, Settings:Submit, NoHide
+	GuiControlGet, selectedTemplate,, PrintEmailTplCombo
+	if (selectedTemplate = "SELECT" || selectedTemplate = "") {
+		Settings_EmailTemplateID := ""
+		Settings_EmailTemplateName := "SELECT"
+	} else {
+		Settings_EmailTemplateName := selectedTemplate
+		; Look up the template ID from cached templates
+		Settings_EmailTemplateID := ""
+		Loop, Parse, GHL_CachedEmailTemplates, `n
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2 && parts[2] = selectedTemplate) {
+				Settings_EmailTemplateID := parts[1]
+				break
+			}
+		}
+	}
+	IniWrite, %Settings_EmailTemplateID%, %IniFilename%, Toolbar, EmailTemplateID
+	IniWrite, %Settings_EmailTemplateName%, %IniFilename%, Toolbar, EmailTemplateName
 return
 
 RefreshPrintEmailTemplates:
@@ -8206,7 +8275,7 @@ CreateGoCardlessPanel()
 	RegisterSettingsTooltip(HwndGCSMSRefresh, "REFRESH SMS TEMPLATES`n`nFetch available templates from GHL.")
 	
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y420 w440 BackgroundTrans vGCNotifyHint Hidden, Send mandate setup link to client via GHL email (+ optional SMS).
+	Gui, Settings:Add, Text, x210 y420 w440 BackgroundTrans vGCNotifyHint Hidden, Choose SELECT to skip sending that notification type.
 	
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -8300,6 +8369,340 @@ UpdateGCStatus() {
 	}
 }
 
+; ═══════════════════════════════════════════════════════════════════════════
+; GoCardless API Helper Functions
+; ═══════════════════════════════════════════════════════════════════════════
+
+GC_CheckCustomerMandate(customerEmail) {
+	; Check if a customer has an existing active mandate in GoCardless
+	; Returns object: {hasMandate: bool, mandateId: string, mandateStatus: string, bankName: string, customerId: string, error: string}
+	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment
+	
+	result := {hasMandate: false, mandateId: "", mandateStatus: "", bankName: "", customerId: "", error: ""}
+	
+	if (Settings_GoCardlessToken = "") {
+		result.error := "No API token configured"
+		return result
+	}
+	
+	gcApiUrl := (Settings_GoCardlessEnvironment = "live") ? "https://api.gocardless.com" : "https://api-sandbox.gocardless.com"
+	
+	; Step 1: Search for customer by email
+	psScript := "
+	(
+try {
+	$headers = @{
+		'Authorization' = 'Bearer " . Settings_GoCardlessToken . "'
+		'GoCardless-Version' = '2015-07-06'
+		'Content-Type' = 'application/json'
+	}
+	
+	# Search for customer by email
+	$custResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/customers?email=" . customerEmail . "' -Headers $headers -TimeoutSec 15
+	
+	if ($custResponse.customers.Count -eq 0) {
+		Write-Output 'NO_CUSTOMER'
+		exit
+	}
+	
+	$customerId = $custResponse.customers[0].id
+	
+	# Get mandates for this customer
+	$mandateResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/mandates?customer=$customerId' -Headers $headers -TimeoutSec 15
+	
+	if ($mandateResponse.mandates.Count -eq 0) {
+		Write-Output ""NO_MANDATE|$customerId""
+		exit
+	}
+	
+	# Look for active mandate
+	foreach ($mandate in $mandateResponse.mandates) {
+		if ($mandate.status -eq 'active' -or $mandate.status -eq 'pending_submission' -or $mandate.status -eq 'submitted') {
+			$bankAccountId = $mandate.links.customer_bank_account
+			$bankName = 'Unknown'
+			
+			# Try to get bank account details
+			try {
+				$bankResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/customer_bank_accounts/$bankAccountId' -Headers $headers -TimeoutSec 10
+				$bankName = $bankResponse.customer_bank_accounts.bank_name
+				if (-not $bankName) { $bankName = 'Bank account' }
+			} catch {}
+			
+			Write-Output ""MANDATE_FOUND|$customerId|$($mandate.id)|$($mandate.status)|$bankName""
+			exit
+		}
+	}
+	
+	# No active mandate found
+	Write-Output ""NO_ACTIVE_MANDATE|$customerId""
+} catch {
+	Write-Output ""ERROR|$($_.Exception.Message)""
+}
+	)"
+	
+	; Execute PowerShell script
+	tempScript := A_Temp . "\gc_check_mandate_" . A_TickCount . ".ps1"
+	tempResult := A_Temp . "\gc_check_result_" . A_TickCount . ".txt"
+	
+	FileDelete, %tempScript%
+	FileAppend, %psScript%, %tempScript%
+	
+	RunWait, powershell.exe -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
+	
+	FileRead, psOutput, %tempResult%
+	FileDelete, %tempScript%
+	FileDelete, %tempResult%
+	
+	psOutput := Trim(psOutput)
+	
+	if (InStr(psOutput, "NO_CUSTOMER")) {
+		; No customer found - no mandate
+		return result
+	}
+	else if (InStr(psOutput, "NO_MANDATE|")) {
+		parts := StrSplit(psOutput, "|")
+		result.customerId := parts[2]
+		return result
+	}
+	else if (InStr(psOutput, "NO_ACTIVE_MANDATE|")) {
+		parts := StrSplit(psOutput, "|")
+		result.customerId := parts[2]
+		return result
+	}
+	else if (InStr(psOutput, "MANDATE_FOUND|")) {
+		parts := StrSplit(psOutput, "|")
+		result.hasMandate := true
+		result.customerId := parts[2]
+		result.mandateId := parts[3]
+		result.mandateStatus := parts[4]
+		result.bankName := parts[5]
+		return result
+	}
+	else if (InStr(psOutput, "ERROR|")) {
+		result.error := StrReplace(psOutput, "ERROR|", "")
+		return result
+	}
+	else {
+		result.error := "Unexpected response: " . SubStr(psOutput, 1, 100)
+		return result
+	}
+}
+
+GC_SendMandateRequest(contactData, sendEmail, sendSMS) {
+	; Create a GoCardless billing request flow and send notification via GHL
+	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment
+	global Settings_GCEmailTemplateID, Settings_GCEmailTemplateName
+	global Settings_GCSMSTemplateID, Settings_GCSMSTemplateName
+	global GHL_API_Key, GHL_LocationID
+	
+	clientName := contactData.firstName . " " . contactData.lastName
+	clientEmail := contactData.email
+	clientPhone := contactData.phone
+	contactId := contactData.id
+	
+	ToolTip, Creating GoCardless billing request...
+	
+	gcApiUrl := (Settings_GoCardlessEnvironment = "live") ? "https://api.gocardless.com" : "https://api-sandbox.gocardless.com"
+	
+	; Step 1: Create billing request flow in GoCardless
+	psScript := "
+	(
+try {
+	$headers = @{
+		'Authorization' = 'Bearer " . Settings_GoCardlessToken . "'
+		'GoCardless-Version' = '2015-07-06'
+		'Content-Type' = 'application/json'
+	}
+	
+	# Create a billing request flow (redirect flow for mandate setup)
+	$body = @{
+		billing_request_flows = @{
+			redirect_uri = 'https://example.com/mandate-complete'
+			exit_uri = 'https://example.com/mandate-exit'
+			prefilled_customer = @{
+				email = '" . clientEmail . "'
+				given_name = '" . contactData.firstName . "'
+				family_name = '" . contactData.lastName . "'
+			}
+			lock_customer_details = @{
+				enabled = $true
+			}
+		}
+	} | ConvertTo-Json -Depth 5
+	
+	# First create a billing request
+	$brBody = @{
+		billing_requests = @{
+			mandate_request = @{
+				scheme = 'bacs'
+			}
+		}
+	} | ConvertTo-Json -Depth 5
+	
+	$brResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/billing_requests' -Method POST -Headers $headers -Body $brBody -TimeoutSec 30
+	$billingRequestId = $brResponse.billing_requests.id
+	
+	# Create flow for this billing request
+	$flowBody = @{
+		billing_request_flows = @{
+			redirect_uri = 'https://pay.gocardless.com/complete'
+			exit_uri = 'https://pay.gocardless.com/exit'
+			links = @{
+				billing_request = $billingRequestId
+			}
+		}
+	} | ConvertTo-Json -Depth 5
+	
+	$flowResponse = Invoke-RestMethod -Uri '" . gcApiUrl . "/billing_request_flows' -Method POST -Headers $headers -Body $flowBody -TimeoutSec 30
+	$authoriseUrl = $flowResponse.billing_request_flows.authorisation_url
+	
+	Write-Output ""SUCCESS|$billingRequestId|$authoriseUrl""
+} catch {
+	Write-Output ""ERROR|$($_.Exception.Message)""
+}
+	)"
+	
+	tempScript := A_Temp . "\gc_create_br_" . A_TickCount . ".ps1"
+	tempResult := A_Temp . "\gc_br_result_" . A_TickCount . ".txt"
+	
+	FileDelete, %tempScript%
+	FileAppend, %psScript%, %tempScript%
+	
+	RunWait, powershell.exe -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
+	
+	FileRead, psOutput, %tempResult%
+	FileDelete, %tempScript%
+	FileDelete, %tempResult%
+	
+	psOutput := Trim(psOutput)
+	
+	if (InStr(psOutput, "ERROR|")) {
+		ToolTip
+		errMsg := StrReplace(psOutput, "ERROR|", "")
+		DarkMsgBox("GoCardless Error", "Failed to create billing request.`n`n" . errMsg, "error")
+		return
+	}
+	
+	if (!InStr(psOutput, "SUCCESS|")) {
+		ToolTip
+		DarkMsgBox("GoCardless Error", "Unexpected response from GoCardless.`n`n" . SubStr(psOutput, 1, 200), "error")
+		return
+	}
+	
+	parts := StrSplit(psOutput, "|")
+	billingRequestId := parts[2]
+	mandateUrl := parts[3]
+	
+	ToolTip, Sending notifications via GHL...
+	
+	; Step 2: Send email via GHL if enabled
+	emailSent := false
+	smsSent := false
+	
+	if (sendEmail && Settings_GCEmailTemplateID != "") {
+		; Send email via GHL Conversations API
+		emailScript := "
+		(
+try {
+	$headers = @{
+		'Authorization' = 'Bearer " . GHL_API_Key . "'
+		'Content-Type' = 'application/json'
+		'Version' = '2021-07-28'
+	}
+	
+	# Get template HTML
+	$tplResponse = Invoke-RestMethod -Uri 'https://services.leadconnectorhq.com/emails/templates/" . Settings_GCEmailTemplateID . "' -Headers $headers -TimeoutSec 15
+	$templateHtml = $tplResponse.html
+	
+	if (-not $templateHtml) {
+		$templateHtml = '<p>Please click the link below to set up your Direct Debit:</p>'
+	}
+	
+	# Append mandate link to template
+	$mandateHtml = $templateHtml + ""<p><a href='" . mandateUrl . "' style='display:inline-block;padding:12px 24px;background-color:#1ABC9C;color:white;text-decoration:none;border-radius:5px;'>Set Up Direct Debit</a></p><p>Or copy this link: " . mandateUrl . "</p>""
+	
+	$body = @{
+		type = 'Email'
+		contactId = '" . contactId . "'
+		subject = 'Set Up Your Direct Debit'
+		html = $mandateHtml
+	} | ConvertTo-Json -Depth 3
+	
+	$response = Invoke-RestMethod -Uri 'https://services.leadconnectorhq.com/conversations/messages' -Method POST -Headers $headers -Body $body -TimeoutSec 30
+	Write-Output 'EMAIL_SENT'
+} catch {
+	Write-Output ""EMAIL_ERROR|$($_.Exception.Message)""
+}
+		)"
+		
+		tempScript := A_Temp . "\gc_email_" . A_TickCount . ".ps1"
+		tempResult := A_Temp . "\gc_email_result_" . A_TickCount . ".txt"
+		FileDelete, %tempScript%
+		FileAppend, %emailScript%, %tempScript%
+		RunWait, powershell.exe -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
+		FileRead, emailResult, %tempResult%
+		FileDelete, %tempScript%
+		FileDelete, %tempResult%
+		emailSent := InStr(emailResult, "EMAIL_SENT")
+	}
+	
+	if (sendSMS && Settings_GCSMSTemplateID != "" && clientPhone != "") {
+		; Send SMS via GHL Conversations API
+		smsScript := "
+		(
+try {
+	$headers = @{
+		'Authorization' = 'Bearer " . GHL_API_Key . "'
+		'Content-Type' = 'application/json'
+		'Version' = '2021-07-28'
+	}
+	
+	$smsMessage = 'Hi " . contactData.firstName . ", please set up your Direct Debit here: " . mandateUrl . "'
+	
+	$body = @{
+		type = 'SMS'
+		contactId = '" . contactId . "'
+		message = $smsMessage
+	} | ConvertTo-Json -Depth 3
+	
+	$response = Invoke-RestMethod -Uri 'https://services.leadconnectorhq.com/conversations/messages' -Method POST -Headers $headers -Body $body -TimeoutSec 30
+	Write-Output 'SMS_SENT'
+} catch {
+	Write-Output ""SMS_ERROR|$($_.Exception.Message)""
+}
+		)"
+		
+		tempScript := A_Temp . "\gc_sms_" . A_TickCount . ".ps1"
+		tempResult := A_Temp . "\gc_sms_result_" . A_TickCount . ".txt"
+		FileDelete, %tempScript%
+		FileAppend, %smsScript%, %tempScript%
+		RunWait, powershell.exe -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
+		FileRead, smsResult, %tempResult%
+		FileDelete, %tempScript%
+		FileDelete, %tempResult%
+		smsSent := InStr(smsResult, "SMS_SENT")
+	}
+	
+	ToolTip
+	
+	; Show result
+	resultMsg := "Mandate setup link created for " . clientName . "!`n`n"
+	resultMsg .= "📋 Billing Request: " . billingRequestId . "`n`n"
+	
+	if (sendEmail) {
+		resultMsg .= emailSent ? "✅ Email sent`n" : "⚠️ Email may not have sent`n"
+	}
+	if (sendSMS && clientPhone != "") {
+		resultMsg .= smsSent ? "✅ SMS sent`n" : "⚠️ SMS may not have sent`n"
+	} else if (sendSMS && clientPhone = "") {
+		resultMsg .= "⚠️ No phone number - SMS skipped`n"
+	}
+	
+	resultMsg .= "`nThe client will receive a link to set up their Direct Debit."
+	
+	DarkMsgBox("Mandate Request Sent", resultMsg, "success")
+}
+
 ; Toggle handler for GoCardless enabled - controls panel enable/disable state
 Toggle_GoCardlessEnabled_Changed:
 	Gui, Settings:Submit, NoHide
@@ -8334,7 +8737,13 @@ return
 GCEmailTplChanged:
 	Gui, Settings:Submit, NoHide
 	GuiControlGet, selectedTemplate,, GCEmailTplCombo
-	if (selectedTemplate != "" && selectedTemplate != "SELECT") {
+	if (selectedTemplate = "SELECT" || selectedTemplate = "") {
+		; Clear the settings when SELECT is chosen
+		Settings_GCEmailTemplateID := ""
+		Settings_GCEmailTemplateName := "SELECT"
+		IniWrite, %Settings_GCEmailTemplateID%, %IniFilename%, GoCardless, EmailTemplateID
+		IniWrite, %Settings_GCEmailTemplateName%, %IniFilename%, GoCardless, EmailTemplateName
+	} else {
 		Settings_GCEmailTemplateName := selectedTemplate
 		; Look up the template ID from cached templates
 		Loop, Parse, GHL_CachedEmailTemplates, `n
@@ -8356,7 +8765,13 @@ return
 GCSMSTplChanged:
 	Gui, Settings:Submit, NoHide
 	GuiControlGet, selectedTemplate,, GCSMSTplCombo
-	if (selectedTemplate != "") {
+	if (selectedTemplate = "SELECT" || selectedTemplate = "") {
+		; Clear the settings when SELECT is chosen
+		Settings_GCSMSTemplateID := ""
+		Settings_GCSMSTemplateName := "SELECT"
+		IniWrite, %Settings_GCSMSTemplateID%, %IniFilename%, GoCardless, SMSTemplateID
+		IniWrite, %Settings_GCSMSTemplateName%, %IniFilename%, GoCardless, SMSTemplateName
+	} else {
 		Settings_GCSMSTemplateName := selectedTemplate
 		; Look up the template ID from cached templates
 		Loop, Parse, GHL_CachedEmailTemplates, `n
@@ -8372,20 +8787,14 @@ GCSMSTplChanged:
 		; Save to INI
 		IniWrite, %Settings_GCSMSTemplateID%, %IniFilename%, GoCardless, SMSTemplateID
 		IniWrite, %Settings_GCSMSTemplateName%, %IniFilename%, GoCardless, SMSTemplateName
-	} else {
-		; Clear if empty selected
-		Settings_GCSMSTemplateID := ""
-		Settings_GCSMSTemplateName := ""
-		IniWrite, %Settings_GCSMSTemplateID%, %IniFilename%, GoCardless, SMSTemplateID
-		IniWrite, %Settings_GCSMSTemplateName%, %IniFilename%, GoCardless, SMSTemplateName
 	}
 return
 
 RefreshGCSMSTemplates:
 	; Same as email templates - just refresh and update SMS dropdown
 	GoSub, RefreshGCEmailTemplates
-	; Also update SMS dropdown
-	newSmsList := ""
+	; Also update SMS dropdown with SELECT first
+	newSmsList := "SELECT"
 	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
 	{
 		if (A_LoopField = "")
@@ -8396,8 +8805,10 @@ RefreshGCSMSTemplates:
 		}
 	}
 	GuiControl, Settings:, GCSMSTplCombo, |%newSmsList%
-	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)")
+	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)" && Settings_GCSMSTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, GCSMSTplCombo, %Settings_GCSMSTemplateName%
+	else
+		GuiControl, Settings:ChooseString, GCSMSTplCombo, SELECT
 return
 
 RefreshGCEmailTemplates:
@@ -11424,7 +11835,7 @@ RoomEmailSend:
 {
 	global RoomEmail_SelectedTplName, RoomEmail_TplIDs, RoomEmail_TplNames
 	global RoomEmail_ContactId, RoomEmail_OutputFile, RoomEmail_AlbumName, RoomEmail_RoomNum
-	global Settings_EmailTemplateID
+	global Settings_EmailTemplateID, Settings_EmailTemplateName, IniFilename
 	
 	Gui, RoomEmail:Submit
 	
@@ -11439,6 +11850,11 @@ RoomEmailSend:
 				break
 			}
 		}
+		; Save selected template as default for next time
+		Settings_EmailTemplateName := RoomEmail_SelectedTplName
+		Settings_EmailTemplateID := selectedTemplateID
+		IniWrite, %Settings_EmailTemplateID%, %IniFilename%, Toolbar, EmailTemplateID
+		IniWrite, %Settings_EmailTemplateName%, %IniFilename%, Toolbar, EmailTemplateName
 	}
 	
 	; Run sync_ps_invoice with --send-room-email
@@ -13605,7 +14021,7 @@ LoadSettings()
 	IniRead, Settings_PrintTemplateOptions, %IniFilename%, Toolbar, PrintTemplateOptions, %A_Space%
 	IniRead, Settings_QuickPrintPrinter, %IniFilename%, Toolbar, QuickPrintPrinter, %A_Space%
 	IniRead, Settings_EmailTemplateID, %IniFilename%, Toolbar, EmailTemplateID, %A_Space%
-	IniRead, Settings_EmailTemplateName, %IniFilename%, Toolbar, EmailTemplateName, (none selected)
+	IniRead, Settings_EmailTemplateName, %IniFilename%, Toolbar, EmailTemplateName, SELECT
 	IniRead, Settings_RoomCaptureFolder, %IniFilename%, Toolbar, RoomCaptureFolder, Album Folder
 	IniRead, Settings_EnablePDF, %IniFilename%, Toolbar, EnablePDF, 0
 	IniRead, Settings_PDFOutputFolder, %IniFilename%, Toolbar, PDFOutputFolder, %A_Space%
@@ -13616,8 +14032,9 @@ LoadSettings()
 	IniRead, Settings_GoCardlessEnabled, %IniFilename%, GoCardless, Enabled, 0
 	IniRead, Settings_GoCardlessEnvironment, %IniFilename%, GoCardless, Environment, sandbox
 	IniRead, Settings_GCEmailTemplateID, %IniFilename%, GoCardless, EmailTemplateID, %A_Space%
-	IniRead, Settings_GCEmailTemplateName, %IniFilename%, GoCardless, EmailTemplateName, (none selected)
-	IniRead, Settings_GCSMSEnabled, %IniFilename%, GoCardless, SMSEnabled, 0
+	IniRead, Settings_GCEmailTemplateName, %IniFilename%, GoCardless, EmailTemplateName, SELECT
+	IniRead, Settings_GCSMSTemplateID, %IniFilename%, GoCardless, SMSTemplateID, %A_Space%
+	IniRead, Settings_GCSMSTemplateName, %IniFilename%, GoCardless, SMSTemplateName, SELECT
 	
 	; Load GHL agency domain - check if migration needed for existing users
 	IniRead, GHL_AgencyDomain, %IniFilename%, GHL, AgencyDomain, %A_Space%
