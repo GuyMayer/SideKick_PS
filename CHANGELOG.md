@@ -12,6 +12,13 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.15 (2026-02-17)
+
+### Bug Fixes
+- **GHL Product SKU Lookup**: Now fetches price-level SKUs (GHL stores SKUs on prices, not just product variants)
+
+---
+
 ## v2.5.14 (2026-02-17)
 
 ### Bug Fixes

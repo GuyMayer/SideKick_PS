@@ -1,9 +1,10 @@
 {
-  "version": "2.5.14",
+  "version": "2.5.15",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fix GHL sync for bundled items with zero quantity",
+  "release_notes": "Fix GHL product SKU lookup - now finds SKUs on price level",
   "changelog": [
+    "FIX: GHL product SKU lookup now fetches price-level SKUs (not just variants)",
     "FIX: Skip items with qty=0 (bundled Mat/Frame items) - GHL requires qty >= 0.1",
     "NEW: GHL product lookup - use SKU to get product names from GHL (falls back to ProSelect if not found)",
     "IMPROVED: Toolbar buttons now solid (no click-blocking transparent gaps)",

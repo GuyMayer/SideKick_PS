@@ -344,6 +344,8 @@ global Settings_ToolbarOffsetY := 0  ; Toolbar Y offset from default position
 global Toolbar_IsDragging := false   ; True when user is dragging the toolbar
 global Toolbar_LastBGColor := ""     ; Last detected background color (cached)
 global Toolbar_LastBGCheckTime := 0  ; Timestamp of last BG color check
+global Toolbar_LastPosX := -1        ; Last toolbar X position (for detecting moves)
+global Toolbar_LastPosY := -1        ; Last toolbar Y position (for detecting moves)
 
 ; Toolbar button visibility settings
 global Settings_ShowBtn_Client := true
@@ -1037,9 +1039,11 @@ Toggle_ToolbarAutoBG_State := !Toggle_ToolbarAutoBG_State
 UpdateToggleSlider("Settings", "ToolbarAutoBG", Toggle_ToolbarAutoBG_State, 430)
 Settings_ToolbarAutoBG := Toggle_ToolbarAutoBG_State
 IniWrite, %Settings_ToolbarAutoBG%, %IniFilename%, Appearance, ToolbarAutoBG
-; Reset cached color to force re-sample
+; Reset cached color and position to force re-sample
 Toolbar_LastBGColor := ""
 Toolbar_LastBGCheckTime := 0
+Toolbar_LastPosX := -1
+Toolbar_LastPosY := -1
 ; Rebuild toolbar to apply change
 Gui, Toolbar:Destroy
 CreateFloatingToolbar()
@@ -1975,13 +1979,38 @@ if (!foundMonitor) {
 if (newX < 0)
 	newX := 0
 
-; NOTE: Auto background color detection disabled
-; Buttons now fill 100% of toolbar area, so background color is not visible
-; Keeping the code but skipping execution to avoid unnecessary redraws
-; if (Settings_ToolbarAutoBG && !Toolbar_IsDragging) { ... }
+; Check if toolbar position changed - update background if auto-blend enabled
+if (Settings_ToolbarAutoBG && (newX != Toolbar_LastPosX || newY != Toolbar_LastPosY)) {
+	Toolbar_LastPosX := newX
+	Toolbar_LastPosY := newY
+	; Schedule background update after a small delay to avoid flicker during window moves
+	SetTimer, UpdateToolbarBackground, -100
+}
 
 ; Show toolbar
 Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
+Return
+
+; Updates toolbar background by sampling screen color behind it
+UpdateToolbarBackground:
+{
+	global Settings_ToolbarAutoBG, ToolbarHwnd, toolbarWidth, toolbarHeight
+	
+	if (!Settings_ToolbarAutoBG)
+		return
+	
+	; Get current toolbar position
+	WinGetPos, tbX, tbY, tbW, tbH, ahk_id %ToolbarHwnd%
+	if (tbX = "" || tbW = "")
+		return
+	
+	; Sample the screen behind the toolbar
+	bgColor := SampleScreenBackgroundColor(tbX, tbY, tbW, tbH)
+	
+	; Apply color to toolbar and show it again
+	Gui, Toolbar:Color, %bgColor%
+	Gui, Toolbar:Show, NoActivate
+}
 Return
 
 Toolbar_GetClient:
@@ -2041,6 +2070,9 @@ Toolbar_GrabHandle:
 	Toolbar_IsDragging := false
 	SaveSettings()
 	SetTimer, PositionToolbar, 200  ; Resume auto-positioning
+	
+	; Update toolbar background color to match new position
+	Gosub, UpdateToolbarBackground
 	
 	ToolTip, Position saved!
 	SetTimer, RemoveGrabTooltip, -1000
