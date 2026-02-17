@@ -2738,12 +2738,9 @@ def _convert_to_ghl_items(invoice_items: list) -> list:
             "description": str(item['description']),
             "amount": item_price,  # Invoice items use pounds (record-payment uses pence)
             "qty": int(item['quantity']),
-            "currency": "GBP"
+            "currency": "GBP",
+            "taxInclusive": item.get('price_includes_tax', True)  # Per GHL docs: use boolean at item level
         }
-        
-        # NOTE: Per-item taxes removed - GHL API rejects our tax format
-        # Tax info is shown in Order Summary line description instead
-        # "taxes":[] is the default, no need to set it
         
         ghl_items.append(ghl_item)
     

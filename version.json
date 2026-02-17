@@ -2,9 +2,9 @@
   "version": "2.5.12",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GHL invoice sync fix - removed per-item tax format",
+  "release_notes": "GHL invoice tax fix - use taxInclusive flag per official API docs",
   "changelog": [
-    "FIX: GHL invoice sync - removed per-item taxes (API rejects format, tax shown in Order Summary)"
+    "FIX: GHL invoice sync - use taxInclusive boolean per official GHL API docs"
   ],
   "versions": [
     {
