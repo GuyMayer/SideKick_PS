@@ -1069,6 +1069,28 @@ def fetch_ghl_products(force_refresh: bool = False) -> dict:
                     products_map[variant_sku] = variant_data
                 if variant_name and variant_name != product_name:
                     products_map[variant_name] = variant_data
+            
+            # Fetch prices for this product to get SKUs (SKUs are on price level, not product)
+            try:
+                prices_url = f"https://services.leadconnectorhq.com/products/{product_id}/price"
+                prices_params = {"locationId": LOCATION_ID}
+                prices_response = requests.get(prices_url, headers=headers, params=prices_params, timeout=15)
+                if prices_response.status_code == 200:
+                    prices_data = prices_response.json()
+                    for price in prices_data.get("prices", []):
+                        price_sku = price.get("sku", "").lower().strip()
+                        if price_sku:
+                            price_data = {
+                                **product_data,
+                                "price_id": price.get("_id", ""),
+                                "price_name": price.get("name", ""),
+                                "price_sku": price.get("sku", ""),
+                                "amount": price.get("amount", 0),
+                            }
+                            products_map[price_sku] = price_data
+                            debug_log(f"Found SKU '{price_sku}' -> '{product_data['name']}'")
+            except Exception as price_err:
+                debug_log(f"Error fetching prices for product {product_id}: {price_err}")
         
         # Update cache
         _ghl_products_cache = products_map
