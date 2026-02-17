@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.15"
+#define MyAppVersion "2.5.16"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -92,6 +92,21 @@ Source: "Release\version.json"; DestDir: "{app}"; Flags: ignoreversion
 ; Media files (icons, sounds)
 Source: "Release\media\*"; DestDir: "{app}\media"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
+[InstallDelete]
+; Remove old script files (now using cryptic names: _sps.exe, _vlk.exe, etc.)
+Type: files; Name: "{app}\sync_ps_invoice.exe"
+Type: files; Name: "{app}\sync_ps_invoice.py"
+Type: files; Name: "{app}\validate_license.exe"
+Type: files; Name: "{app}\validate_license.py"
+Type: files; Name: "{app}\upload_ghl_media.exe"
+Type: files; Name: "{app}\upload_ghl_media.py"
+Type: files; Name: "{app}\create_ghl_contactsheet.exe"
+Type: files; Name: "{app}\create_ghl_contactsheet.py"
+Type: files; Name: "{app}\fetch_ghl_contact.exe"
+Type: files; Name: "{app}\fetch_ghl_contact.py"
+Type: files; Name: "{app}\update_ghl_contact.exe"
+Type: files; Name: "{app}\update_ghl_contact.py"
+
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
@@ -148,6 +163,7 @@ begin
     end;
   end;
 end;
+
 
 
 

@@ -1317,9 +1317,14 @@ LoadVersionFromJson() {
 LogHelperInfo() {
 	global DebugLogFile, HelperPath, HelperVersion, HelperModified, ScriptVersion
 	
-	; Check for .exe first (production), then .py (dev)
-	exePath := A_ScriptDir . "\sync_ps_invoice.exe"
-	pyPath := A_ScriptDir . "\sync_ps_invoice.py"
+	; Use the same path resolution as GetScriptPath() - _sps.exe in production
+	if (A_IsCompiled) {
+		exePath := A_ScriptDir . "\_sps.exe"
+		pyPath := A_ScriptDir . "\_sps.py"
+	} else {
+		exePath := A_ScriptDir . "\sync_ps_invoice.exe"
+		pyPath := A_ScriptDir . "\sync_ps_invoice.py"
+	}
 	
 	if (FileExist(exePath)) {
 		HelperPath := exePath
