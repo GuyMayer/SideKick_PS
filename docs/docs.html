@@ -7,6 +7,7 @@
     <meta name="description" content="ProSelect to GoHighLevel field mapping guide. Learn how your order data syncs to GHL invoices and integrates with Xero and QuickBooks.">
     <link rel="icon" type="image/png" href="images/favicon.png">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -55,8 +56,9 @@
         .doc-sidebar a:hover { color: white; border-left-color: rgba(230, 126, 34, 0.5); }
         .doc-sidebar a.active { color: #e67e22; border-left-color: #e67e22; background: rgba(230, 126, 34, 0.05); }
         
-        .data-flow { background: #0f172a; border-radius: 12px; padding: 24px; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-x: auto; }
-        .data-flow pre { color: #94a3b8; margin: 0; }
+        .data-flow { background: #0f172a; border-radius: 12px; padding: 24px; overflow-x: auto; }
+        .data-flow pre { color: #94a3b8; margin: 0; font-family: 'Consolas', monospace; font-size: 0.85rem; }
+        .data-flow .mermaid { background: transparent; }
         
         .checklist li { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
         .checklist input[type="checkbox"] { accent-color: #e67e22; margin-top: 4px; }
@@ -139,23 +141,61 @@
                         <p class="text-gray-300 mb-4">SideKick PS extracts order data from ProSelect XML exports and syncs it to GoHighLevel (GHL) invoices. This document explains the field mapping and how the data flows through to Xero and QuickBooks via GHL's accounting integrations.</p>
                         
                         <div class="data-flow mt-6">
-<pre>┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  ProSelect  │────▶│     GHL     │────▶│    Xero     │
-│    XML      │     │   Invoice   │     │   Invoice   │
-│             │     │             │     │             │
-│ Product_Code│────▶│    sku      │────▶│  ItemCode   │
-│ Product_Name│────▶│    name     │     │             │
-│ Description │────▶│ description │────▶│ Description │
-│ Tax/@rate   │────▶│  tax_rate   │────▶│  TaxType    │
-└─────────────┘     └─────────────┘     └─────────────┘
-                           │
-                           │            ┌─────────────┐
-                           └───────────▶│ QuickBooks  │
-                                        │   Invoice   │
-                                        │             │
-                                        │ Item (Name) │
-                                        │    Sku      │
-                                        └─────────────┘</pre>
+                            <div class="mermaid">
+flowchart LR
+    subgraph PS["🗂️ ProSelect XML"]
+        P1[Product_Code]
+        P2[Product_Name]
+        P3[Description]
+        P4["Tax/@rate"]
+        P5[Price]
+        P6[Quantity]
+    end
+
+    subgraph GHL["📋 GHL Invoice"]
+        G1[sku]
+        G2[name]
+        G3[description]
+        G4[tax_rate]
+        G5[price]
+        G6[quantity]
+    end
+
+    subgraph XERO["💼 Xero Invoice"]
+        X1[ItemCode]
+        X2[Description]
+        X3[TaxType]
+        X4[UnitAmount]
+        X5[Quantity]
+    end
+
+    subgraph QB["📊 QuickBooks Invoice"]
+        Q1["Item Name"]
+        Q2[Sku]
+        Q3[Description]
+        Q4[Amount]
+        Q5[Qty]
+    end
+
+    P1 -->|"exact match"| G1
+    P2 --> G2
+    P3 --> G3
+    P4 --> G4
+    P5 --> G5
+    P6 --> G6
+
+    G1 -->|"matches ItemCode"| X1
+    G3 --> X2
+    G4 --> X3
+    G5 --> X4
+    G6 --> X5
+
+    G2 -->|"matches Item Name"| Q1
+    G1 --> Q2
+    G3 --> Q3
+    G5 --> Q4
+    G6 --> Q5
+                            </div>
                         </div>
                     </div>
 
@@ -698,6 +738,30 @@ ProSelect Product_Name → GHL Name → QuickBooks Item Name</pre>
                     link.classList.add('active');
                 }
             });
+        });
+        
+        // Initialize Mermaid diagrams with dark theme
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            themeVariables: {
+                primaryColor: '#1e3a5f',
+                primaryTextColor: '#fff',
+                primaryBorderColor: '#4fc3f7',
+                lineColor: '#e67e22',
+                secondaryColor: '#2d4a3e',
+                tertiaryColor: '#3d3a5f',
+                background: '#0f172a',
+                mainBkg: '#1a1a2e',
+                nodeBorder: '#4fc3f7',
+                clusterBkg: '#16213e',
+                clusterBorder: '#4fc3f7',
+                titleColor: '#e67e22'
+            },
+            flowchart: {
+                curve: 'basis',
+                padding: 20
+            }
         });
     </script>
 
