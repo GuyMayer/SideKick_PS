@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>ProSelect to GoHighLevel Field Mapping Guide</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #34495e; margin-top: 30px; }
+        h3 { color: #7f8c8d; }
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #3498db; color: white; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: Consolas, monospace; }
+        pre { background-color: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        blockquote { border-left: 4px solid #3498db; margin: 20px 0; padding-left: 15px; color: #666; }
+        hr { border: none; border-top: 1px solid #ddd; margin: 30px 0; }
+        ul { padding-left: 25px; }
+        @media print { body { max-width: 100%; margin: 0; } }
+    </style>
+</head>
+<body>
+<h1>ProSelect to GoHighLevel Field Mapping Guide</h1>
+<h2>Overview</h2>
+<p>SideKick PS extracts order data from ProSelect XML exports and syncs it to GoHighLevel (GHL) invoices. This document explains the field mapping and how the data flows through to Xero and QuickBooks via GHL's accounting integrations.</p>
+<hr />
+<h2>Invoice Line Item Field Mapping</h2>
+<h3>ProSelect XML → GHL Invoice</h3>
+<table>
+<thead>
+<tr>
+<th>ProSelect XML Field</th>
+<th>GHL Invoice Field</th>
+<th>Description</th>
+<th>Example Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Product_Code</code></td>
+<td><code>sku</code></td>
+<td><strong>Primary matching key</strong> for products</td>
+<td><code>smp75</code>, <code>bm75p</code>, <code>l20wtb</code></td>
+</tr>
+<tr>
+<td><code>Product_Name</code></td>
+<td><code>name</code></td>
+<td>Product name for GHL product matching</td>
+<td><code>Fujifilm DP2 Lustre</code></td>
+</tr>
+<tr>
+<td><code>Description</code></td>
+<td><code>description</code></td>
+<td>Full line item description</td>
+<td><code>Single 8x10/ 5x7 Print M 10.0 x 8.0 in Fujifilm DP2 Lustre</code></td>
+</tr>
+<tr>
+<td><code>Extended_Price</code></td>
+<td><code>price</code></td>
+<td>Line item total price</td>
+<td><code>195.00</code></td>
+</tr>
+<tr>
+<td><code>Quantity</code></td>
+<td><code>quantity</code></td>
+<td>Number of items</td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>ItemType</code></td>
+<td><code>item_type</code></td>
+<td>Product category</td>
+<td><code>Traditional Matted Layout</code>, <code>Wall Grouping</code>, <code>Mat</code></td>
+</tr>
+<tr>
+<td><code>Size</code></td>
+<td><code>size</code></td>
+<td>Product dimensions</td>
+<td><code>10.0x8.0</code></td>
+</tr>
+<tr>
+<td><code>Template_Name</code></td>
+<td><code>template</code></td>
+<td>ProSelect template used</td>
+<td><code>Single 8x10/ 5x7 Print</code></td>
+</tr>
+<tr>
+<td><code>ID</code></td>
+<td><code>ps_item_id</code></td>
+<td>ProSelect internal item ID</td>
+<td><code>50</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Tax Information</h3>
+<table>
+<thead>
+<tr>
+<th>ProSelect XML Field</th>
+<th>GHL Field</th>
+<th>Description</th>
+<th>Example Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Tax/@taxable</code></td>
+<td><code>taxable</code></td>
+<td>Whether item is taxable</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>Tax</code></td>
+<td><code>vat_amount</code></td>
+<td>Tax amount</td>
+<td><code>32.50</code></td>
+</tr>
+<tr>
+<td><code>Tax1/@label</code></td>
+<td><code>tax_label</code></td>
+<td>Tax type label</td>
+<td><code>VAT (20%)</code></td>
+</tr>
+<tr>
+<td><code>Tax1/@rate</code></td>
+<td><code>tax_rate</code></td>
+<td>Tax percentage</td>
+<td><code>20</code></td>
+</tr>
+<tr>
+<td><code>Tax1/@priceIncludesTax</code></td>
+<td><code>price_includes_tax</code></td>
+<td>Tax-inclusive pricing</td>
+<td><code>true</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Product Line Categorization</h3>
+<table>
+<thead>
+<tr>
+<th>ProSelect XML Field</th>
+<th>GHL Field</th>
+<th>Description</th>
+<th>Example Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ProductLineName</code></td>
+<td><code>product_line</code></td>
+<td>Price list name</td>
+<td><code>Studio Pricing</code></td>
+</tr>
+<tr>
+<td><code>ProductLineName/@code</code></td>
+<td><code>product_line_code</code></td>
+<td>Price list code</td>
+<td><code>A</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Client Information Mapping</h2>
+<table>
+<thead>
+<tr>
+<th>ProSelect XML Field</th>
+<th>GHL Contact Field</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>First_Name</code></td>
+<td><code>firstName</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>Last_Name</code></td>
+<td><code>lastName</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>Email_Address</code></td>
+<td><code>email</code></td>
+<td>Primary lookup field</td>
+</tr>
+<tr>
+<td><code>Home_Phone</code></td>
+<td><code>phone</code></td>
+<td>Converted to E.164 format</td>
+</tr>
+<tr>
+<td><code>Street</code></td>
+<td><code>address1</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>City</code></td>
+<td><code>city</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>State</code></td>
+<td><code>state</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>Zip_Code</code></td>
+<td><code>postalCode</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>Client_ID</code></td>
+<td><code>customField</code></td>
+<td>ProSelect album ID stored for reference</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>GHL → Xero Integration</h2>
+<p>When GHL syncs invoices to Xero, the following mappings apply:</p>
+<h3>Required for Xero Product Matching</h3>
+<table>
+<thead>
+<tr>
+<th>GHL Field</th>
+<th>Xero Field</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sku</code></td>
+<td><code>ItemCode</code></td>
+<td><strong>Primary matching key</strong> - must match exactly</td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td><code>Description</code></td>
+<td>Falls back if no ItemCode match</td>
+</tr>
+<tr>
+<td><code>price</code></td>
+<td><code>UnitAmount</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>quantity</code></td>
+<td><code>Quantity</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>taxable</code></td>
+<td><code>TaxType</code></td>
+<td>Maps to Xero tax codes (OUTPUT, NONE)</td>
+</tr>
+</tbody>
+</table>
+<h3>Xero Tax Codes</h3>
+<table>
+<thead>
+<tr>
+<th>GHL <code>tax_label</code></th>
+<th>Xero <code>TaxType</code></th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VAT (20%)</code></td>
+<td><code>OUTPUT2</code></td>
+<td>UK VAT 20%</td>
+</tr>
+<tr>
+<td><code>VAT (5%)</code></td>
+<td><code>OUTPUT</code></td>
+<td>UK VAT 5%</td>
+</tr>
+<tr>
+<td>(empty/false)</td>
+<td><code>NONE</code></td>
+<td>Zero-rated/exempt</td>
+</tr>
+</tbody>
+</table>
+<h3>Setting Up Xero Integration</h3>
+<ol>
+<li><strong>Create Items in Xero</strong> with <code>Code</code> matching your ProSelect <code>Product_Code</code></li>
+<li><strong>Connect GHL to Xero</strong> via Payments → Integrations</li>
+<li><strong>Configure Account Codes</strong> for revenue categories</li>
+<li>Invoices created in GHL will auto-sync with matched products</li>
+</ol>
+<hr />
+<h2>GHL → QuickBooks Integration</h2>
+<p>When GHL syncs invoices to QuickBooks, the following mappings apply:</p>
+<h3>Required for QuickBooks Product Matching</h3>
+<table>
+<thead>
+<tr>
+<th>GHL Field</th>
+<th>QuickBooks Field</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>Query by <code>Name</code></td>
+<td>QuickBooks matches by name first</td>
+</tr>
+<tr>
+<td><code>sku</code></td>
+<td><code>Sku</code></td>
+<td>Stored but not used for matching</td>
+</tr>
+<tr>
+<td><code>price</code></td>
+<td><code>UnitPrice</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>quantity</code></td>
+<td><code>Qty</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>taxable</code></td>
+<td><code>Taxable</code></td>
+<td>Boolean</td>
+</tr>
+</tbody>
+</table>
+<h3>QuickBooks Matching Behavior</h3>
+<blockquote>
+<p><strong>Important:</strong> QuickBooks uses <strong>Item Name</strong> for matching, not SKU. Ensure your QuickBooks product names match the <code>Product_Name</code> from ProSelect.</p>
+</blockquote>
+<h3>Setting Up QuickBooks Integration</h3>
+<ol>
+<li><strong>Create Items in QuickBooks</strong> with names matching ProSelect <code>Product_Name</code></li>
+<li><strong>Optionally add SKU</strong> to the QuickBooks item for reference</li>
+<li><strong>Connect GHL to QuickBooks</strong> via Payments → Integrations</li>
+<li><strong>Map Tax Codes</strong> in GHL settings</li>
+</ol>
+<hr />
+<h2>Best Practices for Multi-System Sync</h2>
+<h3>Consistent Product Naming</h3>
+<p>For seamless syncing across all systems, maintain consistent naming:</p>
+<pre><code>ProSelect Product_Code → GHL SKU → Xero ItemCode
+ProSelect Product_Name → GHL Name → QuickBooks Item Name
+</code></pre>
+<h3>Recommended Product Code Format</h3>
+<table>
+<thead>
+<tr>
+<th>Product Type</th>
+<th>Code Pattern</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Small Prints</td>
+<td><code>smp{size}</code></td>
+<td><code>smp75</code> (Small Matted Print 7x5)</td>
+</tr>
+<tr>
+<td>Boxed Matted</td>
+<td><code>bm{size}i</code></td>
+<td><code>bm75i</code> (Boxed Matted 7x5 Included)</td>
+</tr>
+<tr>
+<td>Treasure Box</td>
+<td><code>l{count}wtb</code></td>
+<td><code>l20wtb</code> (Large 20 Window Treasure Box)</td>
+</tr>
+<tr>
+<td>Wall Art</td>
+<td><code>wa{size}</code></td>
+<td><code>wa5020</code> (Wall Art 50x20)</td>
+</tr>
+<tr>
+<td>Albums</td>
+<td><code>alb{size}</code></td>
+<td><code>alb1010</code> (Album 10x10)</td>
+</tr>
+</tbody>
+</table>
+<h3>Tax Configuration Checklist</h3>
+<ul>
+<li>[ ] ProSelect: Enable VAT in Preferences → Pricing</li>
+<li>[ ] ProSelect: Set correct VAT rate (20% UK standard)</li>
+<li>[ ] ProSelect: Configure tax-inclusive pricing if needed</li>
+<li>[ ] GHL: Set default tax rate in Payments settings</li>
+<li>[ ] Xero: Create matching tax codes (OUTPUT2 for 20% VAT)</li>
+<li>[ ] QuickBooks: Configure tax agency and rates</li>
+</ul>
+<hr />
+<h2>Troubleshooting</h2>
+<h3>Products Not Matching in Xero</h3>
+<ol>
+<li>Check <code>Product_Code</code> in ProSelect matches <code>ItemCode</code> in Xero <strong>exactly</strong></li>
+<li>Verify no trailing spaces in either system</li>
+<li>Check Xero item is marked as "Sold" (has sales account)</li>
+</ol>
+<h3>Products Not Matching in QuickBooks</h3>
+<ol>
+<li>Verify <code>Product_Name</code> in ProSelect matches QuickBooks item name</li>
+<li>QuickBooks is case-sensitive - ensure exact match</li>
+<li>Check item type is correct (Service, Inventory, Non-inventory)</li>
+</ol>
+<h3>Tax Not Calculating Correctly</h3>
+<ol>
+<li>Verify <code>priceIncludesTax</code> setting matches your pricing setup</li>
+<li>Check tax rates match between ProSelect and accounting software</li>
+<li>Ensure taxable flag is correctly set per item</li>
+</ol>
+<hr />
+<h2>Data Flow Diagram</h2>
+<pre><code>┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  ProSelect  │────▶│     GHL     │────▶│    Xero     │
+│    XML      │     │   Invoice   │     │   Invoice   │
+│             │     │             │     │             │
+│ Product_Code│────▶│    sku      │────▶│  ItemCode   │
+│ Product_Name│────▶│    name     │     │             │
+│ Description │────▶│ description │────▶│ Description │
+│ Tax/@rate   │────▶│  tax_rate   │────▶│  TaxType    │
+└─────────────┘     └─────────────┘     └─────────────┘
+                           │
+                           │            ┌─────────────┐
+                           └───────────▶│ QuickBooks  │
+                                        │   Invoice   │
+                                        │             │
+                                        │ Item (Name) │
+                                        │    Sku      │
+                                        └─────────────┘
+</code></pre>
+<hr />
+<h2>Version History</h2>
+<table>
+<thead>
+<tr>
+<th>Version</th>
+<th>Date</th>
+<th>Changes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2.5.7</td>
+<td>2026-02-17</td>
+<td>Added SKU extraction, full tax details, product line fields</td>
+</tr>
+<tr>
+<td>2.5.6</td>
+<td>2026-02-12</td>
+<td>GHL API compatibility updates</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Support</h2>
+<p>For issues with field mapping or integration:
+- Check the SideKick PS debug logs in <code>%APPDATA%\SideKick_PS\Logs</code>
+- Enable Debug Logging in Settings → About
+- Contact support with the log file attached</p>
+</body>
+</html>
