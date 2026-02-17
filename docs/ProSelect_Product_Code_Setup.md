@@ -3,11 +3,18 @@
 ## Why Product Codes Matter
 
 Product codes (SKUs) in ProSelect are essential for:
-- **GHL Invoice matching** - Links products to your GHL price list
+- **GHL Product Name Matching** - SideKick looks up your GHL products by SKU and uses the GHL product name on invoices
 - **Xero/QuickBooks sync** - Maps to accounting product codes
 - **Inventory tracking** - Identifies products across systems
 
-**Without product codes, SideKick_PS cannot match your ProSelect products to your GHL products, and invoices may fail to sync correctly.**
+**When you add a Product Code in ProSelect and create a matching product with the same SKU in GHL, SideKick automatically uses the GHL product name on invoices.**
+
+### How It Works
+
+1. You add a **Product Code** (e.g., `com1a`) to a product in ProSelect
+2. In GHL → Payments → Products, you create a product with a **Price** that has SKU `com1a`
+3. When you sync an order, SideKick finds the matching GHL product
+4. The invoice line item shows the **GHL product name** (not the ProSelect name)
 
 ---
 
@@ -64,9 +71,12 @@ For SideKick_PS to auto-link products:
 1. Go to GHL → **Payments** → **Products**
 2. Click **+ Add Product**
 3. Enter:
-   - **Name**: Match ProSelect product name exactly (e.g., "Fujifilm DP2 Lustre")
-   - **SKU/Product Code**: Match ProSelect product code (e.g., "smp75")
+   - **Name**: The name you want to appear on invoices (e.g., "Composite 1 - 43x13")
+   - Click **Add Price** to add a price tier
+   - In the Price settings, set the **SKU** to match your ProSelect product code (e.g., "com1a")
    - **Price**: Set your standard price (ProSelect price takes precedence)
+
+**Important:** In GHL, SKUs are set on the **Price** level, not the product level. You must add a Price to your product and set the SKU there.
 
 ---
 
@@ -147,4 +157,4 @@ If you're still having issues with product matching:
 
 ---
 
-*Document Version: 2.5.9 | Last Updated: 2026-02-17*
+*Document Version: 2.5.18 | Last Updated: 2026-02-17*

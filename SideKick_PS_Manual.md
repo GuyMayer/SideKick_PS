@@ -159,12 +159,34 @@ Create a professional invoice in GHL from the current ProSelect order.
 |---|---|
 | **Invoice Name** | "Client Name - ShootNo" format |
 | **Line Items** | All ordered products with quantities and prices |
+| **Product Names** | Automatically matched to GHL products by SKU (see below) |
 | **Payments** | Past payments recorded as transactions |
 | **Future Payments** | Created as a recurring payment schedule in GHL |
 | **Contact Sheet** | JPG thumbnail sheet uploaded to GHL Media (if enabled) |
 | **Client Details** | Name, email, phone, address updated on GHL contact |
 | **Business Details** | Your business name, address, logo, phone pulled from GHL |
 | **Tags** | Contact and opportunity tags applied automatically (if configured) |
+
+### GHL Product Lookup (SKU Matching)
+
+SideKick PS automatically matches your ProSelect products to GHL products using **Product Codes (SKUs)**:
+
+1. When you sync an invoice, SideKick checks each item's **Product Code** from ProSelect
+2. It looks up that SKU in your GHL Products (under Payments → Products → Price SKUs)
+3. If a match is found, the **GHL product name** is used on the invoice instead of the ProSelect name
+4. This ensures invoice line items match your GHL product catalog exactly
+
+**Example:**
+- ProSelect exports: `Product_Name: "Luster Print"`, `Product_Code: "com1a"`
+- GHL has a product with SKU `com1a` named `"Composite 1 - 43x13"`
+- Invoice shows: **"Composite 1 - 43x13"** (the GHL name)
+
+**To set up SKU matching:**
+1. Add **Product Codes** to your ProSelect Price Lists (Setup → Price Lists)
+2. In GHL → Payments → Products, create products with matching **SKUs** (set in the Price section)
+3. The SKUs must match exactly (case-insensitive)
+
+See [ProSelect Product Code Setup](docs/ProSelect_Product_Code_Setup.md) for detailed instructions.
 
 ### Payment Plan Invoices
 
