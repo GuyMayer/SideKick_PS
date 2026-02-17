@@ -17,8 +17,10 @@ AI INSTRUCTIONS - When publishing a new version:
 ### New Features
 - **Auto-Blend Toolbar**: Toolbar samples screen behind it and matches background color for seamless integration
 - **Auto-Blend Setting**: Enable/disable in Settings > Hotkeys > Toolbar Appearance
+- **ESC to Cancel Export**: Press ESC during invoice export to cancel with confirmation dialog
 
 ### Bug Fixes
+- **GHL Invoice Tax Error**: Fixed HTTP 422 error - skip taxes on $0 items (GHL API rejects taxes on zero-price items)
 - **Toolbar Click-Through**: Fixed issue where clicking transparent parts of toolbar buttons didn't register (TransColor changed to 010101)
 
 ### Improvements
