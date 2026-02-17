@@ -15,7 +15,7 @@ AI INSTRUCTIONS - When publishing a new version:
 ## v2.5.12 (2026-02-17)
 
 ### Bug Fixes
-- **GHL Invoice Sync**: Removed per-item tax format that GHL API rejects (tax breakdown shown in Order Summary line)
+- **GHL Invoice Tax**: Use `taxInclusive` boolean flag per official GHL API docs (fixes mixed VAT rates)
 
 ---
 
