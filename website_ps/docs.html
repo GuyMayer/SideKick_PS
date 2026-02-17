@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+h<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -125,6 +125,7 @@
                         <a href="#line-items">Invoice Line Items</a>
                         <a href="#tax-info">Tax Information</a>
                         <a href="#client-mapping">Client Mapping</a>
+                        <a href="#proselect-setup">ProSelect Setup</a>
                         <a href="#xero">Xero Integration</a>
                         <a href="#quickbooks">QuickBooks Integration</a>
                         <a href="#best-practices">Best Practices</a>
@@ -559,6 +560,106 @@ flowchart LR
                                 <li>Connect GHL to QuickBooks via Payments → Integrations</li>
                                 <li>Map Tax Codes in GHL settings</li>
                             </ol>
+                        </div>
+                    </div>
+
+                    <!-- ProSelect Setup -->
+                    <div id="proselect-setup" class="doc-section">
+                        <h2>ProSelect Product Code Setup</h2>
+                        <p class="text-gray-300 mb-4">For SideKick PS to sync products correctly to GHL, your ProSelect price lists must have <strong>Product Codes (SKUs)</strong> configured. Without these, products cannot be matched to your GHL, Xero, or QuickBooks inventory.</p>
+                        
+                        <div class="warning-box">
+                            <strong>Common Issue:</strong> Wall Groupings and Collections often have empty <code>Product_Name</code> and <code>Product_Code</code> fields, which causes invoice sync failures. Make sure ALL products have proper codes.
+                        </div>
+
+                        <h3>Adding Product Codes in ProSelect</h3>
+                        <ol class="list-decimal list-inside space-y-3 text-gray-300 mt-4">
+                            <li><strong>Open Price Lists:</strong> In ProSelect, go to <code>Setup → Price Lists...</code></li>
+                            <li><strong>Select a Price List:</strong> Choose the price list you want to edit</li>
+                            <li><strong>Select Each Product:</strong> Click on a product in the list</li>
+                            <li><strong>Add Product Code:</strong> Enter a unique SKU in the Product Code field</li>
+                            <li><strong>Save:</strong> Save the price list when done</li>
+                        </ol>
+
+                        <h3>Product Code Examples</h3>
+                        <div class="overflow-x-auto mt-4">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>Item Type</th>
+                                        <th>Example Product Name</th>
+                                        <th>Example Product Code</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Wall Grouping</td>
+                                        <td>Portrait Collection 1</td>
+                                        <td><code>COLL-PORT-1</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Print</td>
+                                        <td>Fujifilm DP2 Lustre 8x10</td>
+                                        <td><code>smp810</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Frame</td>
+                                        <td>Black Wood Frame 11x14</td>
+                                        <td><code>FRM-BLK-1114</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Mat/Accessory</td>
+                                        <td>Black Image Box Mat</td>
+                                        <td><code>MAT-BLK-BOX</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Album</td>
+                                        <td>Leather Album 10x10</td>
+                                        <td><code>ALB-LTH-1010</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Digital Files</td>
+                                        <td>High Resolution Digital Set</td>
+                                        <td><code>DIG-HIRES</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3>Verifying Your XML Export</h3>
+                        <p class="text-gray-300 mt-4 mb-2">After adding product codes, export a test order and check the XML:</p>
+                        <div class="data-flow mb-4">
+<pre>&lt;!-- ✅ Good - has Product_Name and Product_Code --&gt;
+&lt;Ordered_Item&gt;
+    &lt;Product_Name&gt;Fujifilm DP2 Lustre&lt;/Product_Name&gt;
+    &lt;Product_Code&gt;smp75&lt;/Product_Code&gt;
+    &lt;Extended_Price&gt;195.00&lt;/Extended_Price&gt;
+&lt;/Ordered_Item&gt;
+
+&lt;!-- ❌ Bad - empty Product_Code --&gt;
+&lt;Ordered_Item&gt;
+    &lt;Product_Name&gt;Black Image Box Mat&lt;/Product_Name&gt;
+    &lt;Product_Code&gt;&lt;/Product_Code&gt; &lt;!-- EMPTY --&gt;
+&lt;/Ordered_Item&gt;
+
+&lt;!-- ❌ Bad - empty Product_Name (common with Collections) --&gt;
+&lt;Ordered_Item&gt;
+    &lt;ItemType&gt;Wall Grouping&lt;/ItemType&gt;
+    &lt;Description&gt;Collection 1&lt;/Description&gt;
+    &lt;Product_Name&gt;&lt;/Product_Name&gt; &lt;!-- EMPTY --&gt;
+    &lt;Product_Code&gt;&lt;/Product_Code&gt; &lt;!-- EMPTY --&gt;
+&lt;/Ordered_Item&gt;</pre>
+                        </div>
+
+                        <div class="tip-box">
+                            <strong>Quick Checklist:</strong>
+                            <ul class="mt-2 space-y-1 text-gray-300 text-sm">
+                                <li>✓ All products have a <code>Product Name</code></li>
+                                <li>✓ All products have a <code>Product Code</code> (SKU)</li>
+                                <li>✓ Collections/Wall Groupings have names (not just descriptions)</li>
+                                <li>✓ Accessory items (mats, frames) have product codes</li>
+                                <li>✓ Test export shows populated <code>&lt;Product_Code&gt;</code> tags</li>
+                            </ul>
                         </div>
                     </div>
 
