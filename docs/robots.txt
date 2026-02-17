@@ -1,0 +1,9 @@
+# SideKick PS Website
+# https://sidekick.zoom-photo.uk
+
+User-agent: *
+Allow: /
+Disallow: /docs.html
+
+# Sitemap location
+Sitemap: https://sidekick.zoom-photo.uk/sitemap.xml

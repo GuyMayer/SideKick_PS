@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation — SideKick PS</title>
+    <meta name="description" content="ProSelect to GoHighLevel field mapping guide. Learn how your order data syncs to GHL invoices and integrates with Xero and QuickBooks.">
+    <link rel="icon" type="image/png" href="images/favicon.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#1a1a2e',
+                            mid: '#16213e',
+                            accent: '#e67e22',
+                            light: '#f39c12',
+                            text: '#e0e0e0',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-hero { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); }
+        .gradient-accent { background: linear-gradient(135deg, #e67e22 0%, #f39c12 100%); }
+        .btn-primary {
+            background: linear-gradient(135deg, #e67e22 0%, #f39c12 100%);
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(230, 126, 34, 0.4);
+        }
+        html { scroll-behavior: smooth; }
+        
+        /* Documentation specific styles */
+        .doc-table { border-collapse: collapse; width: 100%; }
+        .doc-table th { background: rgba(230, 126, 34, 0.15); color: #e67e22; font-weight: 600; text-align: left; padding: 12px 16px; border-bottom: 2px solid rgba(230, 126, 34, 0.3); }
+        .doc-table td { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .doc-table tr:hover { background: rgba(255,255,255,0.02); }
+        .doc-table code { background: rgba(230, 126, 34, 0.1); color: #f39c12; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; }
+        
+        .doc-section { background: rgba(22, 33, 62, 0.6); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 32px; margin-bottom: 32px; }
+        .doc-section h2 { color: white; font-size: 1.5rem; font-weight: 700; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .doc-section h3 { color: #e67e22; font-size: 1.1rem; font-weight: 600; margin-top: 24px; margin-bottom: 12px; }
+        
+        .doc-sidebar { position: sticky; top: 100px; }
+        .doc-sidebar a { display: block; padding: 8px 16px; color: #9ca3af; font-size: 0.875rem; border-left: 2px solid transparent; transition: all 0.2s; }
+        .doc-sidebar a:hover { color: white; border-left-color: rgba(230, 126, 34, 0.5); }
+        .doc-sidebar a.active { color: #e67e22; border-left-color: #e67e22; background: rgba(230, 126, 34, 0.05); }
+        
+        .data-flow { background: #0f172a; border-radius: 12px; padding: 24px; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-x: auto; }
+        .data-flow pre { color: #94a3b8; margin: 0; }
+        
+        .checklist li { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+        .checklist input[type="checkbox"] { accent-color: #e67e22; margin-top: 4px; }
+        
+        .tip-box { background: rgba(230, 126, 34, 0.1); border-left: 4px solid #e67e22; padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+        .tip-box strong { color: #e67e22; }
+        
+        .warning-box { background: rgba(239, 68, 68, 0.1); border-left: 4px solid #ef4444; padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+        .warning-box strong { color: #ef4444; }
+    </style>
+</head>
+<body class="bg-brand-dark text-brand-text">
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/5">
+        <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="index.html" class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg gradient-accent flex items-center justify-center text-white font-bold text-sm">SK</div>
+                    <span class="text-white font-semibold text-lg">SideKick <span class="text-brand-accent">PS</span></span>
+                </a>
+            </div>
+            <div class="hidden md:flex items-center gap-8 text-sm text-gray-400">
+                <a href="index.html#features" class="hover:text-white transition">Features</a>
+                <a href="index.html#how-it-works" class="hover:text-white transition">How It Works</a>
+                <a href="index.html#pricing" class="hover:text-white transition">Pricing</a>
+                <a href="docs.html" class="text-brand-accent">Docs</a>
+                <a href="https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c" class="btn-primary text-white px-5 py-2 rounded-lg font-medium text-sm">Start Free Trial</a>
+            </div>
+            <button id="mobile-menu-btn" class="md:hidden text-gray-400 hover:text-white">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+        </div>
+        <div id="mobile-menu" class="hidden md:hidden px-6 pb-4 space-y-3">
+            <a href="index.html#features" class="block text-gray-400 hover:text-white transition">Features</a>
+            <a href="index.html#pricing" class="block text-gray-400 hover:text-white transition">Pricing</a>
+            <a href="docs.html" class="block text-brand-accent">Docs</a>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="gradient-hero pt-28 pb-12 px-6">
+        <div class="max-w-6xl mx-auto">
+            <div class="flex items-center gap-2 text-sm text-gray-400 mb-4">
+                <a href="index.html" class="hover:text-white">Home</a>
+                <span>/</span>
+                <span class="text-brand-accent">Documentation</span>
+            </div>
+            <h1 class="text-3xl md:text-4xl font-bold text-white mb-4">ProSelect → GHL Field Mapping</h1>
+            <p class="text-gray-300 text-lg max-w-2xl">How your ProSelect order data maps to GoHighLevel invoices, and integrates with Xero and QuickBooks.</p>
+        </div>
+    </section>
+
+    <!-- Main Content -->
+    <section class="py-12 px-6">
+        <div class="max-w-6xl mx-auto">
+            <div class="grid lg:grid-cols-4 gap-8">
+                
+                <!-- Sidebar -->
+                <div class="hidden lg:block">
+                    <div class="doc-sidebar">
+                        <div class="text-xs uppercase tracking-wider text-gray-500 font-semibold mb-4 px-4">On This Page</div>
+                        <a href="#overview">Overview</a>
+                        <a href="#line-items">Invoice Line Items</a>
+                        <a href="#tax-info">Tax Information</a>
+                        <a href="#client-mapping">Client Mapping</a>
+                        <a href="#xero">Xero Integration</a>
+                        <a href="#quickbooks">QuickBooks Integration</a>
+                        <a href="#best-practices">Best Practices</a>
+                        <a href="#troubleshooting">Troubleshooting</a>
+                    </div>
+                </div>
+
+                <!-- Content -->
+                <div class="lg:col-span-3">
+                    
+                    <!-- Overview -->
+                    <div id="overview" class="doc-section">
+                        <h2>Overview</h2>
+                        <p class="text-gray-300 mb-4">SideKick PS extracts order data from ProSelect XML exports and syncs it to GoHighLevel (GHL) invoices. This document explains the field mapping and how the data flows through to Xero and QuickBooks via GHL's accounting integrations.</p>
+                        
+                        <div class="data-flow mt-6">
+<pre>┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  ProSelect  │────▶│     GHL     │────▶│    Xero     │
+│    XML      │     │   Invoice   │     │   Invoice   │
+│             │     │             │     │             │
+│ Product_Code│────▶│    sku      │────▶│  ItemCode   │
+│ Product_Name│────▶│    name     │     │             │
+│ Description │────▶│ description │────▶│ Description │
+│ Tax/@rate   │────▶│  tax_rate   │────▶│  TaxType    │
+└─────────────┘     └─────────────┘     └─────────────┘
+                           │
+                           │            ┌─────────────┐
+                           └───────────▶│ QuickBooks  │
+                                        │   Invoice   │
+                                        │             │
+                                        │ Item (Name) │
+                                        │    Sku      │
+                                        └─────────────┘</pre>
+                        </div>
+                    </div>
+
+                    <!-- Invoice Line Items -->
+                    <div id="line-items" class="doc-section">
+                        <h2>Invoice Line Item Mapping</h2>
+                        <p class="text-gray-300 mb-6">Each item in your ProSelect order maps to these GHL invoice fields:</p>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>ProSelect XML Field</th>
+                                        <th>GHL Invoice Field</th>
+                                        <th>Description</th>
+                                        <th>Example</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>Product_Code</code></td>
+                                        <td><code>sku</code></td>
+                                        <td><strong>Primary matching key</strong> for products</td>
+                                        <td><code>smp75</code>, <code>bm75p</code>, <code>l20wtb</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Product_Name</code></td>
+                                        <td><code>name</code></td>
+                                        <td>Product name for GHL product matching</td>
+                                        <td><code>Fujifilm DP2 Lustre</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Description</code></td>
+                                        <td><code>description</code></td>
+                                        <td>Full line item description</td>
+                                        <td><code>Single 8x10/ 5x7 Print M 10.0 x 8.0 in...</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Extended_Price</code></td>
+                                        <td><code>price</code></td>
+                                        <td>Line item total price</td>
+                                        <td><code>195.00</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Quantity</code></td>
+                                        <td><code>quantity</code></td>
+                                        <td>Number of items</td>
+                                        <td><code>1</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>ItemType</code></td>
+                                        <td><code>item_type</code></td>
+                                        <td>Product category</td>
+                                        <td><code>Traditional Matted Layout</code>, <code>Wall Grouping</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Size</code></td>
+                                        <td><code>size</code></td>
+                                        <td>Product dimensions</td>
+                                        <td><code>10.0x8.0</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Template_Name</code></td>
+                                        <td><code>template</code></td>
+                                        <td>ProSelect template used</td>
+                                        <td><code>Single 8x10/ 5x7 Print</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>ID</code></td>
+                                        <td><code>ps_item_id</code></td>
+                                        <td>ProSelect internal item ID</td>
+                                        <td><code>50</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tax Information -->
+                    <div id="tax-info" class="doc-section">
+                        <h2>Tax Information</h2>
+                        <p class="text-gray-300 mb-6">Tax details are extracted from ProSelect's Tax1 element:</p>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>ProSelect XML Field</th>
+                                        <th>GHL Field</th>
+                                        <th>Description</th>
+                                        <th>Example</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>Tax/@taxable</code></td>
+                                        <td><code>taxable</code></td>
+                                        <td>Whether item is taxable</td>
+                                        <td><code>true</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Tax</code></td>
+                                        <td><code>vat_amount</code></td>
+                                        <td>Tax amount</td>
+                                        <td><code>32.50</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Tax1/@label</code></td>
+                                        <td><code>tax_label</code></td>
+                                        <td>Tax type label</td>
+                                        <td><code>VAT (20%)</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Tax1/@rate</code></td>
+                                        <td><code>tax_rate</code></td>
+                                        <td>Tax percentage</td>
+                                        <td><code>20</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Tax1/@priceIncludesTax</code></td>
+                                        <td><code>price_includes_tax</code></td>
+                                        <td>Tax-inclusive pricing</td>
+                                        <td><code>true</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3>Product Line Categorization</h3>
+                        <div class="overflow-x-auto mt-4">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>ProSelect XML Field</th>
+                                        <th>GHL Field</th>
+                                        <th>Description</th>
+                                        <th>Example</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>ProductLineName</code></td>
+                                        <td><code>product_line</code></td>
+                                        <td>Price list name</td>
+                                        <td><code>Studio Pricing</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>ProductLineName/@code</code></td>
+                                        <td><code>product_line_code</code></td>
+                                        <td>Price list code</td>
+                                        <td><code>A</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Client Mapping -->
+                    <div id="client-mapping" class="doc-section">
+                        <h2>Client Information Mapping</h2>
+                        <p class="text-gray-300 mb-6">ProSelect client data maps to GHL contacts:</p>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>ProSelect XML Field</th>
+                                        <th>GHL Contact Field</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>First_Name</code></td>
+                                        <td><code>firstName</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Last_Name</code></td>
+                                        <td><code>lastName</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Email_Address</code></td>
+                                        <td><code>email</code></td>
+                                        <td>Primary lookup field</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Home_Phone</code></td>
+                                        <td><code>phone</code></td>
+                                        <td>Converted to E.164 format</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Street</code></td>
+                                        <td><code>address1</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>City</code></td>
+                                        <td><code>city</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>State</code></td>
+                                        <td><code>state</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Zip_Code</code></td>
+                                        <td><code>postalCode</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>Client_ID</code></td>
+                                        <td><code>customField</code></td>
+                                        <td>ProSelect album ID stored for reference</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Xero Integration -->
+                    <div id="xero" class="doc-section">
+                        <h2>GHL → Xero Integration</h2>
+                        <p class="text-gray-300 mb-6">When GHL syncs invoices to Xero, these fields are used for product matching:</p>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>GHL Field</th>
+                                        <th>Xero Field</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>sku</code></td>
+                                        <td><code>ItemCode</code></td>
+                                        <td><strong>Primary matching key</strong> - must match exactly</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>name</code></td>
+                                        <td><code>Description</code></td>
+                                        <td>Falls back if no ItemCode match</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>price</code></td>
+                                        <td><code>UnitAmount</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>quantity</code></td>
+                                        <td><code>Quantity</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>taxable</code></td>
+                                        <td><code>TaxType</code></td>
+                                        <td>Maps to Xero tax codes</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3>Xero Tax Codes</h3>
+                        <div class="overflow-x-auto mt-4">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>GHL tax_label</th>
+                                        <th>Xero TaxType</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>VAT (20%)</code></td>
+                                        <td><code>OUTPUT2</code></td>
+                                        <td>UK VAT 20%</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>VAT (5%)</code></td>
+                                        <td><code>OUTPUT</code></td>
+                                        <td>UK VAT 5%</td>
+                                    </tr>
+                                    <tr>
+                                        <td>(empty/false)</td>
+                                        <td><code>NONE</code></td>
+                                        <td>Zero-rated/exempt</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="tip-box mt-6">
+                            <strong>Setting Up Xero Integration</strong>
+                            <ol class="list-decimal list-inside mt-2 space-y-1 text-gray-300 text-sm">
+                                <li>Create Items in Xero with <code>Code</code> matching your ProSelect <code>Product_Code</code></li>
+                                <li>Connect GHL to Xero via Payments → Integrations</li>
+                                <li>Configure Account Codes for revenue categories</li>
+                                <li>Invoices created in GHL will auto-sync with matched products</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <!-- QuickBooks Integration -->
+                    <div id="quickbooks" class="doc-section">
+                        <h2>GHL → QuickBooks Integration</h2>
+                        <p class="text-gray-300 mb-6">When GHL syncs invoices to QuickBooks:</p>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>GHL Field</th>
+                                        <th>QuickBooks Field</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>name</code></td>
+                                        <td>Query by <code>Name</code></td>
+                                        <td>QuickBooks matches by name first</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>sku</code></td>
+                                        <td><code>Sku</code></td>
+                                        <td>Stored but not used for matching</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>price</code></td>
+                                        <td><code>UnitPrice</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>quantity</code></td>
+                                        <td><code>Qty</code></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>taxable</code></td>
+                                        <td><code>Taxable</code></td>
+                                        <td>Boolean</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="warning-box mt-6">
+                            <strong>Important:</strong> QuickBooks uses <strong>Item Name</strong> for matching, not SKU. Ensure your QuickBooks product names match the <code>Product_Name</code> from ProSelect exactly.
+                        </div>
+
+                        <div class="tip-box mt-6">
+                            <strong>Setting Up QuickBooks Integration</strong>
+                            <ol class="list-decimal list-inside mt-2 space-y-1 text-gray-300 text-sm">
+                                <li>Create Items in QuickBooks with names matching ProSelect <code>Product_Name</code></li>
+                                <li>Optionally add SKU to the QuickBooks item for reference</li>
+                                <li>Connect GHL to QuickBooks via Payments → Integrations</li>
+                                <li>Map Tax Codes in GHL settings</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <!-- Best Practices -->
+                    <div id="best-practices" class="doc-section">
+                        <h2>Best Practices</h2>
+                        
+                        <h3>Consistent Product Naming</h3>
+                        <p class="text-gray-300 mb-4">For seamless syncing across all systems, maintain consistent naming:</p>
+                        
+                        <div class="data-flow mb-6">
+<pre>ProSelect Product_Code → GHL SKU → Xero ItemCode
+ProSelect Product_Name → GHL Name → QuickBooks Item Name</pre>
+                        </div>
+
+                        <h3>Recommended Product Code Format</h3>
+                        <div class="overflow-x-auto mt-4">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>Product Type</th>
+                                        <th>Code Pattern</th>
+                                        <th>Example</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Small Prints</td>
+                                        <td><code>smp{size}</code></td>
+                                        <td><code>smp75</code> (Small Matted Print 7x5)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Boxed Matted</td>
+                                        <td><code>bm{size}i</code></td>
+                                        <td><code>bm75i</code> (Boxed Matted 7x5 Included)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Treasure Box</td>
+                                        <td><code>l{count}wtb</code></td>
+                                        <td><code>l20wtb</code> (Large 20 Window Treasure Box)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Wall Art</td>
+                                        <td><code>wa{size}</code></td>
+                                        <td><code>wa5020</code> (Wall Art 50x20)</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Albums</td>
+                                        <td><code>alb{size}</code></td>
+                                        <td><code>alb1010</code> (Album 10x10)</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3>Tax Configuration Checklist</h3>
+                        <ul class="checklist mt-4 text-gray-300">
+                            <li><input type="checkbox"> ProSelect: Enable VAT in Preferences → Pricing</li>
+                            <li><input type="checkbox"> ProSelect: Set correct VAT rate (20% UK standard)</li>
+                            <li><input type="checkbox"> ProSelect: Configure tax-inclusive pricing if needed</li>
+                            <li><input type="checkbox"> GHL: Set default tax rate in Payments settings</li>
+                            <li><input type="checkbox"> Xero: Create matching tax codes (OUTPUT2 for 20% VAT)</li>
+                            <li><input type="checkbox"> QuickBooks: Configure tax agency and rates</li>
+                        </ul>
+                    </div>
+
+                    <!-- Troubleshooting -->
+                    <div id="troubleshooting" class="doc-section">
+                        <h2>Troubleshooting</h2>
+                        
+                        <h3>Products Not Matching in Xero</h3>
+                        <ol class="list-decimal list-inside space-y-2 text-gray-300 mt-4">
+                            <li>Check <code>Product_Code</code> in ProSelect matches <code>ItemCode</code> in Xero <strong>exactly</strong></li>
+                            <li>Verify no trailing spaces in either system</li>
+                            <li>Check Xero item is marked as "Sold" (has sales account)</li>
+                        </ol>
+
+                        <h3>Products Not Matching in QuickBooks</h3>
+                        <ol class="list-decimal list-inside space-y-2 text-gray-300 mt-4">
+                            <li>Verify <code>Product_Name</code> in ProSelect matches QuickBooks item name</li>
+                            <li>QuickBooks is case-sensitive — ensure exact match</li>
+                            <li>Check item type is correct (Service, Inventory, Non-inventory)</li>
+                        </ol>
+
+                        <h3>Tax Not Calculating Correctly</h3>
+                        <ol class="list-decimal list-inside space-y-2 text-gray-300 mt-4">
+                            <li>Verify <code>priceIncludesTax</code> setting matches your pricing setup</li>
+                            <li>Check tax rates match between ProSelect and accounting software</li>
+                            <li>Ensure taxable flag is correctly set per item</li>
+                        </ol>
+
+                        <div class="tip-box mt-6">
+                            <strong>Need Help?</strong>
+                            <p class="text-gray-300 text-sm mt-2">Check the SideKick PS debug logs in <code>%APPDATA%\SideKick_PS\Logs</code>. Enable Debug Logging in Settings → About and contact <a href="mailto:guy@zoom-photo.co.uk" class="text-brand-accent hover:underline">guy@zoom-photo.co.uk</a> with the log file attached.</p>
+                        </div>
+                    </div>
+
+                    <!-- Version Info -->
+                    <div class="text-sm text-gray-500 mt-8 pt-8 border-t border-white/5">
+                        <p>Last updated: February 17, 2026 • SideKick PS v2.5.7</p>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-white/5 py-12 px-6">
+        <div class="max-w-6xl mx-auto">
+            <div class="grid md:grid-cols-4 gap-8 mb-8">
+                <div>
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-7 h-7 rounded-lg gradient-accent flex items-center justify-center text-white font-bold text-xs">SK</div>
+                        <span class="text-white font-semibold">SideKick PS</span>
+                    </div>
+                    <p class="text-gray-500 text-sm">ProSelect automation for photographers.</p>
+                </div>
+                <div>
+                    <h4 class="text-white font-medium mb-3 text-sm">Product</h4>
+                    <ul class="space-y-2 text-sm text-gray-500">
+                        <li><a href="index.html#features" class="hover:text-gray-300 transition">Features</a></li>
+                        <li><a href="index.html#pricing" class="hover:text-gray-300 transition">Pricing</a></li>
+                        <li><a href="https://github.com/GuyMayer/SideKick_PS/releases/latest" class="hover:text-gray-300 transition">Download</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-white font-medium mb-3 text-sm">Resources</h4>
+                    <ul class="space-y-2 text-sm text-gray-500">
+                        <li><a href="docs.html" class="hover:text-gray-300 transition">Documentation</a></li>
+                        <li><a href="index.html#faq" class="hover:text-gray-300 transition">FAQ</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-white font-medium mb-3 text-sm">Support</h4>
+                    <ul class="space-y-2 text-sm text-gray-500">
+                        <li><a href="mailto:guy@zoom-photo.co.uk" class="hover:text-gray-300 transition">guy@zoom-photo.co.uk</a></li>
+                        <li><a href="https://zoom-photo.uk" class="hover:text-gray-300 transition">zoom-photo.uk</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="border-t border-white/5 pt-6 mb-6">
+                <p class="text-xs text-gray-600 leading-relaxed">
+                    ProSelect® is a registered trademark of TimeExposure Software Inc. GoHighLevel is a trademark of HighLevel Inc. 
+                    SideKick PS is an independent automation tool developed by Zoom Photography Studios Ltd and is not affiliated with, 
+                    endorsed by, or sponsored by TimeExposure Software Inc. or HighLevel Inc.
+                </p>
+            </div>
+            <div class="border-t border-white/5 pt-8 flex flex-wrap items-center justify-between text-sm text-gray-600">
+                <p>&copy; 2026 Zoom Photography Studios Ltd. All rights reserved.</p>
+                <p>Made with ☕ for photographers</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const btn = document.getElementById('mobile-menu-btn');
+        const menu = document.getElementById('mobile-menu');
+        btn.addEventListener('click', () => menu.classList.toggle('hidden'));
+        menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.add('hidden')));
+        
+        // Highlight active sidebar link on scroll
+        const sections = document.querySelectorAll('.doc-section');
+        const navLinks = document.querySelectorAll('.doc-sidebar a');
+        
+        window.addEventListener('scroll', () => {
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop - 150;
+                if (scrollY >= sectionTop) {
+                    current = section.getAttribute('id');
+                }
+            });
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === '#' + current) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+
+</body>
+</html>
