@@ -12,6 +12,13 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.11 (2026-02-17)
+
+### Bug Fixes
+- **CRITICAL: GHL Invoice Tax Error**: Fixed HTTP 422 - skip taxes on $0 items (fixes Andrew's Risbey invoice)
+
+---
+
 ## v2.5.10 (2026-02-17)
 
 ### New Features
