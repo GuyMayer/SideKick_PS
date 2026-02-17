@@ -1567,7 +1567,7 @@ CreateFloatingToolbar()
 	grabH := Round(38 * DPI_Scale)
 	Gui, Toolbar:Font, s20 w700, Segoe UI
 	Gui, Toolbar:Add, Text, x%grabX% y%grabY% w%grabHandleWidth% h%grabH% Center 0x200 Background333333 c%iconColor% gToolbar_GrabHandle vTB_GrabHandle +HwndTB_GrabHandle_Hwnd, ⣿
-	ToolbarTooltips[TB_GrabHandle_Hwnd] := "Ctrl+Click to move toolbar"
+	ToolbarTooltips[TB_GrabHandle_Hwnd] := "Drag to move toolbar"
 	
 	; Dynamic x position - each visible button advances by btnSpacing (after grab handle)
 	nextX := grabHandleWidth + btnMargin
@@ -1860,8 +1860,7 @@ Loop, %monitorCount% {
 			newX := monLeft
 		if (newX + tbWidth > monRight)
 			newX := monRight - tbWidth
-		if (newY < monTop)
-			newY := monTop
+		; Allow Y to go above work area top (into title bar)
 		if (newY + tbHeight > monBottom)
 			newY := monBottom - tbHeight
 		break
@@ -1874,17 +1873,14 @@ if (!foundMonitor) {
 		newX := primaryMonLeft
 	if (newX + tbWidth > primaryMonRight)
 		newX := primaryMonRight - tbWidth
-	if (newY < primaryMonTop)
-		newY := primaryMonTop
+	; Allow Y to go above work area top (into title bar)
 	if (newY + tbHeight > primaryMonBottom)
 		newY := primaryMonBottom - tbHeight
 }
 
-; Final safety check - ensure at least X >= 0 and Y >= 0
+; Final safety check - ensure at least X >= 0
 if (newX < 0)
 	newX := 0
-if (newY < 0)
-	newY := 0
 
 Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
 WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
@@ -1899,16 +1895,9 @@ Gosub, OpenGHLClientURL
 Return
 
 Toolbar_GrabHandle:
-; Ctrl+Click to drag toolbar to new position (relative to ProSelect window)
+; Click and drag to move toolbar to new position (relative to ProSelect window)
 {
 	global Settings_ToolbarOffsetX, Settings_ToolbarOffsetY, Toolbar_IsDragging, ToolbarHwnd, toolbarWidth
-	
-	; Only respond to Ctrl+Click
-	if (!GetKeyState("Ctrl", "P")) {
-		ToolTip, Ctrl+Click to move toolbar
-		SetTimer, RemoveGrabTooltip, -1500
-		return
-	}
 	
 	; Get ProSelect window position as reference
 	WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe

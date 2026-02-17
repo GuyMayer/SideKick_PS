@@ -779,15 +779,35 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
                 tax_elem = item.find('Tax')
                 is_taxable = tax_elem.get('taxable', 'false').lower() == 'true' if tax_elem is not None else False
                 vat_amount = float(get_text(item, 'Tax', '0'))
+                
+                # Get detailed tax info from Tax1 element (for Xero/QuickBooks sync)
+                tax1_elem = item.find('Tax1')
+                tax_label = tax1_elem.get('label', '') if tax1_elem is not None else ''
+                tax_rate = float(tax1_elem.get('rate', '0')) if tax1_elem is not None else 0.0
+                price_includes_tax = tax1_elem.get('priceIncludesTax', 'false').lower() == 'true' if tax1_elem is not None else False
+                
+                # Get ProductLineName for product categorization
+                product_line_elem = item.find('ProductLineName')
+                product_line = get_text(item, 'ProductLineName')
+                product_line_code = product_line_elem.get('code', '') if product_line_elem is not None else ''
 
                 item_data = {
                     'type': get_text(item, 'ItemType'),
                     'description': get_text(item, 'Description'),
                     'product': get_text(item, 'Product_Name'),
+                    'sku': get_text(item, 'Product_Code'),  # SKU for GHL/Xero/QuickBooks product matching
+                    'ps_item_id': get_text(item, 'ID'),  # ProSelect internal item ID
+                    'size': get_text(item, 'Size'),  # Product size (e.g., "10.0x8.0")
+                    'template': get_text(item, 'Template_Name'),  # ProSelect template name
                     'price': price,
                     'quantity': int(get_text(item, 'Quantity', '1')),
                     'taxable': is_taxable,
                     'vat_amount': vat_amount,
+                    'tax_label': tax_label,  # e.g., "VAT (20%)"
+                    'tax_rate': tax_rate,  # e.g., 20.0
+                    'price_includes_tax': price_includes_tax,  # True if price is tax-inclusive
+                    'product_line': product_line,  # e.g., "Studio Pricing"
+                    'product_line_code': product_line_code,  # e.g., "A"
                 }
                 items_list.append(item_data)
 
@@ -2534,15 +2554,34 @@ def _create_invoice_item(item: dict) -> dict:
         item: Product item dictionary.
 
     Returns:
-        dict: Invoice item dictionary.
+        dict: Invoice item dictionary with all ProSelect fields unchanged for exact GHL matching.
     """
-    description = item.get('product', '') or item['description'] or 'Item'
+    # Pass through ALL ProSelect fields unchanged - no merging/fallback
+    # GHL product matching requires exact string matches
     return {
-        "name": item['description'] or item['product'] or 'Item',
-        "description": description,
+        # GHL invoice line item fields (using ProSelect Product_Name for product matching)
+        "name": item.get('product', ''),  # Product_Name - for GHL product name matching
+        "description": item.get('description', ''),  # Description - full line item description
         "quantity": item['quantity'],
         "price": float(item['price']),
-        "currency": "GBP"
+        "currency": "GBP",
+        # All ProSelect fields passed through unchanged for external system matching
+        "sku": item.get('sku', ''),  # Product_Code - primary SKU matching key
+        "product_name": item.get('product', ''),  # Product_Name (exact)
+        "ps_description": item.get('description', ''),  # Description (exact)
+        "item_type": item.get('type', ''),  # ItemType (exact)
+        "ps_item_id": item.get('ps_item_id', ''),  # ID (exact)
+        "size": item.get('size', ''),  # Size (exact)
+        "template": item.get('template', ''),  # Template_Name (exact)
+        # Tax fields (exact from ProSelect)
+        "taxable": item.get('taxable', True),
+        "tax_rate": item.get('tax_rate', 0.0),
+        "tax_label": item.get('tax_label', ''),
+        "vat_amount": item.get('vat_amount', 0.0),
+        "price_includes_tax": item.get('price_includes_tax', False),
+        # Product line (exact from ProSelect)
+        "product_line": item.get('product_line', ''),
+        "product_line_code": item.get('product_line_code', ''),
     }
 
 
