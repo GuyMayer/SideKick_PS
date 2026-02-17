@@ -336,11 +336,14 @@ global Settings_PDFOutputFolder := ""       ; Secondary folder to copy PDF outpu
 global Settings_PDFPrintBtnOffsetRight := 0  ; Print button X offset from right edge (calibrated)
 global Settings_PDFPrintBtnOffsetBottom := 0 ; Print button Y offset from bottom edge (calibrated)
 global PDF_CalibrationMode := false          ; True when Ctrl+Shift+Click triggers calibration
-global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow
+global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow, Auto
+global Settings_ToolbarAutoBG := false        ; Auto-detect background color for toolbar
 global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
 global Settings_ToolbarOffsetX := 0  ; Toolbar X offset from default position (Ctrl+Click grab handle to adjust)
 global Settings_ToolbarOffsetY := 0  ; Toolbar Y offset from default position
 global Toolbar_IsDragging := false   ; True when user is dragging the toolbar
+global Toolbar_LastBGColor := ""     ; Last detected background color (cached)
+global Toolbar_LastBGCheckTime := 0  ; Timestamp of last BG color check
 
 ; Toolbar button visibility settings
 global Settings_ShowBtn_Client := true
@@ -1025,6 +1028,18 @@ ToolTip, Toolbar position reset!
 SetTimer, RemoveSettingsTooltip, -1500
 Return
 
+; Handle toolbar auto-background toggle
+ToolbarAutoBGChanged:
+GuiControlGet, Settings_ToolbarAutoBG,, Settings_ToolbarAutoBG_CB
+IniWrite, %Settings_ToolbarAutoBG%, %IniFilename%, Appearance, ToolbarAutoBG
+; Reset cached color to force re-sample
+Toolbar_LastBGColor := ""
+Toolbar_LastBGCheckTime := 0
+; Rebuild toolbar to apply change
+Gui, Toolbar:Destroy
+CreateFloatingToolbar()
+Return
+
 ; Windows Color Picker Dialog
 ChooseColor(initialColor := "FFFFFF") {
 	static cc, customColors
@@ -1553,8 +1568,10 @@ CreateFloatingToolbar()
 	toolbarWidth := toolbarWidth + grabHandleWidth
 	
 	; Transparent background with colored buttons
+	; Use 010101 for TransColor - this avoids anti-aliasing issues with button backgrounds
+	; The button backgrounds use named colors (Blue, Green, etc.) which don't anti-alias to 010101
 	Gui, Toolbar:New, +AlwaysOnTop +ToolWindow -Caption +HwndToolbarHwnd
-	Gui, Toolbar:Color, 1E1E1E
+	Gui, Toolbar:Color, 010101
 	Gui, Toolbar:Font, s%fontSize% w300, Segoe UI
 	
 	; Get icon color from settings
@@ -1676,8 +1693,8 @@ CreateFloatingToolbar()
 	; Register mouse move handler for toolbar tooltips
 	OnMessage(0x200, "SettingsMouseMove")
 	
-	; Make background transparent
-	WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
+	; Make background transparent - uses 010101 which is pure black that won't appear in anti-aliased edges
+	WinSet, TransColor, 010101, ahk_id %ToolbarHwnd%
 	
 	; Re-enable interrupts and start position timer
 	Critical, Off
@@ -1712,6 +1729,77 @@ CheckToolbarTooltip:
 		ToolTip
 	}
 return
+
+; =====================================================
+; Screen Background Color Sampling for Toolbar
+; Samples pixels from screen area behind toolbar position
+; Returns dominant color as hex string (RRGGBB)
+; =====================================================
+SampleScreenBackgroundColor(x, y, w, h) {
+	; Sample a grid of pixels and find the dominant color
+	; Use a 5x3 grid (15 sample points) for efficiency
+	sampleCount := 0
+	rTotal := 0, gTotal := 0, bTotal := 0
+	
+	; Hide toolbar temporarily to sample what's behind it
+	Gui, Toolbar:Hide
+	Sleep, 20  ; Brief pause to ensure screen updates
+	
+	stepX := w // 5
+	stepY := h // 3
+	
+	Loop, 5 {
+		sampleX := x + (A_Index - 1) * stepX + (stepX // 2)
+		Loop, 3 {
+			sampleY := y + (A_Index - 1) * stepY + (stepY // 2)
+			PixelGetColor, pixelColor, %sampleX%, %sampleY%, RGB
+			if (pixelColor != "") {
+				; Parse RGB values
+				r := (pixelColor >> 16) & 0xFF
+				g := (pixelColor >> 8) & 0xFF
+				b := pixelColor & 0xFF
+				rTotal += r
+				gTotal += g
+				bTotal += b
+				sampleCount++
+			}
+		}
+	}
+	
+	if (sampleCount = 0)
+		return "1E1E1E"  ; Default dark gray if sampling failed
+	
+	; Calculate average color
+	avgR := Round(rTotal / sampleCount)
+	avgG := Round(gTotal / sampleCount)
+	avgB := Round(bTotal / sampleCount)
+	
+	; Return as hex color without 0x prefix
+	return Format("{:02X}{:02X}{:02X}", avgR, avgG, avgB)
+}
+
+; Calculate luminance of a color to determine if white or black text has better contrast
+GetColorLuminance(hexColor) {
+	; Remove 0x prefix if present
+	hexColor := RegExReplace(hexColor, "^0x|^#", "")
+	
+	; Parse RGB
+	r := "0x" . SubStr(hexColor, 1, 2)
+	g := "0x" . SubStr(hexColor, 3, 2)
+	b := "0x" . SubStr(hexColor, 5, 2)
+	
+	; Calculate relative luminance (ITU-R BT.709)
+	; Range: 0 (black) to 255 (white)
+	luminance := (0.299 * r) + (0.587 * g) + (0.114 * b)
+	return luminance
+}
+
+; Get contrasting icon color based on background luminance
+GetContrastingIconColor(bgColor) {
+	luminance := GetColorLuminance(bgColor)
+	; Use white icons on dark backgrounds, black on light
+	return (luminance < 128) ? "White" : "Black"
+}
 
 PositionToolbar:
 ; Only show toolbar when ProSelect is the active window
@@ -1882,8 +1970,32 @@ if (!foundMonitor) {
 if (newX < 0)
 	newX := 0
 
-Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
-WinSet, TransColor, 1E1E1E, ahk_id %ToolbarHwnd%
+; Auto background color detection - sample every 2 seconds
+if (Settings_ToolbarAutoBG && !Toolbar_IsDragging) {
+	currentTime := A_TickCount
+	if (currentTime - Toolbar_LastBGCheckTime > 2000 || Toolbar_LastBGColor = "") {
+		Toolbar_LastBGCheckTime := currentTime
+		; Sample screen behind toolbar position
+		detectedColor := SampleScreenBackgroundColor(newX, newY, tbWidth, toolbarHeight)
+		if (detectedColor != Toolbar_LastBGColor) {
+			Toolbar_LastBGColor := detectedColor
+			; Update toolbar background color
+			Gui, Toolbar:Color, %detectedColor%
+			; Auto-calculate icon color for contrast
+			autoIconColor := GetContrastingIconColor(detectedColor)
+			; Update grab handle text color if needed
+			if (autoIconColor != Settings_ToolbarIconColor) {
+				; Note: Full icon color update would require rebuild
+				; For now just log for debugging
+			}
+		}
+	}
+	; Show toolbar with solid background (no TransColor)
+	Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
+} else {
+	Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
+	WinSet, TransColor, 010101, ahk_id %ToolbarHwnd%
+}
 Return
 
 Toolbar_GetClient:
@@ -6001,7 +6113,7 @@ CreateHotkeysPanel()
 	; ═══════════════════════════════════════════════════════════════════════════
 	toolbarY := A_IsCompiled ? 315 : 355
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y%toolbarY% w480 h105 vHotkeysToolbarGroup Hidden, Toolbar Appearance
+	Gui, Settings:Add, GroupBox, x195 y%toolbarY% w480 h135 vHotkeysToolbarGroup Hidden, Toolbar Appearance
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	iconLabelY := toolbarY + 30
@@ -6036,10 +6148,15 @@ CreateHotkeysPanel()
 	posBtnY := posLabelY - 3
 	Gui, Settings:Add, Button, x340 y%posBtnY% w120 h25 gHKResetToolbarPos vHKResetPosBtn Hidden, Reset Position
 	
+	; Auto Background checkbox
+	autoBgY := posLabelY + 30
+	Gui, Settings:Add, CheckBox, x210 y%autoBgY% vSettings_ToolbarAutoBG_CB gToolbarAutoBGChanged Checked%Settings_ToolbarAutoBG% Hidden HwndHwndHKAutoBG, Auto-blend with background
+	RegisterSettingsTooltip(HwndHKAutoBG, "AUTO-BLEND BACKGROUND`n`nWhen enabled, the toolbar samples the screen area behind it and matches the background color.`n`nThis helps the toolbar blend seamlessly with ProSelect's interface instead of floating on top.")
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INSTRUCTIONS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
-	instructY := A_IsCompiled ? 425 : 465
+	instructY := A_IsCompiled ? 455 : 495
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y%instructY% w480 h130 vHotkeysInstructGroup Hidden, How to Set Hotkeys
 	
@@ -7933,6 +8050,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, HKPickColorBtn
 	GuiControl, Settings:Hide, HKToolbarPosLabel
 	GuiControl, Settings:Hide, HKResetPosBtn
+	GuiControl, Settings:Hide, Settings_ToolbarAutoBG_CB
 	
 	; Hide all panels - About
 	GuiControl, Settings:Hide, PanelAbout
@@ -8249,6 +8367,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, HKPickColorBtn
 		GuiControl, Settings:Show, HKToolbarPosLabel
 		GuiControl, Settings:Show, HKResetPosBtn
+		GuiControl, Settings:Show, Settings_ToolbarAutoBG_CB
 		; Restore icon color dropdown to current value
 		if (Settings_ToolbarIconColor = "White" || Settings_ToolbarIconColor = "Black" || Settings_ToolbarIconColor = "Yellow") {
 			GuiControl, Settings:, Settings_ToolbarIconColor_DDL, White|Black|Yellow
@@ -12751,6 +12870,7 @@ LoadSettings()
 	IniRead, Settings_AutoDriveDetect, %IniFilename%, FileManagement, AutoDriveDetect, 1
 	IniRead, Settings_SDCardEnabled, %IniFilename%, FileManagement, SDCardEnabled, 1
 	IniRead, Settings_ToolbarIconColor, %IniFilename%, Appearance, ToolbarIconColor, White
+	IniRead, Settings_ToolbarAutoBG, %IniFilename%, Appearance, ToolbarAutoBG, 0
 	
 	; Toolbar button visibility
 	IniRead, Settings_ShowBtn_Client, %IniFilename%, Toolbar, ShowBtn_Client, 1

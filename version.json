@@ -1,16 +1,28 @@
 {
-  "version": "2.5.9",
+  "version": "2.5.10",
   "build_date": "2026-02-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "CRITICAL: Fix GHL invoice creation for items without Product_Name, verbose error logging",
+  "release_notes": "Toolbar auto-blend background, click-through fix",
   "changelog": [
-    "FIX: GHL invoice creation failed when Product_Name was empty (e.g., Wall Grouping items)",
-    "FIX: Now uses Description as fallback when Product_Name is empty (required by GHL API)",
-    "NEW: Always-on error logging (sync_error_*.log) for critical failures even when debug mode off",
-    "NEW: Error logs auto-upload to Gist for remote diagnostics",
-    "IMPROVED: Detailed error context for GHL API failures, XML parsing, and missing contact ID"
+    "NEW: Auto-blend toolbar background - samples screen behind toolbar and matches color",
+    "NEW: Setting in Hotkeys > Toolbar Appearance to enable/disable auto-blend",
+    "FIX: Toolbar click-through issue on transparent button edges (TransColor 010101)",
+    "IMPROVED: Toolbar blends seamlessly with ProSelect title bar when auto-blend enabled"
   ],
   "versions": [
+    {
+      "version": "2.5.9",
+      "build_date": "2026-02-17",
+      "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
+      "changelog": [
+        "FIX: GHL invoice creation failed when Product_Name was empty (Wall Groupings, Collections)",
+        "FIX: Invoice item names now combine Template + Description for richer display",
+        "NEW: Per-line item tax sent to GHL (20% VAT with inclusive/exclusive flag)",
+        "NEW: Always-on error logging (sync_error_*.log) for critical failures",
+        "NEW: Error logs auto-upload to Gist for remote diagnostics",
+        "IMPROVED: Detailed error context for GHL API failures, XML parsing, and missing contact ID"
+      ]
+    },
     {
       "version": "2.5.8",
       "build_date": "2026-02-17",
