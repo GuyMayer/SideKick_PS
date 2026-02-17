@@ -12,6 +12,13 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.14 (2026-02-17)
+
+### Bug Fixes
+- **GHL Zero Quantity Items**: Skip bundled items with qty=0 (e.g., Mat/Frame included free with main product) - GHL API requires qty >= 0.1
+
+---
+
 ## v2.5.13 (2026-02-17)
 
 ### New Features
