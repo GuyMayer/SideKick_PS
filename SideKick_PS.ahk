@@ -8184,10 +8184,10 @@ CreateGoCardlessPanel()
 	; SMS Template selector
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y390 w95 h22 BackgroundTrans vGCSMSTplLabel Hidden HwndHwndGCSMSTpl, SMS Template:
-	RegisterSettingsTooltip(HwndGCSMSTpl, "SMS TEMPLATE`n`nSelect a GHL SMS template to send the mandate link.`nLeave blank to skip SMS notification.`n`nClick 🔄 to fetch templates from GHL.")
+	RegisterSettingsTooltip(HwndGCSMSTpl, "SMS TEMPLATE`n`nSelect a GHL SMS template to send the mandate link.`nChoose SELECT to skip SMS notification.`n`nClick 🔄 to fetch templates from GHL.")
 	
-	; Build SMS template list (same as email templates for now)
-	gcSmsTplList := ""
+	; Build SMS template list (SELECT first, then cached options)
+	gcSmsTplList := "SELECT"
 	if (GHL_CachedEmailTemplates != "") {
 		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
 		{
@@ -8200,7 +8200,7 @@ CreateGoCardlessPanel()
 		}
 	}
 	Gui, Settings:Add, ComboBox, x310 y388 w200 r10 vGCSMSTplCombo Hidden gGCSMSTplChanged, %gcSmsTplList%
-	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)")
+	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)" && Settings_GCSMSTemplateName != "SELECT")
 		GuiControl, Settings:ChooseString, GCSMSTplCombo, %Settings_GCSMSTemplateName%
 	Gui, Settings:Add, Button, x515 y387 w40 h27 gRefreshGCSMSTemplates vGCSMSTplRefresh Hidden HwndHwndGCSMSRefresh, 🔄
 	RegisterSettingsTooltip(HwndGCSMSRefresh, "REFRESH SMS TEMPLATES`n`nFetch available templates from GHL.")
