@@ -347,6 +347,7 @@ global Toolbar_LastBGColor := ""     ; Last detected background color (cached)
 global Toolbar_LastBGCheckTime := 0  ; Timestamp of last BG color check
 global Toolbar_LastPosX := -1        ; Last toolbar X position (for detecting moves)
 global Toolbar_LastPosY := -1        ; Last toolbar Y position (for detecting moves)
+global Toolbar_FirstShowDone := false ; Track first show for delayed BG re-sample
 
 ; Toolbar button visibility settings
 global Settings_ShowBtn_Client := true
@@ -2055,6 +2056,19 @@ Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
 ; Force redraw to apply background color immediately (fixes first-launch rendering issue)
 DllCall("InvalidateRect", "Ptr", ToolbarHwnd, "Ptr", 0, "Int", 1)
 DllCall("UpdateWindow", "Ptr", ToolbarHwnd)
+
+; On first show, schedule a delayed re-sample of background color
+; This catches cases where ProSelect's title bar wasn't fully rendered yet
+if (!Toolbar_FirstShowDone && Settings_ToolbarAutoBG) {
+	Toolbar_FirstShowDone := true
+	SetTimer, FirstLaunchBackgroundSample, -2000
+}
+Return
+
+; Re-sample background color after first launch (allows ProSelect title bar to fully render)
+FirstLaunchBackgroundSample:
+if (Settings_ToolbarAutoBG)
+	CreateFloatingToolbar()
 Return
 
 ; Updates toolbar background by sampling screen color behind it
@@ -3576,6 +3590,19 @@ Toolbar_GoCardless:
 	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment
 	global GHL_CachedEmailTemplates
 	
+	; Check if ProSelect has an album loaded
+	if WinExist("ProSelect ahk_exe ProSelect.exe")
+	{
+		WinGetTitle, psTitle, ahk_exe ProSelect.exe
+		if (psTitle = "ProSelect - Untitled" || psTitle = "ProSelect") {
+			DarkMsgBox("No Album Loaded", "Please open an album in ProSelect first before checking GoCardless mandate.", "warning")
+			return
+		}
+	} else {
+		DarkMsgBox("ProSelect Not Running", "ProSelect is not running.`n`nPlease open ProSelect with an album first.", "warning")
+		return
+	}
+	
 	; Check if GoCardless is configured
 	if (Settings_GoCardlessToken = "") {
 		DarkMsgBox("GoCardless Not Configured", "Please configure your GoCardless API token in Settings > GoCardless first.", "warning")
@@ -3636,18 +3663,35 @@ Toolbar_GoCardless:
 		mandateId := mandateResult.mandateId
 		mandateStatus := mandateResult.mandateStatus
 		bankName := mandateResult.bankName
-		existingPlans := Trim(mandateResult.plans)
+		customerId := mandateResult.customerId
+		existingPlans := mandateResult.plans ? Trim(mandateResult.plans) : ""
 		
-		; Build message with existing plans if any
-		plansMsg := ""
+		; DEBUG: Show what we got
+		; MsgBox, % "Plans value: [" . existingPlans . "] Length: " . StrLen(existingPlans)
+		
+		; Build message - default to "No Existing Plans", only show plans if we have real content
+		plansMsg := "`n`n✅ No Existing Plans"
 		if (existingPlans != "") {
-			plansMsg := "`n`n⚠️ Existing Plans:`n" . existingPlans
+			; Only show if there's actual plan text (not just whitespace)
+			cleanPlans := RegExReplace(existingPlans, "^\s+|\s+$")
+			if (StrLen(cleanPlans) > 0) {
+				plansMsg := "`n`n⚠️ Existing Plans:`n" . cleanPlans
+			}
 		}
 		
-		MsgBox, 0x24, Mandate Active - Add PayPlan?, ✅ %clientName% has an active Direct Debit mandate.`n`nMandate ID: %mandateId%`nStatus: %mandateStatus%`nBank: %bankName%%plansMsg%`n`nWould you like to set up a PayPlan for this client?
-		IfMsgBox, Yes
-		{
+		; Dark dialog with custom buttons
+		msg := "✅ " . clientName . " has an active Direct Debit mandate." . plansMsg
+		
+		result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
+		
+		if (result = "Add PayPlan") {
 			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+		}
+		else if (result = "Open GC Client") {
+			; Open GoCardless customer page
+			gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
+			gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . customerId
+			Run, %gcUrl%
 		}
 		return
 	}
@@ -3669,15 +3713,114 @@ Toolbar_GoCardless:
 	if (hasEmail)
 		notifyMethods .= "📧 Email: " . Settings_GCEmailTemplateName . "`n"
 	if (hasSMS)
-		notifyMethods .= "📱 SMS: " . Settings_GCSMSTemplateName . "`n"
+		notifyMethods .= "📱 SMS: " . Settings_GCSMSTemplateName
 	
-	; Show confirmation dialog
-	MsgBox, 0x24, Send Mandate Request?, No Direct Debit mandate found for:`n`n👤 %clientName%`n📧 %clientEmail%`n`nWould you like to send a mandate setup request?`n`n%notifyMethods%
-	IfMsgBox, Yes
+	; Show confirmation dialog with dark theme
+	msg := "No Direct Debit mandate found for:`n`n👤 " . clientName . "`n📧 " . clientEmail . "`n`nWould you like to send a mandate setup request?`n`n" . notifyMethods
+	result := DarkMsgBox("Send Mandate Request?", msg, "question", {buttons: ["Send Request", "Use Another", "Cancel"]})
+	
+	if (result = "Send Request")
 	{
 		; Create billing request and send notifications
 		GC_SendMandateRequest(GHL_ContactData, hasEmail, hasSMS)
 	}
+	else if (result = "Use Another")
+	{
+		; Ask user for name or email to search
+		GC_SearchMandateByNameOrEmail(GHL_ContactData)
+	}
+}
+Return
+
+; Search for mandate by a different name or email (e.g., partner's name/email)
+GC_SearchMandateByNameOrEmail(contactData) {
+	global Settings_GoCardlessEnvironment, DebugLogFile
+	
+	; Show input dialog for name or email
+	InputBox, searchTerm, Search Mandate, Enter name or email to search for mandate:,, 320, 150
+	if (ErrorLevel || searchTerm = "")
+		return
+	
+	; Detect if it's an email (contains @) or a name
+	isEmail := InStr(searchTerm, "@") > 0
+	searchType := isEmail ? "email" : "name"
+	
+	ToolTip, Searching for mandate by %searchType%: %searchTerm%...
+	
+	; Call Python script with appropriate argument
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	if (isEmail)
+		scriptCmd := GetScriptCommand("gocardless_api", "--check-mandate """ . searchTerm . """" . envFlag)
+	else
+		scriptCmd := GetScriptCommand("gocardless_api", "--check-mandate-by-name """ . searchTerm . """" . envFlag)
+	
+	FileAppend, % A_Now . " - GC_SearchMandateByNameOrEmail - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
+	
+	tempResult := A_Temp . "\gc_mandate_search_" . A_TickCount . ".txt"
+	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
+	RunWait, %fullCmd%, , Hide
+	
+	FileRead, scriptOutput, %tempResult%
+	FileAppend, % A_Now . " - GC_SearchMandateByNameOrEmail - output: " . scriptOutput . "`n", %DebugLogFile%
+	FileDelete, %tempResult%
+	
+	ToolTip
+	
+	scriptOutput := Trim(scriptOutput)
+	
+	if (InStr(scriptOutput, "ERROR|")) {
+		errorMsg := StrReplace(scriptOutput, "ERROR|", "")
+		DarkMsgBox("Search Error", "Failed to search mandate.`n`n" . errorMsg, "error")
+		return
+	}
+	
+	if (InStr(scriptOutput, "NO_CUSTOMER")) {
+		DarkMsgBox("Not Found", "No customer found matching '" . searchTerm . "'.", "warning")
+		return
+	}
+	
+	if (InStr(scriptOutput, "MANDATE_FOUND|")) {
+		; MANDATE_FOUND|customer_id|mandate_id|status|bank_name|plans|customer_name|customer_email
+		parts := StrSplit(scriptOutput, "|")
+		mandateResult := {}
+		mandateResult.hasMandate := true
+		mandateResult.customerId := parts[2]
+		mandateResult.mandateId := parts[3]
+		mandateResult.mandateStatus := parts[4]
+		mandateResult.bankName := parts[5]
+		mandateResult.plans := (parts.Length() >= 6) ? parts[6] : ""
+		foundName := (parts.Length() >= 7) ? parts[7] : searchTerm
+		foundEmail := (parts.Length() >= 8) ? parts[8] : ""
+		
+		; Show success and offer to create payment plan
+		plansMsg := "`n`n✅ No Existing Plans"
+		if (mandateResult.plans != "") {
+			cleanPlans := RegExReplace(mandateResult.plans, "^\s+|\s+$")
+			if (StrLen(cleanPlans) > 0)
+				plansMsg := "`n`n⚠️ Existing Plans:`n" . cleanPlans
+		}
+		
+		msg := "✅ Found mandate for " . foundName . plansMsg
+		
+		result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Add PayPlan", "Cancel"]})
+		
+		if (result = "Add PayPlan") {
+			GC_ShowPayPlanDialog(contactData, mandateResult)
+		}
+		return
+	}
+	
+	if (InStr(scriptOutput, "NO_MANDATE|")) {
+		; NO_MANDATE|customer_id|customer_name|customer_email (for name search)
+		; NO_MANDATE|customer_id (for email search)
+		parts := StrSplit(scriptOutput, "|")
+		foundName := (parts.Length() >= 3) ? parts[3] : searchTerm
+		DarkMsgBox("No Mandate", "Customer '" . foundName . "' exists but has no active mandate.", "warning")
+		return
+	}
+	
+	; Unexpected response
+	DarkMsgBox("Search Error", "Unexpected response from search.`n`n" . SubStr(scriptOutput, 1, 200), "error")
 }
 Return
 
@@ -6646,6 +6789,17 @@ CreateFilesPanel()
 	RegisterSettingsTooltip(HwndFilesAutoDrive, "AUTO-DETECT SD CARDS`n`nAutomatically detect when an SD card is inserted.`nShows a notification or prompt when detected.`n`nConvenient for streamlined download workflow.")
 	CreateToggleSlider("Settings", "AutoDriveDetect", 630, 538, Settings_AutoDriveDetect)
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; PSA SEARCH PATHS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y590 w480 h70 vFilesPSAGroup Hidden, Album Search Paths
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y615 w300 BackgroundTrans vFilesPSALabel Hidden HwndHwndFilesPSA, Alternative folders to search for .psa files:
+	RegisterSettingsTooltip(HwndFilesPSA, "ALTERNATIVE SEARCH PATHS`n`nList of additional folders to search when looking`nfor ProSelect album (.psa) files.`n`nSearched in order after Archive Path.`nEdit via psa_search_paths.txt in Archive folder.")
+	Gui, Settings:Add, Button, x560 y611 w100 h27 gFilesPSAEditBtn vFilesPSAEdit Hidden, Edit Paths
 }
 
 CreateLicensePanel()
@@ -9083,46 +9237,69 @@ GC_FindAlbumFromList:
 	
 	ToolTip, Searching for "%searchTerm%" in archive...
 	
-	foundFolders := ""
-	foundCount := 0
+	foundFolders := []
+	foundPaths := []
 	
+	; First search main archive path
 	Loop, Files, %archivePath%\*, D
 	{
 		if (InStr(A_LoopFileName, searchTerm)) {
-			foundCount++
-			foundFolders .= A_LoopFileName . "`n"
+			foundFolders.Push(A_LoopFileName)
+			foundPaths.Push(A_LoopFileLongPath)
+		}
+	}
+	
+	; If not found, try alternative search paths
+	if (foundFolders.Length() = 0) {
+		altPath := SearchAlternativePaths(searchTerm)
+		if (altPath != "") {
+			SplitPath, altPath, altFolderName
+			foundFolders.Push(altFolderName)
+			foundPaths.Push(altPath)
 		}
 	}
 	
 	ToolTip
 	
-	if (foundCount = 0) {
-		DarkMsgBox("No Albums Found", "No folders matching '" . searchTerm . "' found in:`n" . archivePath, "warning")
+	if (foundFolders.Length() = 0) {
+		DarkMsgBox("No Albums Found", "No folders matching '" . searchTerm . "' found in archive or alternative paths.", "warning")
 		return
 	}
 	
-	if (foundCount = 1) {
-		; Open the single found folder
-		folderName := Trim(foundFolders)
-		fullPath := archivePath . "\" . folderName
-		Run, explorer.exe "%fullPath%"
-		return
-	}
-	
-	; Multiple matches - show selection
-	MsgBox, 0x24, Multiple Albums Found, Found %foundCount% folders matching "%searchTerm%":`n`n%foundFolders%`nOpen the first match?
-	IfMsgBox, Yes
-	{
-		firstFolder := ""
-		Loop, Parse, foundFolders, `n, `r
-		{
-			if (A_LoopField != "") {
-				firstFolder := A_LoopField
-				break
-			}
+	; Single match - check for PSA and offer to open
+	if (foundFolders.Length() = 1) {
+		fullPath := foundPaths[1]
+		psaResult := FindPSAInFolder(fullPath)
+		
+		if (psaResult.count = 1) {
+			OpenPSAAndOffer(psaResult.path, fullPath)
+		} else if (psaResult.count > 1) {
+			; Multiple PSA files - open ProSelect file dialog in that folder
+			OpenPSAFolderInProSelect(psaResult.folder)
+		} else {
+			Run, explorer.exe "%fullPath%"
 		}
-		if (firstFolder != "") {
-			fullPath := archivePath . "\" . firstFolder
+		return
+	}
+	
+	; Multiple matches - show selection dialog
+	foundList := ""
+	for i, folder in foundFolders {
+		foundList .= folder . "`n"
+	}
+	
+	result := DarkMsgBox("Multiple Albums Found", "Found " . foundFolders.Length() . " folders matching '" . searchTerm . "':`n`n" . foundList . "`nOpen the first match?", "question", {buttons: ["Open First", "Cancel"]})
+	
+	if (result = "Open First") {
+		fullPath := foundPaths[1]
+		psaResult := FindPSAInFolder(fullPath)
+		
+		if (psaResult.count = 1) {
+			OpenPSAAndOffer(psaResult.path, fullPath)
+		} else if (psaResult.count > 1) {
+			; Multiple PSA files - open ProSelect file dialog in that folder
+			OpenPSAFolderInProSelect(psaResult.folder)
+		} else {
 			Run, explorer.exe "%fullPath%"
 		}
 	}
@@ -9150,6 +9327,228 @@ GCEmptyMandatesGuiClose:
 GCEmptyMandatesGuiEscape:
 	Gui, GCEmptyMandates:Destroy
 return
+
+; ═══════════════════════════════════════════════════════════════════════════
+; PSA File Search Functions
+; ═══════════════════════════════════════════════════════════════════════════
+
+; Find a .psa file in given folder (and subfolders)
+; Returns object: {path: "path to first psa", count: N, folder: "folder containing psa files"}
+FindPSAInFolder(folderPath) {
+	result := {path: "", count: 0, folder: ""}
+	
+	if (folderPath = "" || !FileExist(folderPath))
+		return result
+	
+	psaFiles := []
+	psaFolder := ""
+	
+	; First check root folder
+	Loop, Files, %folderPath%\*.psa
+	{
+		psaFiles.Push(A_LoopFileLongPath)
+		psaFolder := folderPath
+	}
+	
+	; Then check common subfolders (Unprocessed, ProSelect, Album)
+	if (psaFiles.Length() = 0) {
+		subfolders := ["Unprocessed", "ProSelect", "Album", "Albums"]
+		for i, sub in subfolders {
+			subPath := folderPath . "\" . sub
+			if (FileExist(subPath)) {
+				Loop, Files, %subPath%\*.psa
+				{
+					psaFiles.Push(A_LoopFileLongPath)
+					psaFolder := subPath
+				}
+				if (psaFiles.Length() > 0)
+					break
+			}
+		}
+	}
+	
+	; Recursive search as fallback (max 2 levels) if still not found
+	if (psaFiles.Length() = 0) {
+		Loop, Files, %folderPath%\*\*.psa, F
+		{
+			psaFiles.Push(A_LoopFileLongPath)
+			SplitPath, A_LoopFileLongPath,, psaFolder
+		}
+	}
+	if (psaFiles.Length() = 0) {
+		Loop, Files, %folderPath%\*\*\*.psa, F
+		{
+			psaFiles.Push(A_LoopFileLongPath)
+			SplitPath, A_LoopFileLongPath,, psaFolder
+		}
+	}
+	
+	result.count := psaFiles.Length()
+	result.folder := psaFolder
+	if (psaFiles.Length() > 0)
+		result.path := psaFiles[1]
+	
+	return result
+}
+
+; Search for album folder in alternative locations from psa_search_paths.txt
+; Returns full path to matching folder if found, empty string if not
+SearchAlternativePaths(searchTerm) {
+	global Settings_ShootArchivePath
+	
+	; Determine where to look for the paths file
+	archivePath := Settings_ShootArchivePath
+	if (archivePath = "")
+		archivePath := "D:\Shoot_Archive"
+	
+	pathsFile := archivePath . "\psa_search_paths.txt"
+	
+	; Silently return if file doesn't exist
+	if (!FileExist(pathsFile))
+		return ""
+	
+	; Read paths file
+	FileRead, pathsContent, %pathsFile%
+	if (ErrorLevel)
+		return ""
+	
+	; Search each path in order
+	Loop, Parse, pathsContent, `n, `r
+	{
+		searchPath := Trim(A_LoopField)
+		if (searchPath = "" || SubStr(searchPath, 1, 1) = "#")  ; Skip empty lines and comments
+			continue
+		
+		if (!FileExist(searchPath))
+			continue
+		
+		; Look for matching folders in this path
+		Loop, Files, %searchPath%\*, D
+		{
+			if (InStr(A_LoopFileName, searchTerm)) {
+				return A_LoopFileLongPath
+			}
+		}
+	}
+	
+	return ""
+}
+
+; Open PSA file in ProSelect, or offer to do so
+; Returns true if opened, false if not
+OpenPSAAndOffer(psaPath, folderPath := "") {
+	if (psaPath = "")
+		return false
+	
+	; Extract filename for display
+	SplitPath, psaPath, psaName
+	
+	result := DarkMsgBox("Album Found", "Found ProSelect album:`n`n" . psaName . "`n`nOpen in ProSelect?", "question", {buttons: ["Open Album", "Open Folder", "Cancel"]})
+	
+	if (result = "Open Album") {
+		Run, "%psaPath%"
+		return true
+	} else if (result = "Open Folder") {
+		if (folderPath != "")
+			Run, explorer.exe "%folderPath%"
+		else {
+			SplitPath, psaPath,, psaDir
+			Run, explorer.exe "%psaDir%"
+		}
+		return true
+	}
+	
+	return false
+}
+
+; Open ProSelect file dialog in a specific folder (when multiple PSA files exist)
+OpenPSAFolderInProSelect(folderPath) {
+	if (folderPath = "")
+		return false
+	
+	; Count PSA files for display
+	psaCount := 0
+	Loop, Files, %folderPath%\*.psa
+		psaCount++
+	
+	result := DarkMsgBox("Multiple Albums", "Found " . psaCount . " ProSelect albums in this folder.`n`nFolder: " . folderPath . "`n`nOpen ProSelect file dialog to select one?", "question", {buttons: ["Open Dialog", "Open Folder", "Cancel"]})
+	
+	if (result = "Open Dialog") {
+		; Activate or start ProSelect
+		if (!WinExist("ahk_exe ProSelect.exe")) {
+			Run, ProSelect.exe
+			WinWait, ahk_exe ProSelect.exe, , 10
+		}
+		
+		WinActivate, ahk_exe ProSelect.exe
+		WinWaitActive, ahk_exe ProSelect.exe, , 3
+		Sleep, 300
+		
+		; Send Ctrl+O to open file dialog
+		SendInput, ^o
+		Sleep, 500
+		
+		; Wait for file dialog
+		WinWait, Select an Album File, , 5
+		if (!ErrorLevel) {
+			; Type the folder path in the file name field (this navigates there)
+			Sleep, 300
+			SendInput, {F4}  ; Focus address bar
+			Sleep, 200
+			SendInput, %folderPath%
+			Sleep, 200
+			SendInput, {Enter}
+			Sleep, 500
+		}
+		return true
+	} else if (result = "Open Folder") {
+		Run, explorer.exe "%folderPath%"
+		return true
+	}
+	
+	return false
+}
+
+; Get list of alternative search paths (for display in UI)
+GetPSASearchPaths() {
+	global Settings_ShootArchivePath
+	
+	archivePath := Settings_ShootArchivePath
+	if (archivePath = "")
+		archivePath := "D:\Shoot_Archive"
+	
+	pathsFile := archivePath . "\psa_search_paths.txt"
+	
+	if (!FileExist(pathsFile))
+		return ""
+	
+	FileRead, pathsContent, %pathsFile%
+	return pathsContent
+}
+
+; Save alternative search paths
+SavePSASearchPaths(pathsContent) {
+	global Settings_ShootArchivePath
+	
+	archivePath := Settings_ShootArchivePath
+	if (archivePath = "")
+		archivePath := "D:\Shoot_Archive"
+	
+	; Create archive folder if it doesn't exist
+	if (!FileExist(archivePath))
+		FileCreateDir, %archivePath%
+	
+	pathsFile := archivePath . "\psa_search_paths.txt"
+	
+	; Delete existing file
+	if (FileExist(pathsFile))
+		FileDelete, %pathsFile%
+	
+	; Write new content
+	FileAppend, %pathsContent%, %pathsFile%
+	
+	return !ErrorLevel
+}
 
 UpdateGCStatus() {
 	global Settings_GoCardlessToken
@@ -9224,7 +9623,8 @@ GC_CheckCustomerMandate(customerEmail) {
 		result.mandateId := parts[3]
 		result.mandateStatus := parts[4]
 		result.bankName := parts[5]
-		result.plans := parts[6]  ; May be empty if no active plans
+		; parts[6] may not exist if nothing after last pipe
+		result.plans := (parts.Length() >= 6) ? Trim(parts[6]) : ""
 		return result
 	}
 	else if (InStr(scriptOutput, "ERROR|")) {
@@ -9235,6 +9635,89 @@ GC_CheckCustomerMandate(customerEmail) {
 		result.error := "Unexpected response: " . SubStr(scriptOutput, 1, 100)
 		return result
 	}
+}
+
+; Trigger ProSelect Export Orders and click Export
+GC_TriggerExport() {
+	global DebugLogFile
+	
+	FileAppend, % A_Now . " - GC_TriggerExport - Starting export`n", %DebugLogFile%
+	
+	; Activate ProSelect
+	WinActivate, ahk_exe ProSelect.exe
+	Sleep, 300
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	
+	; Open Export Orders dialog
+	WinMenuSelectItem, ahk_exe ProSelect.exe, , Orders, Export Orders...
+	Sleep, 800
+	
+	if (!WinExist("Export Orders ahk_exe ProSelect.exe")) {
+		; Fallback: keyboard shortcut
+		SendInput, {Alt down}o{Alt up}
+		Sleep, 500
+		SendInput, e
+		Sleep, 800
+	}
+	
+	; Wait for dialog
+	WinWait, Export Orders ahk_exe ProSelect.exe, , 5
+	if (ErrorLevel) {
+		FileAppend, % A_Now . " - GC_TriggerExport - Export Orders dialog did not open`n", %DebugLogFile%
+		return
+	}
+	
+	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
+	
+	; Set to Standard XML
+	ControlFocus, ComboBox1, ahk_id %exportWin%
+	Sleep, 100
+	Control, ChooseString, Standard XML, ComboBox1, ahk_id %exportWin%
+	Sleep, 300
+	
+	; Click "Check All" button
+	ControlClick, Check All, ahk_id %exportWin%, , , , NA
+	Sleep, 500
+	
+	; Click "Export Now" button
+	ControlClick, Export Now, ahk_id %exportWin%, , , , NA
+	Sleep, 1000
+	
+	FileAppend, % A_Now . " - GC_TriggerExport - Clicked Export Now button`n", %DebugLogFile%
+	
+	; Wait for completion/success dialog (message box) - ProSelect shows this after export
+	Loop, 20  ; Try for up to 10 seconds
+	{
+		; Check for any message box belonging to ProSelect
+		if (WinExist("ahk_class #32770 ahk_exe ProSelect.exe")) {
+			completedWin := WinExist("ahk_class #32770 ahk_exe ProSelect.exe")
+			FileAppend, % A_Now . " - GC_TriggerExport - Found completion dialog`n", %DebugLogFile%
+			Sleep, 200
+			ControlClick, OK, ahk_id %completedWin%, , , , NA
+			Sleep, 300
+			; Fallback: Enter key
+			if (WinExist("ahk_id " . completedWin)) {
+				SendInput, {Enter}
+				Sleep, 300
+			}
+			break
+		}
+		Sleep, 500
+	}
+	
+	; Close main Export Orders window by clicking Cancel
+	Sleep, 300
+	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
+	if (exportWin) {
+		ControlClick, Cancel, ahk_id %exportWin%, , , , NA
+		Sleep, 300
+		; Fallback: Escape key
+		if (WinExist("Export Orders ahk_exe ProSelect.exe")) {
+			WinClose, Export Orders ahk_exe ProSelect.exe
+		}
+	}
+	
+	FileAppend, % A_Now . " - GC_TriggerExport - Export complete`n", %DebugLogFile%
 }
 
 GC_SendMandateRequest(contactData, sendEmail, sendSMS) {
@@ -9405,22 +9888,56 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment, DebugLogFile
 	global GC_PP_ContactData, GC_PP_MandateResult
 	global GC_PP_Amount, GC_PP_Count, GC_PP_DayOfMonth, GC_PP_Name
+	global GC_PP_ModeInstalment, GC_PP_ModeSingle, GC_PP_SingleInfo, GC_PP_PaymentList
+	global GC_PP_LblName, GC_PP_LblAmount, GC_PP_LblCount, GC_PP_LblMonthly, GC_PP_LblDay, GC_PP_LblDayHelp
+	global GC_PP_BtnCreate, GC_PP_BtnCreateSingles
 	global PayPlanLine, PayNo, DownpaymentLineAdded
+	global Settings_InvoiceWatchFolder
 	
 	; Store data for GUI handlers
 	GC_PP_ContactData := contactData
 	GC_PP_MandateResult := mandateResult
 	
-	clientName := contactData.name ? contactData.name : contactData.fullName
+	; Build client name from firstName + lastName
+	clientName := ""
+	if (contactData.firstName != "" || contactData.lastName != "")
+		clientName := Trim(contactData.firstName . " " . contactData.lastName)
+	if (clientName = "" && contactData.name != "")
+		clientName := contactData.name
+	if (clientName = "")
+		clientName := "Unknown Client"
+	
 	mandateId := mandateResult.mandateId
 	bankName := mandateResult.bankName
 	
-	; Build default name from shoot number and surname
-	shootNo := contactData.shootNo ? contactData.shootNo : ""
-	lastName := contactData.lastName ? contactData.lastName : ""
-	defaultName := shootNo . "-" . lastName
-	if (defaultName = "-")
-		defaultName := clientName
+	; Get album name from ProSelect title as default plan name
+	WinGetTitle, psTitle, ahk_exe ProSelect.exe
+	defaultName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")
+	defaultName := RegExReplace(defaultName, "\s*-\s*ProSelect.*$", "")
+	defaultName := Trim(defaultName)
+	if (defaultName = "" || defaultName = "ProSelect")
+		defaultName := contactData.lastName ? contactData.lastName : "PayPlan"
+	
+	; Extract job code for XML matching (e.g., "P26014P_Barnes_ABC123" -> "P26014P")
+	jobCode := ""
+	if (RegExMatch(defaultName, "^([A-Z]\d+[A-Z])", m))
+		jobCode := m1
+	else if (InStr(defaultName, "_"))
+		jobCode := SubStr(defaultName, 1, InStr(defaultName, "_") - 1)
+	else
+		jobCode := defaultName
+	
+	; Also get surname for alternative matching (album might be "Risbey" instead of "P26014P")
+	searchTerms := []
+	if (jobCode != "")
+		searchTerms.Push(jobCode)
+	if (contactData.lastName && contactData.lastName != "")
+		searchTerms.Push(contactData.lastName)
+	; If album name starts with a name (not job code), use first word
+	if (!RegExMatch(defaultName, "^[A-Z]\d+[A-Z]") && InStr(defaultName, "_"))
+		searchTerms.Push(SubStr(defaultName, 1, InStr(defaultName, "_") - 1))
+	else if (!RegExMatch(defaultName, "^[A-Z]\d+[A-Z]") && defaultName != "")
+		searchTerms.Push(defaultName)
 	
 	; Read existing payment lines and filter for DD payments only
 	; PayPlanLine format: day,month,year,PayType,Amount
@@ -9477,13 +9994,246 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 			ddCommonAmount := payAmount
 	}
 	
+	; If no DD payments found in PayPlanLine, try to read from XML
+	if (ddPaymentCount = 0 && Settings_InvoiceWatchFolder != "") {
+		; Build search terms string for logging
+		searchTermsStr := ""
+		for idx, term in searchTerms
+			searchTermsStr .= (searchTermsStr ? ", " : "") . term
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No DD payments in PayPlanLine, checking XML folder: " . Settings_InvoiceWatchFolder . "`n", %DebugLogFile%
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Search terms: " . searchTermsStr . "`n", %DebugLogFile%
+		
+		; Find XML file matching any search term (get the newest one if multiple)
+		xmlFile := ""
+		xmlFileTime := ""
+		latestMatchTime := 0
+		Loop, Files, %Settings_InvoiceWatchFolder%\*.xml
+		{
+			; Check if filename contains any of our search terms
+			matchFound := false
+			for idx, term in searchTerms {
+				if (InStr(A_LoopFileName, term)) {
+					matchFound := true
+					break
+				}
+			}
+			if (matchFound) {
+				FileGetTime, thisFileTime, %A_LoopFileFullPath%, M
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found matching XML: " . A_LoopFileName . " (time: " . thisFileTime . ")`n", %DebugLogFile%
+				if (thisFileTime > latestMatchTime) {
+					latestMatchTime := thisFileTime
+					xmlFile := A_LoopFileFullPath
+					xmlFileTime := thisFileTime
+				}
+			}
+		}
+		
+		; If no match by name, try to find most recent XML (within last 5 minutes)
+		if (xmlFile = "") {
+			latestTime := 0
+			fiveMinAgo := A_Now
+			fiveMinAgo += -5, Minutes  ; Subtract 5 minutes
+			Loop, Files, %Settings_InvoiceWatchFolder%\*.xml
+			{
+				FileGetTime, fileTime, %A_LoopFileFullPath%, M
+				if (fileTime > latestTime && fileTime > fiveMinAgo) {
+					latestTime := fileTime
+					xmlFile := A_LoopFileFullPath
+					xmlFileTime := fileTime
+				}
+			}
+		}
+		
+		; If XML found, offer choice to use it or generate new
+		if (xmlFile != "") {
+			; Format the file time for display
+			FormatTime, displayTime, %xmlFileTime%, dd/MM/yyyy HH:mm
+			SplitPath, xmlFile, xmlFileName
+			
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found XML: " . xmlFile . " from " . displayTime . "`n", %DebugLogFile%
+			
+			result := DarkMsgBox("XML Found", "Found existing invoice XML:`n`n📄 " . xmlFileName . "`n📅 Exported: " . displayTime . "`n`nUse this file or generate a fresh export?", "info", {buttons: ["Use Existing", "Export New", "Cancel"]})
+			
+			if (result = "Cancel") {
+				return
+			}
+			else if (result = "Export New") {
+				; Delete old XML and generate new
+				oldXmlFile := xmlFile
+				xmlFile := ""
+				FileDelete, %oldXmlFile%
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Deleted old XML, will export new`n", %DebugLogFile%
+			}
+			; else "Use Existing" - xmlFile is already set
+		}
+		
+		; If no XML found (or user chose to export new), offer to export from ProSelect
+		if (xmlFile = "") {
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No matching XML found, prompting for export`n", %DebugLogFile%
+			
+			result := DarkMsgBox("Export Required", "No invoice XML found for this album.`n`nThe payment schedule needs to be exported from ProSelect first.`n`nClick Export to open ProSelect's Export Orders dialog.", "warning", {buttons: ["Export", "Cancel"]})
+			
+			if (result = "Export") {
+				; Capture time BEFORE export (with 5 second buffer for clock drift)
+				startTime := A_Now
+				startTime += -5, Seconds
+				
+				; Trigger ProSelect Export Orders dialog
+				GC_TriggerExport()
+				
+				; Wait for XML to appear (up to 30 seconds)
+				ToolTip, Waiting for export to complete...
+				timeoutTime := A_TickCount + 30000
+				while (A_TickCount < timeoutTime) {
+					Sleep, 1000
+					Loop, Files, %Settings_InvoiceWatchFolder%\*.xml
+					{
+						FileGetTime, fileTime, %A_LoopFileFullPath%, M
+						if (fileTime > startTime) {
+							xmlFile := A_LoopFileFullPath
+							FileAppend, % A_Now . " - Found new XML: " . xmlFile . " (time: " . fileTime . " > " . startTime . ")`n", %DebugLogFile%
+							break 2
+						}
+					}
+				}
+				ToolTip
+				
+				if (xmlFile = "") {
+					DarkMsgBox("Export Failed", "Export did not complete or no new XML was created.`n`nPlease export manually and try again.", "error")
+					return
+				}
+			} else {
+				return
+			}
+		}
+		
+		if (xmlFile != "") {
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Reading XML: " . xmlFile . "`n", %DebugLogFile%
+			FileRead, xmlContent, %xmlFile%
+			
+			; Extract DD payments from XML - look for Method="DD" or MethodName containing GoCardless/Direct Debit
+			pos := 1
+			while (pos := InStr(xmlContent, "<Payment", true, pos)) {
+				endPos := InStr(xmlContent, "</Payment>", true, pos)
+				if (!endPos)
+					break
+				
+				paymentXml := SubStr(xmlContent, pos, endPos - pos + 10)
+				
+				; Check if DD payment
+				if (InStr(paymentXml, "<Method>DD</Method>") || InStr(paymentXml, "GoCardless") || InStr(paymentXml, "Direct Debit")) {
+					; Extract date and amount
+					payDate := ""
+					payAmount := ""
+					if (RegExMatch(paymentXml, "<DateSQL>(\d{4})-(\d{2})-(\d{2})</DateSQL>", m))
+						payDate := m3 . "/" . m2 . "/" . m1  ; dd/mm/yyyy
+					if (RegExMatch(paymentXml, "<Amount>([0-9.]+)</Amount>", m))
+						payAmount := m1
+					
+					if (payDate != "" && payAmount != "") {
+						; Add to ddPayments - format: day,month,year,PayType,Amount
+						dateParts := StrSplit(payDate, "/")
+						lineData := dateParts[1] . "," . dateParts[2] . "," . dateParts[3] . ",DD," . payAmount
+						ddPayments.Push(lineData)
+						ddPaymentCount++
+						ddTotalAmount += payAmount
+						if (ddFirstDay = 0)
+							ddFirstDay := dateParts[1]
+						if (ddCommonAmount = 0)
+							ddCommonAmount := payAmount
+						FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found DD payment in XML: " . lineData . "`n", %DebugLogFile%
+					}
+				}
+				pos := endPos + 1
+			}
+		}
+	}
+	
 	; Set defaults - use found DD payments if any, otherwise use defaults
 	defaultAmount := ddCommonAmount > 0 ? ddCommonAmount : 50.00
 	defaultCount := ddPaymentCount > 0 ? ddPaymentCount : 12
 	defaultDay := ddFirstDay > 0 ? ddFirstDay : 15
 	
 	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found " . ddPaymentCount . " DD payments, total £" . ddTotalAmount . "`n", %DebugLogFile%
+	
+	; Analyze payments to detect singles vs instalments
+	; Singles = payments with varying amounts (deposits), Instalments = recurring same amount
+	singlePayments := []
+	instalmentPayments := []
+	instalmentAmount := 0
+	
+	if (ddPayments.Length() > 0) {
+		; Count frequency of each amount to find the "instalment" amount (most common)
+		amountCounts := {}
+		for idx, payment in ddPayments {
+			parts := StrSplit(payment, ",")
+			amt := parts[5]
+			if (!amountCounts.HasKey(amt))
+				amountCounts[amt] := 0
+			amountCounts[amt]++
+		}
+		
+		; Find most common amount (this is likely the instalment amount)
+		maxCount := 0
+		for amt, cnt in amountCounts {
+			if (cnt > maxCount) {
+				maxCount := cnt
+				instalmentAmount := amt
+			}
+		}
+		
+		; If most common appears >= 3 times, treat as instalment pattern
+		if (maxCount >= 3) {
+			for idx, payment in ddPayments {
+				parts := StrSplit(payment, ",")
+				amt := parts[5]
+				if (amt = instalmentAmount)
+					instalmentPayments.Push(payment)
+				else
+					singlePayments.Push(payment)
+			}
+		} else {
+			; All different amounts - treat all as singles
+			for idx, payment in ddPayments
+				singlePayments.Push(payment)
+		}
+	}
+	
+	; Build preview text
+	paymentPreview := ""
+	if (singlePayments.Length() > 0 && instalmentPayments.Length() > 0) {
+		; Calculate singles total
+		singlesTotal := 0
+		for idx, payment in singlePayments {
+			parts := StrSplit(payment, ",")
+			singlesTotal += parts[5]
+		}
+		paymentPreview := singlePayments.Length() . " single payments (£" . Format("{:.2f}", singlesTotal) . ") + " . instalmentPayments.Length() . " instalments (£" . instalmentAmount . " each)"
+	} else if (singlePayments.Length() > 0) {
+		paymentPreview := singlePayments.Length() . " single payments detected"
+	} else if (instalmentPayments.Length() > 0) {
+		paymentPreview := instalmentPayments.Length() . " instalments @ £" . Format("{:.2f}", instalmentAmount) . " each"
+	} else {
+		paymentPreview := "No DD payments found - enter details manually"
+	}
+	
+	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Preview: " . paymentPreview . "`n", %DebugLogFile%
+	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Singles: " . singlePayments.Length() . ", Instalments: " . instalmentPayments.Length() . "`n", %DebugLogFile%
+	
+	; Update defaults to use instalment-specific values if detected
+	if (instalmentPayments.Length() > 0) {
+		defaultAmount := instalmentAmount
+		defaultCount := instalmentPayments.Length()
+		; Get day from first instalment payment
+		parts := StrSplit(instalmentPayments[1], ",")
+		defaultDay := parts[1]
+	}
+	
 	global GC_PP_DDPayments  ; Store DD payments for single payment mode
+	global GC_PP_SinglePayments, GC_PP_InstalmentPayments, GC_PP_InstalmentAmount
+	GC_PP_SinglePayments := singlePayments
+	GC_PP_InstalmentPayments := instalmentPayments
+	GC_PP_InstalmentAmount := instalmentAmount
 	
 	; Create dark-themed GUI
 	Gui, GCPayPlan:New, +AlwaysOnTop +ToolWindow -MinimizeBox
@@ -9500,35 +10250,17 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	Gui, GCPayPlan:Add, Text, x15 y65 w80 cAAAAAA, Bank:
 	Gui, GCPayPlan:Add, Text, x100 y65 w270, %bankName%
 	
-	; Separator
-	Gui, GCPayPlan:Add, Text, x15 y90 w355 h1 0x10  ; SS_ETCHEDHORZ
+	; Payment preview (detected from invoice) - wrap long text
+	Gui, GCPayPlan:Add, Text, x15 y90 w80 cAAAAAA, Detected:
+	previewColor := (singlePayments.Length() > 0 && instalmentPayments.Length() > 0) ? "00CC66" : (ddPaymentCount > 0 ? "AAAAAA" : "FF6666")
+	Gui, GCPayPlan:Add, Text, x100 y90 w270 h40 c%previewColor%, %paymentPreview%
 	
-	; Mode selector - Radio buttons
-	Gui, GCPayPlan:Add, Text, x15 y105 w80 cAAAAAA, Mode:
-	Gui, GCPayPlan:Add, Radio, x100 y105 w150 vGC_PP_ModeInstalment Checked gGC_PP_ModeChange, Instalment Schedule
-	Gui, GCPayPlan:Add, Radio, x260 y105 w120 vGC_PP_ModeSingle gGC_PP_ModeChange, Single Payments
+	; Separator
+	Gui, GCPayPlan:Add, Text, x15 y135 w355 h1 0x10  ; SS_ETCHEDHORZ
 	
 	; Plan Name
-	Gui, GCPayPlan:Add, Text, x15 y135 w80 cAAAAAA vGC_PP_LblName, Plan Name:
-	Gui, GCPayPlan:Add, Edit, x100 y132 w270 h24 vGC_PP_Name Background3D3D3D cWhite, %defaultName%
-	
-	; Amount - pre-populate from DD payments
-	Gui, GCPayPlan:Add, Text, x15 y165 w80 cAAAAAA vGC_PP_LblAmount, Amount (£):
-	Gui, GCPayPlan:Add, Edit, x100 y162 w100 h24 vGC_PP_Amount Background3D3D3D cWhite, %defaultAmount%
-	
-	; Number of payments - pre-populate from DD payment count
-	Gui, GCPayPlan:Add, Text, x15 y195 w80 cAAAAAA vGC_PP_LblCount, Payments:
-	Gui, GCPayPlan:Add, Edit, x100 y192 w60 h24 vGC_PP_Count Number Background3D3D3D cWhite, %defaultCount%
-	Gui, GCPayPlan:Add, Text, x165 y195 w100 cAAAAAA vGC_PP_LblMonthly, (monthly)
-	
-	; Day of month
-	Gui, GCPayPlan:Add, Text, x15 y225 w80 cAAAAAA vGC_PP_LblDay, Day:
-	Gui, GCPayPlan:Add, Edit, x100 y222 w60 h24 vGC_PP_DayOfMonth Number Background3D3D3D cWhite, 15
-	Gui, GCPayPlan:Add, Text, x165 y225 w200 cAAAAAA vGC_PP_LblDayHelp, of each month (1-28, or -1 for last)
-	
-	; Single payment info (hidden by default)
-	singleInfo := ddPaymentCount . " DD payments found (£" . Format("{:.2f}", ddTotalAmount) . " total)"
-	Gui, GCPayPlan:Add, Text, x15 y165 w355 vGC_PP_SingleInfo Hidden cAAAAAA, %singleInfo%
+	Gui, GCPayPlan:Add, Text, x15 y150 w80 cAAAAAA, Plan Name:
+	Gui, GCPayPlan:Add, Edit, x100 y147 w270 h24 vGC_PP_Name Background3D3D3D cWhite, %defaultName%
 	
 	; Build payment list for display
 	paymentListText := ""
@@ -9549,19 +10281,132 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		}
 	}
 	if (paymentListText = "")
-		paymentListText := "(No DD payments found in PayPlan)"
+		paymentListText := "(No DD payments found in invoice)"
 	
-	Gui, GCPayPlan:Add, Edit, x15 y185 w355 h70 vGC_PP_PaymentList ReadOnly Background3D3D3D cWhite Hidden, %paymentListText%
+	; Payment list (read-only)
+	Gui, GCPayPlan:Add, Text, x15 y180 cAAAAAA, Payments:
+	Gui, GCPayPlan:Add, Edit, x15 y200 w355 h280 vGC_PP_PaymentList ReadOnly Background3D3D3D cWhite, %paymentListText%
+	
+	; Store data for create function
+	global GC_PP_MandateResult, GC_PP_ContactData
+	GC_PP_MandateResult := mandateResult
+	GC_PP_ContactData := contactData
 	
 	; Buttons
-	Gui, GCPayPlan:Add, Button, x60 y270 w130 h32 gGC_PP_Create Default vGC_PP_BtnCreate, Create Plan
-	Gui, GCPayPlan:Add, Button, x60 y270 w130 h32 gGC_PP_CreateSingles Hidden vGC_PP_BtnCreateSingles, Create Singles
-	Gui, GCPayPlan:Add, Button, x200 y270 w80 h32 gGC_PP_Cancel, Cancel
+	createEnabled := (ddPaymentCount > 0) ? "" : "Disabled"
+	Gui, GCPayPlan:Add, Button, x60 y495 w130 h32 gGC_PP_CreateMixed Default %createEnabled%, Create Payments
+	Gui, GCPayPlan:Add, Button, x200 y495 w80 h32 gGC_PP_Cancel, Cancel
 	
-	Gui, GCPayPlan:Show, w385 h320, GoCardless Payments
+	Gui, GCPayPlan:Show, w385 h545, GoCardless Payments
 	return
 }
 
+GC_PP_CreateMixed:
+	global GC_PP_ContactData, GC_PP_MandateResult, GC_PP_DDPayments, GC_PP_Name
+	global GC_PP_SinglePayments, GC_PP_InstalmentPayments, GC_PP_InstalmentAmount
+	global DebugLogFile, Settings_GoCardlessEnvironment
+	
+	Gui, GCPayPlan:Submit, NoHide
+	
+	if (GC_PP_DDPayments.Length() = 0) {
+		DarkMsgBox("No Payments", "No DD payments found in the invoice to create.", "warning")
+		return
+	}
+	
+	mandateId := GC_PP_MandateResult.mandateId
+	planName := GC_PP_Name
+	
+	; Build the payment plan JSON
+	; Format: { mandate_id, name, single_payments: [{amount, charge_date, description}], instalment: {amount, count, day_of_month} }
+	
+	planJson := "{""mandate_id"": """ . mandateId . """, ""name"": """ . planName . """"
+	
+	; Add single payments if any
+	if (GC_PP_SinglePayments.Length() > 0) {
+		planJson .= ", ""single_payments"": ["
+		for idx, payment in GC_PP_SinglePayments {
+			parts := StrSplit(payment, ",")
+			payDay := parts[1]
+			payMonth := parts[2]
+			payYear := parts[3]
+			payAmount := Round(parts[5] * 100)  ; Convert to pence
+			chargeDate := Format("{}-{:02d}-{:02d}", payYear, payMonth, payDay)
+			
+			if (idx > 1)
+				planJson .= ", "
+			planJson .= "{""amount"": " . payAmount . ", ""charge_date"": """ . chargeDate . """, ""description"": """ . planName . " - Deposit " . idx . """}"
+		}
+		planJson .= "]"
+	}
+	
+	; Add instalment schedule if any
+	if (GC_PP_InstalmentPayments.Length() > 0) {
+		; Get day from first instalment payment
+		parts := StrSplit(GC_PP_InstalmentPayments[1], ",")
+		instalDay := parts[1] + 0  ; Convert to number to remove leading zeros
+		instalCount := GC_PP_InstalmentPayments.Length()
+		; Calculate total amount (GoCardless will handle rounding on first payment)
+		instalTotalAmount := Round(GC_PP_InstalmentAmount * instalCount * 100)  ; Total in pence
+		
+		planJson .= ", ""instalment"": {""total_amount"": " . instalTotalAmount . ", ""count"": " . instalCount . ", ""day_of_month"": " . instalDay . "}"
+	}
+	
+	planJson .= "}"
+	
+	FileAppend, % A_Now . " - GC_PP_CreateMixed - planJson: " . planJson . "`n", %DebugLogFile%
+	
+	; Write JSON to temp file
+	tempJsonFile := A_Temp . "\gc_payplan_" . A_TickCount . ".json"
+	FileDelete, %tempJsonFile%
+	FileAppend, %planJson%, %tempJsonFile%
+	
+	Gui, GCPayPlan:Destroy
+	ToolTip, Creating payments...
+	
+	; Call Python script
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	scriptCmd := GetScriptCommand("gocardless_api", "--create-payment-plan-file """ . tempJsonFile . """" . envFlag)
+	FileAppend, % A_Now . " - GC_PP_CreateMixed - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
+	
+	tempResult := A_Temp . "\gc_payplan_result_" . A_TickCount . ".txt"
+	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
+	RunWait, %fullCmd%, , Hide
+	
+	FileRead, scriptOutput, %tempResult%
+	FileAppend, % A_Now . " - GC_PP_CreateMixed - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
+	FileDelete, %tempResult%
+	FileDelete, %tempJsonFile%
+	
+	ToolTip
+	
+	scriptOutput := Trim(scriptOutput)
+	
+	if (InStr(scriptOutput, "SUCCESS|")) {
+		parts := StrSplit(scriptOutput, "|")
+		; SUCCESS|payment_ids|subscription_id|summary
+		summary := parts[4]
+		
+		; Show success with option to open GoCardless
+		result := DarkMsgBox("Payments Created", "✅ GoCardless payments created successfully!`n`n" . summary, "success", {buttons: ["Open GC", "OK"]})
+		
+		if (result = "Open GC") {
+			; Open GoCardless customer page
+			customerId := GC_PP_MandateResult.customerId
+			gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
+			gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . customerId
+			Run, %gcUrl%
+		}
+	}
+	else if (InStr(scriptOutput, "ERROR|")) {
+		errorMsg := StrReplace(scriptOutput, "ERROR|", "")
+		DarkMsgBox("GoCardless Error", "Failed to create payments.`n`n" . errorMsg, "error")
+	}
+	else {
+		DarkMsgBox("GoCardless Error", "Unexpected response from GoCardless.`n`n" . SubStr(scriptOutput, 1, 200), "error")
+	}
+	return
+
+; Legacy mode change handler (kept for compatibility)
 GC_PP_ModeChange:
 	Gui, GCPayPlan:Submit, NoHide
 	GuiControlGet, isSingleMode,, GC_PP_ModeSingle
@@ -9745,13 +10590,18 @@ GC_PP_Create:
 	
 	FileAppend, % A_Now . " - GC_PP_Create - instalmentJson: " . instalmentJson . "`n", %DebugLogFile%
 	
+	; Write JSON to temp file to avoid command line quote issues
+	tempJsonFile := A_Temp . "\gc_instalment_" . A_TickCount . ".json"
+	FileDelete, %tempJsonFile%
+	FileAppend, %instalmentJson%, %tempJsonFile%
+	
 	; Close dialog and show progress
 	Gui, GCPayPlan:Destroy
 	ToolTip, Creating payment plan...
 	
 	; Call Python script
 	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
-	scriptCmd := GetScriptCommand("gocardless_api", "--create-instalment """ . instalmentJson . """" . envFlag)
+	scriptCmd := GetScriptCommand("gocardless_api", "--create-instalment-file """ . tempJsonFile . """" . envFlag)
 	FileAppend, % A_Now . " - GC_PP_Create - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
 	
 	tempResult := A_Temp . "\gc_instalment_result_" . A_TickCount . ".txt"
@@ -9761,6 +10611,7 @@ GC_PP_Create:
 	FileRead, scriptOutput, %tempResult%
 	FileAppend, % A_Now . " - GC_PP_Create - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
 	FileDelete, %tempResult%
+	FileDelete, %tempJsonFile%
 	
 	ToolTip
 	
@@ -10415,6 +11266,9 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_BrowsDown
 	GuiControl, Settings:Hide, FilesAutoDrive
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
+	GuiControl, Settings:Hide, FilesPSAGroup
+	GuiControl, Settings:Hide, FilesPSALabel
+	GuiControl, Settings:Hide, FilesPSAEdit
 	
 	; Hide all panels - Shortcuts
 	GuiControl, Settings:Hide, PanelShortcuts
@@ -10555,6 +11409,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GCAutoSetupLabel
 	GuiControl, Settings:Hide, Toggle_GCAutoSetup
 	GuiControl, Settings:Hide, GCAutoHint
+	GuiControl, Settings:Hide, GCWizardBtn
 	GuiControl, Settings:Hide, GCNamingLabel
 	GuiControl, Settings:Hide, GCNamePart1DDL
 	GuiControl, Settings:Hide, GCNameSep1
@@ -10770,6 +11625,10 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_BrowsDown
 		GuiControl, Settings:Show, FilesAutoDrive
 		GuiControl, Settings:Show, Toggle_AutoDriveDetect
+		; PSA Search Paths GroupBox
+		GuiControl, Settings:Show, FilesPSAGroup
+		GuiControl, Settings:Show, FilesPSALabel
+		GuiControl, Settings:Show, FilesPSAEdit
 		
 		; Update enabled/disabled state based on SD Card setting
 		UpdateFilesControlsState(Settings_SDCardEnabled)
@@ -12425,6 +13284,39 @@ if (selectedFile != "")
 	Settings_EditorRunPath := selectedFile
 	GuiControl, Settings:, FilesEditorEdit, %selectedFile%
 }
+Return
+
+FilesPSAEditBtn:
+	; Edit PSA search paths file
+	global Settings_ShootArchivePath
+	
+	archivePath := Settings_ShootArchivePath
+	if (archivePath = "")
+		archivePath := "D:\Shoot_Archive"
+	
+	pathsFile := archivePath . "\psa_search_paths.txt"
+	
+	; Create default file if doesn't exist
+	if (!FileExist(pathsFile)) {
+		; Create archive folder if needed
+		if (!FileExist(archivePath))
+			FileCreateDir, %archivePath%
+		
+		; Create template file with instructions
+		semicolon := ";"
+		defaultContent := "; PSA Search Paths`n"
+		defaultContent .= "; Add one folder path per line to search for .psa files`n"
+		defaultContent .= "; Lines starting with # or " . semicolon . " are comments`n"
+		defaultContent .= "; Paths are searched in order - first match wins`n"
+		defaultContent .= "; Example:`n"
+		defaultContent .= "; D:\Old_Archive\2024`n"
+		defaultContent .= "; E:\Backup\ProSelect`n"
+		defaultContent .= "; \\NAS\Photography\Albums`n"
+		FileAppend, %defaultContent%, %pathsFile%
+	}
+	
+	; Open in default text editor
+	Run, "%pathsFile%"
 Return
 
 FilesSyncFromLB:
