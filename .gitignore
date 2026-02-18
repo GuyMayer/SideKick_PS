@@ -1,3 +1,9 @@
+# Sensitive configuration files (contain API tokens)
+SideKick_PS.ini
+LBSidekick.ini
+*.ini
+!*.ini.template
+
 # Build outputs - don't track individual files, only ZIPs
 Release/
 
