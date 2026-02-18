@@ -12,6 +12,22 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.23 (2026-02-18)
+
+### Security
+- **CRITICAL: API Token Exposure Fix**: Removed GoCardless token fields from INI file - tokens now stored ONLY in `%APPDATA%\SideKick_PS\credentials.json`
+- **Removed INI Fallback**: GoCardless tokens no longer read from INI file (prevents accidental exposure via git)
+- **Updated .gitignore**: All `.ini` files now excluded from repository
+
+### Improvements
+- **No Plans List**: Now excludes mandates that EVER had subscriptions (including finished ones), not just active - finds mandates where no payment was ever set up
+- **Real-time Progress Bar**: Mandate fetch progress now updates live during API calls (same pattern as update download)
+
+### Bug Fixes
+- **Progress Bar Not Updating**: Fixed progress bar freezing during mandate fetch (was blocking on RunWait)
+
+---
+
 ## v2.5.22 (2026-02-17)
 
 ### New Features
