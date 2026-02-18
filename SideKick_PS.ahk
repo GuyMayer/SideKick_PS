@@ -8475,6 +8475,7 @@ return
 
 ListEmptyMandates:
 	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment, GC_EmptyMandatesList, GC_EmptyMandatesArray, Settings_ShootArchivePath
+	global GC_ProgressFile, GC_ResultFile, GC_FetchInProgress
 	
 	if (Settings_GoCardlessToken = "") {
 		DarkMsgBox("Error", "No API token configured.`n`nPlease enter your GoCardless API token first.", "error")
@@ -8493,16 +8494,79 @@ ListEmptyMandates:
 		return
 	}
 	
-	tempResult := A_Temp . "\gc_empty_mandates_" . A_TickCount . ".txt"
-	RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
+	; Set up progress and result files
+	GC_ProgressFile := A_Temp . "\gc_progress_" . A_TickCount . ".txt"
+	GC_ResultFile := A_Temp . "\gc_empty_mandates_" . A_TickCount . ".txt"
+	GC_FetchInProgress := true
 	
-	FileRead, mandatesOutput, %tempResult%
-	FileDelete, %tempResult%
+	; Add progress file argument
+	scriptCmd := scriptCmd . " --progress-file """ . GC_ProgressFile . """"
 	
-	ToolTip
+	; Run Python in background (not RunWait)
+	Run, %ComSpec% /c %scriptCmd% > "%GC_ResultFile%" 2>&1, , Hide
+	
+	; Start timer to poll progress
+	SetTimer, GC_FetchProgressTimer, 200
+return
+
+; Timer to update mandate fetch progress bar
+GC_FetchProgressTimer:
+	global GC_ProgressFile, GC_ResultFile, GC_FetchInProgress
+	
+	if (!GC_FetchInProgress) {
+		SetTimer, GC_FetchProgressTimer, Off
+		return
+	}
+	
+	; Check if result file exists and has content (script finished)
+	if (FileExist(GC_ResultFile)) {
+		FileRead, resultContent, %GC_ResultFile%
+		if (resultContent != "") {
+			; Script finished - stop timer and process results
+			SetTimer, GC_FetchProgressTimer, Off
+			GC_FetchInProgress := false
+			FileDelete, %GC_ProgressFile%
+			Gosub, GC_ProcessFetchResults
+			return
+		}
+	}
+	
+	; Read and update progress
+	if (FileExist(GC_ProgressFile)) {
+		FileRead, progressData, %GC_ProgressFile%
+		if (progressData != "") {
+			parts := StrSplit(progressData, "|")
+			if (parts.Length() >= 3) {
+				current := parts[1]
+				total := parts[2]
+				message := parts[3]
+				if (total > 0) {
+					progress := Round((current / total) * 100)
+					GuiControl, Settings:, GCProgressBar, %progress%
+				}
+				GuiControl, Settings:, GCProgressText, %message%
+			}
+		}
+	}
+return
+
+GC_ProcessFetchResults:
+	global GC_ResultFile, GC_EmptyMandatesList, GC_EmptyMandatesArray, Settings_ShootArchivePath
+	
+	FileRead, mandatesOutput, %GC_ResultFile%
+	FileDelete, %GC_ResultFile%
 	
 	if (InStr(mandatesOutput, "NO_EMPTY_MANDATES")) {
+		GuiControl, Settings:, GCProgressBar, 0
+		GuiControl, Settings:, GCProgressText,
 		DarkMsgBox("All Mandates Have Plans", "✅ Great news!`n`nAll active mandates have payment plans assigned.", "success")
+		return
+	}
+	
+	if (InStr(mandatesOutput, "ERROR")) {
+		GuiControl, Settings:, GCProgressBar, 0
+		GuiControl, Settings:, GCProgressText,
+		DarkMsgBox("Error", "Failed to fetch mandates.`n`n" . mandatesOutput, "error")
 		return
 	}
 	
