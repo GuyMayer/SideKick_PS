@@ -53,11 +53,8 @@ SkippedVersion=
 LastCheckDate=
 
 [GoCardless]
-; IMPORTANT: Get your tokens from https://manage.gocardless.com/developers/access-tokens
-; NEVER commit real tokens to version control!
-SandboxToken=YOUR_SANDBOX_TOKEN_HERE
-LiveToken=YOUR_LIVE_TOKEN_HERE
-Token=
+; Tokens are stored in %APPDATA%\SideKick_PS\credentials.json
+; See credentials.json.template for the format
 Environment=sandbox
 ApiUrl=https://api-sandbox.gocardless.com
 Enabled=1
