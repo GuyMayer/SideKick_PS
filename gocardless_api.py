@@ -514,7 +514,7 @@ def create_billing_request_flow(contact_data: dict, token: str, environment: str
     return result
 
 
-def list_mandates_without_plans(token: str, environment: str) -> List[Dict[str, Any]]:
+def list_mandates_without_plans(token: str, environment: str, progress_file: str = None) -> List[Dict[str, Any]]:
     """List all active mandates that have NEVER had any payment plans.
     
     This excludes mandates that have any subscriptions/plans (even finished ones),
@@ -523,13 +523,25 @@ def list_mandates_without_plans(token: str, environment: str) -> List[Dict[str, 
     Args:
         token: GoCardless API token
         environment: "sandbox" or "live"
+        progress_file: Optional path to write progress updates for GUI polling
 
     Returns:
         list: List of mandate dicts with {mandate_id, customer_name, email, created_at, bank_name}
     """
     debug_log("list_mandates_without_plans called")
 
+    def write_progress(current: int, total: int, message: str = ""):
+        """Write progress to file for GUI to poll."""
+        if progress_file:
+            try:
+                with open(progress_file, 'w', encoding='utf-8') as f:
+                    f.write(f"{current}|{total}|{message}")
+            except Exception:
+                pass
+
     results = []
+
+    write_progress(0, 100, "Fetching mandates...")
 
     # Get all active mandates
     mandates_resp = gc_request('GET', '/mandates?status=active', token, environment, timeout=30)
@@ -538,15 +550,20 @@ def list_mandates_without_plans(token: str, environment: str) -> List[Dict[str, 
         return results
 
     mandates = mandates_resp.get('mandates', [])
-    debug_log(f"Found {len(mandates)} active mandates")
+    total = len(mandates)
+    debug_log(f"Found {total} active mandates")
+
+    write_progress(0, total, f"Checking {total} mandates...")
 
     # Cache customer info to avoid repeated lookups
     customer_cache = {}
 
-    for mandate in mandates:
+    for idx, mandate in enumerate(mandates):
         mandate_id = mandate.get('id', '')
         customer_id = mandate.get('links', {}).get('customer', '')
         bank_account_id = mandate.get('links', {}).get('customer_bank_account', '')
+
+        write_progress(idx + 1, total, f"Checking {idx + 1}/{total}...")
 
         # Check if this mandate has EVER had any plans (including finished/cancelled)
         plans = list_mandate_subscriptions(mandate_id, token, environment)
@@ -1054,6 +1071,8 @@ Examples:
                         help='List active instalment schedules for a mandate')
     parser.add_argument('--list-empty-mandates', action='store_true',
                         help='List all active mandates with no payment plans')
+    parser.add_argument('--progress-file', type=str, metavar='PATH',
+                        help='File path for progress updates (GUI polling)')
     parser.add_argument('--live', action='store_true',
                         help='Use live environment instead of sandbox')
 
@@ -1129,7 +1148,7 @@ Examples:
 
     elif args.list_empty_mandates:
         debug_log("Executing --list-empty-mandates")
-        mandates = list_mandates_without_plans(gc_token, environment)
+        mandates = list_mandates_without_plans(gc_token, environment, args.progress_file)
         if not mandates:
             print("NO_EMPTY_MANDATES")
         else:
