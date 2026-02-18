@@ -1,0 +1,63 @@
+; SideKick_PS Configuration Template
+; Copy this file to SideKick_PS.ini and fill in your values
+; NEVER commit SideKick_PS.ini to version control - it contains sensitive tokens!
+
+[Payments]
+PayDue=0.00
+PayNo=0
+PayValue=0.00
+PayDay=
+PayMonth=
+PayYear=
+PayType=GoCardless DD
+Recurring=Monthly
+
+[PaymentLines]
+; Payment lines will be auto-generated
+
+[ProSelect2025]
+PaymentTypes=GoCardless DD|Credit Card|Bank Transfer|Cash|Paypal|Other
+
+[GHL]
+LocationID=YOUR_GHL_LOCATION_ID
+Enabled=1
+AutoFetch=0
+AutoLoad=0
+InvoiceWatchFolder=C:\Users\YOUR_USERNAME\OneDrive\Documents\Proselect Order Exports
+SearchAllTabs=1
+FinancialsOnly=0
+
+[Settings]
+StartOnBoot=0
+ShowTrayIcon=1
+EnableSounds=1
+AutoDetectPS=1
+DefaultRecurring=Monthly
+DefaultPayType=Gocardles DD
+
+[Hotkeys]
+GHLLookup=^+g
+PayPlan=^+p
+Settings=^+i
+
+[License]
+TrialStart=
+CustomerName=
+CustomerEmail=
+ActivatedAt=
+TrialWarningDate=
+Token=
+
+[Updates]
+SkippedVersion=
+LastCheckDate=
+
+[GoCardless]
+; IMPORTANT: Get your tokens from https://manage.gocardless.com/developers/access-tokens
+; NEVER commit real tokens to version control!
+SandboxToken=YOUR_SANDBOX_TOKEN_HERE
+LiveToken=YOUR_LIVE_TOKEN_HERE
+Token=
+Environment=sandbox
+ApiUrl=https://api-sandbox.gocardless.com
+Enabled=1
