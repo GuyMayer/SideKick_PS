@@ -12,6 +12,20 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.25 (2026-02-18)
+
+### Bug Fixes
+- **GoCardless Instalment Amount**: Fixed "parameter incorrectly typed" error - now includes amount for each instalment payment
+- **Error Dialog Truncation**: DarkMsgBox now auto-calculates height for long/wrapped messages
+- **Toolbar Background Persistence**: Saves last known toolbar background color to INI for reload
+
+### Improvements
+- **Clickable Mandate List**: "Mandates Without Plans" now uses ListBox with clickable rows instead of selectable text
+- **Album Search**: GC_FindAlbumFromList now searches using both job number AND surname for better matching
+- **OpenPSAFolderInProSelect**: Fixed folder navigation using ControlSetText instead of F4 hotkey
+
+---
+
 ## v2.5.24 (2026-02-18)
 
 ### New Features

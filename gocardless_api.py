@@ -915,16 +915,25 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
             month = 1
             year += 1
 
-    # Build instalment schedule request - only send dates, let GoCardless calculate amounts
-    # GoCardless will handle rounding by adjusting the first payment
+    # Calculate amount per instalment with rounding
+    # Put any remainder on the first payment
+    amount_per_payment = total_amount // count
+    remainder = total_amount - (amount_per_payment * count)
+    
+    # Build instalments array with amounts
+    instalments = []
+    for i, d in enumerate(payment_dates):
+        # First payment gets the remainder to ensure total matches exactly
+        amount = amount_per_payment + remainder if i == 0 else amount_per_payment
+        instalments.append({'charge_date': d, 'amount': amount})
+    
+    # Build instalment schedule request
     schedule_request = {
         'instalment_schedules': {
             'name': unique_name,
-            'total_amount': str(total_amount),
+            'total_amount': total_amount,  # Integer in pence
             'currency': schedule_data.get('currency', 'GBP'),
-            'instalments': [
-                {'charge_date': d} for d in payment_dates
-            ],
+            'instalments': instalments,
             'links': {
                 'mandate': mandate_id,
             },
@@ -950,19 +959,10 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
         result['error'] = 'No schedule ID returned'
         return result
 
-    # Get the payments that GoCardless created (with calculated amounts)
-    created_payments = []
-    amount_per_payment = total_amount // count
-    for d in payment_dates:
-        created_payments.append({
-            'charge_date': d,
-            'amount': amount_per_payment,  # Approximate - actual may differ due to rounding
-        })
-
     result['success'] = True
     result['schedule_id'] = schedule_id
     result['name'] = unique_name
-    result['payments'] = created_payments
+    result['payments'] = instalments  # Use the instalments we already built
 
     debug_log("Instalment schedule created successfully", result)
     return result

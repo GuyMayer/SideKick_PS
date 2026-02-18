@@ -339,6 +339,7 @@ global Settings_PDFPrintBtnOffsetBottom := 0 ; Print button Y offset from bottom
 global PDF_CalibrationMode := false          ; True when Ctrl+Shift+Click triggers calibration
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow, Auto
 global Settings_ToolbarAutoBG := true         ; Auto-detect background color for toolbar (default ON)
+global Settings_ToolbarLastBGColor := "333333" ; Last known good toolbar background color
 global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
 global Settings_ToolbarOffsetX := 0  ; Toolbar X offset from default position (Ctrl+Click grab handle to adjust)
 global Settings_ToolbarOffsetY := 0  ; Toolbar Y offset from default position
@@ -1615,7 +1616,7 @@ CreateFloatingToolbar()
 	
 	; Calculate toolbar position and sample background color BEFORE creating GUI
 	; This ensures we sample the actual screen content, not our own toolbar
-	initialBgColor := "333333"  ; Default fallback
+	initialBgColor := Settings_ToolbarLastBGColor ? Settings_ToolbarLastBGColor : "333333"  ; Use saved color or fallback
 	if (Settings_ToolbarAutoBG) {
 		; Get ProSelect window position
 		WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
@@ -2099,6 +2100,10 @@ UpdateToolbarBackground:
 		b := sampledColor & 0xFF
 		bgColorHex := Format("{:02X}{:02X}{:02X}", r, g, b)
 		Gui, Toolbar:Color, %bgColorHex%
+		
+		; Save the successful color to INI for next startup
+		Settings_ToolbarLastBGColor := bgColorHex
+		IniWrite, %bgColorHex%, %IniFilename%, Appearance, ToolbarLastBGColor
 	}
 	
 	; Show toolbar again
@@ -5494,8 +5499,22 @@ DarkMsgBox(title, message, type := "info", options := "") {
 		calcWidth := maxWidth
 	winWidth := customWidth ? Round(customWidth * dpi) : calcWidth
 	
-	; Calculate height based on content - more padding for button
-	lineCount := msgLines.Length()
+	; Calculate height based on content - account for text wrapping
+	; Estimate characters that fit per visual line (accounting for margins)
+	charsPerLine := Round((winWidth - 100 * dpi) / 8)
+	if (charsPerLine < 30)
+		charsPerLine := 30
+	
+	; Count actual visual lines including wrapping
+	lineCount := 0
+	for i, line in msgLines {
+		lineLen := StrLen(line)
+		if (lineLen = 0)
+			lineCount += 1
+		else
+			lineCount += Ceil(lineLen / charsPerLine)
+	}
+	
 	lineHeight := Round(22 * dpi)
 	msgHeight := lineCount * lineHeight + Round(30 * dpi)
 	minMsgHeight := Round(80 * dpi)
@@ -5554,6 +5573,16 @@ DarkMsgBox(title, message, type := "info", options := "") {
 	{
 		line := A_LoopField
 		
+		; Calculate how many visual lines this text needs (for wrapping)
+		lineLen := StrLen(line)
+		if (lineLen = 0)
+			visualLines := 1
+		else
+			visualLines := Ceil(lineLen / charsPerLine)
+		if (visualLines < 1)
+			visualLines := 1
+		thisLineHeight := visualLines * lineHeight
+		
 		; Determine color based on line prefix
 		if (InStr(line, "✨") || InStr(line, "NEW:"))
 			lineColor := "4FC3F7"  ; Cyan for new features
@@ -5569,8 +5598,8 @@ DarkMsgBox(title, message, type := "info", options := "") {
 			lineColor := textColor
 		
 		Gui, DarkMsg:Font, s%textFont% Norm c%lineColor%, Segoe UI
-		Gui, DarkMsg:Add, Text, x%textX% y%yPos% w%msgWidth%, %line%
-		yPos += lineHeight
+		Gui, DarkMsg:Add, Text, x%textX% y%yPos% w%msgWidth% h%thisLineHeight%, %line%
+		yPos += thisLineHeight
 	}
 	yPos += Round(10 * dpi)  ; Extra spacing after message
 	
@@ -9155,13 +9184,14 @@ GC_ProcessFetchResults:
 		}
 	}
 	
-	; Build display text and raw list (now sorted newest first)
-	displayText := ""
+	; Build display list for ListBox (pipe separates items, use different char for fields)
+	displayList := ""
 	Loop, % GC_EmptyMandatesArray.Length()
 	{
 		m := GC_EmptyMandatesArray[A_Index]
 		shootDisplay := m.shootNo != "" ? m.shootNo : "---"
-		displayText .= m.date . " | " . shootDisplay . " | " . m.name . " | " . m.email . "`n"
+		; Use tabs or dashes instead of pipes (pipes are ListBox item separators)
+		displayList .= m.date . "  " . shootDisplay . "  " . m.name . "  " . m.email . "|"
 		GC_EmptyMandatesList .= m.raw . "`n"
 	}
 	
@@ -9175,94 +9205,116 @@ GC_ProcessFetchResults:
 	Gui, GCEmptyMandates:Color, 2D2D2D, 3D3D3D
 	Gui, GCEmptyMandates:Font, s10 cWhite, Segoe UI
 	
-	headerText := mandateCount . " mandate(s) without payment plans (newest first):"
+	headerText := mandateCount . " mandate(s) without payment plans - double-click to find album:"
 	Gui, GCEmptyMandates:Add, Text, x15 y15 w720 cCCCCCC, %headerText%
 	
 	Gui, GCEmptyMandates:Font, s9 cWhite, Consolas
-	Gui, GCEmptyMandates:Add, Edit, x15 y45 w720 h250 vGC_EmptyMandatesEdit ReadOnly Background3D3D3D cWhite, %displayText%
+	Gui, GCEmptyMandates:Add, ListBox, x15 y45 w720 h250 vGC_EmptyMandatesList Background3D3D3D cWhite gGC_MandateListClick AltSubmit, %displayList%
 	
 	Gui, GCEmptyMandates:Font, s10 cWhite, Segoe UI
-	Gui, GCEmptyMandates:Add, Button, x120 y305 w120 h30 gGC_CopyEmptyMandates, Copy to Clipboard
-	Gui, GCEmptyMandates:Add, Button, x250 y305 w120 h30 gGC_FindAlbumFromList, Find Album
-	Gui, GCEmptyMandates:Add, Button, x380 y305 w100 h30 gGC_CloseEmptyMandates, Close
+	Gui, GCEmptyMandates:Add, Button, x180 y305 w120 h30 gGC_CopyEmptyMandates, Copy to Clipboard
+	Gui, GCEmptyMandates:Add, Button, x320 y305 w100 h30 gGC_CloseEmptyMandates, Close
 	
 	Gui, GCEmptyMandates:Show, w750 h350, Mandates Without Plans
 return
 
+; Handle ListBox click/double-click
+GC_MandateListClick:
+	if (A_GuiEvent != "DoubleClick")
+		return
+	; Fall through to find album
+	
 GC_FindAlbumFromList:
 	global GC_EmptyMandatesArray, Settings_ShootArchivePath
 	
-	; Get selected text from edit control
+	; Get selected index from ListBox
 	Gui, GCEmptyMandates:Submit, NoHide
-	GuiControlGet, editContent,, GC_EmptyMandatesEdit
+	GuiControlGet, selectedIndex,, GC_EmptyMandatesList
 	
-	; Get current selection
-	ControlGet, selectedText, Selected,, Edit1, Mandates Without Plans
-	
-	if (selectedText = "") {
-		DarkMsgBox("No Selection", "Please select a line (or part of a name) to search for.", "warning")
+	if (selectedIndex = "" || selectedIndex < 1 || selectedIndex > GC_EmptyMandatesArray.Length()) {
+		DarkMsgBox("No Selection", "Please select a line to search for.", "warning")
 		return
 	}
 	
-	; Extract surname from selection - take first word or use the whole thing
-	searchTerm := Trim(selectedText)
+	; Get mandate data from array
+	m := GC_EmptyMandatesArray[selectedIndex]
 	
-	; If it looks like they selected a whole line, try to extract the name part
-	if (InStr(searchTerm, "|")) {
-		parts := StrSplit(searchTerm, "|")
-		; Format is: date | name | email | bank
-		; Try to get name from second part
-		if (parts.Length() >= 2) {
-			namePart := Trim(parts[2])
-			; Get surname (last word of name)
-			nameParts := StrSplit(namePart, " ")
-			searchTerm := nameParts[nameParts.Length()]
-		}
-	} else {
-		; Just use first word if multiple
-		searchParts := StrSplit(searchTerm, " ")
-		searchTerm := searchParts[searchParts.Length()]  ; Use last word (likely surname)
+	; Build search terms: job number and surname
+	searchTerms := []
+	
+	; Add job number if available
+	if (m.shootNo != "" && m.shootNo != "---") {
+		searchTerms.Push(m.shootNo)
 	}
 	
-	if (searchTerm = "" || StrLen(searchTerm) < 2) {
-		DarkMsgBox("Invalid Search", "Please select a valid name to search for.", "warning")
+	; Add surname (last word of name)
+	if (m.name != "") {
+		nameParts := StrSplit(m.name, " ")
+		surname := nameParts[nameParts.Length()]
+		if (surname != "" && StrLen(surname) > 1)
+			searchTerms.Push(surname)
+	}
+	
+	if (searchTerms.Length() = 0) {
+		DarkMsgBox("Invalid Search", "No job number or name to search for.", "warning")
 		return
 	}
 	
-	; Search archive folder for matching albums
+	; Search archive folder for matching albums using ALL search terms
 	archivePath := Settings_ShootArchivePath
 	if (archivePath = "") {
 		archivePath := "D:\Shoot_Archive"
 	}
 	
-	ToolTip, Searching for "%searchTerm%" in archive...
+	; Build search description
+	searchDesc := ""
+	for i, term in searchTerms
+		searchDesc .= (i > 1 ? " or " : "") . term
+	
+	ToolTip, Searching for "%searchDesc%" in archive...
 	
 	foundFolders := []
 	foundPaths := []
 	
-	; First search main archive path
+	; Search main archive path using all search terms
 	Loop, Files, %archivePath%\*, D
 	{
-		if (InStr(A_LoopFileName, searchTerm)) {
-			foundFolders.Push(A_LoopFileName)
-			foundPaths.Push(A_LoopFileLongPath)
+		for i, searchTerm in searchTerms {
+			if (InStr(A_LoopFileName, searchTerm)) {
+				; Avoid duplicates
+				alreadyFound := false
+				for j, existing in foundPaths {
+					if (existing = A_LoopFileLongPath) {
+						alreadyFound := true
+						break
+					}
+				}
+				if (!alreadyFound) {
+					foundFolders.Push(A_LoopFileName)
+					foundPaths.Push(A_LoopFileLongPath)
+				}
+				break  ; Found a match for this folder, move to next folder
+			}
 		}
 	}
 	
-	; If not found, try alternative search paths
+	; If not found, try alternative search paths with each term
 	if (foundFolders.Length() = 0) {
-		altPath := SearchAlternativePaths(searchTerm)
-		if (altPath != "") {
-			SplitPath, altPath, altFolderName
-			foundFolders.Push(altFolderName)
-			foundPaths.Push(altPath)
+		for i, searchTerm in searchTerms {
+			altPath := SearchAlternativePaths(searchTerm)
+			if (altPath != "") {
+				SplitPath, altPath, altFolderName
+				foundFolders.Push(altFolderName)
+				foundPaths.Push(altPath)
+				break
+			}
 		}
 	}
 	
 	ToolTip
 	
 	if (foundFolders.Length() = 0) {
-		DarkMsgBox("No Albums Found", "No folders matching '" . searchTerm . "' found in archive or alternative paths.", "warning")
+		DarkMsgBox("No Albums Found", "No folders matching '" . searchDesc . "' found in archive or alternative paths.", "warning")
 		return
 	}
 	
@@ -9288,7 +9340,7 @@ GC_FindAlbumFromList:
 		foundList .= folder . "`n"
 	}
 	
-	result := DarkMsgBox("Multiple Albums Found", "Found " . foundFolders.Length() . " folders matching '" . searchTerm . "':`n`n" . foundList . "`nOpen the first match?", "question", {buttons: ["Open First", "Cancel"]})
+	result := DarkMsgBox("Multiple Albums Found", "Found " . foundFolders.Length() . " folders matching '" . searchDesc . "':`n`n" . foundList . "`nOpen the first match?", "question", {buttons: ["Open First", "Cancel"]})
 	
 	if (result = "Open First") {
 		fullPath := foundPaths[1]
@@ -9491,11 +9543,12 @@ OpenPSAFolderInProSelect(folderPath) {
 		; Wait for file dialog
 		WinWait, Select an Album File, , 5
 		if (!ErrorLevel) {
-			; Type the folder path in the file name field (this navigates there)
+			; Navigate to folder using the filename edit control
 			Sleep, 300
-			SendInput, {F4}  ; Focus address bar
-			Sleep, 200
-			SendInput, %folderPath%
+			; Click into filename field and type full path
+			ControlFocus, Edit1, Select an Album File
+			Sleep, 100
+			ControlSetText, Edit1, %folderPath%, Select an Album File
 			Sleep, 200
 			SendInput, {Enter}
 			Sleep, 500
@@ -16284,6 +16337,7 @@ LoadSettings()
 	IniRead, Settings_SDCardEnabled, %IniFilename%, FileManagement, SDCardEnabled, 1
 	IniRead, Settings_ToolbarIconColor, %IniFilename%, Appearance, ToolbarIconColor, White
 	IniRead, Settings_ToolbarAutoBG, %IniFilename%, Appearance, ToolbarAutoBG, 1
+	IniRead, Settings_ToolbarLastBGColor, %IniFilename%, Appearance, ToolbarLastBGColor, 333333
 	
 	; Toolbar button visibility
 	IniRead, Settings_ShowBtn_Client, %IniFilename%, Toolbar, ShowBtn_Client, 1
