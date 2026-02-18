@@ -515,7 +515,10 @@ def create_billing_request_flow(contact_data: dict, token: str, environment: str
 
 
 def list_mandates_without_plans(token: str, environment: str) -> List[Dict[str, Any]]:
-    """List all active mandates that have no payment plans (subscriptions, instalment schedules, or pending payments).
+    """List all active mandates that have NEVER had any payment plans.
+    
+    This excludes mandates that have any subscriptions/plans (even finished ones),
+    to find mandates where no payment arrangement was ever set up.
 
     Args:
         token: GoCardless API token
@@ -545,14 +548,13 @@ def list_mandates_without_plans(token: str, environment: str) -> List[Dict[str, 
         customer_id = mandate.get('links', {}).get('customer', '')
         bank_account_id = mandate.get('links', {}).get('customer_bank_account', '')
 
-        # Check if this mandate has any plans
+        # Check if this mandate has EVER had any plans (including finished/cancelled)
         plans = list_mandate_subscriptions(mandate_id, token, environment)
         
-        # Filter to only active/pending plans
-        active_plans = [p for p in plans if p['status'] in ('active', 'pending', 'pending_submission', 'submitted', 'confirmed')]
-        
-        if len(active_plans) > 0:
-            debug_log(f"Mandate {mandate_id} has {len(active_plans)} active plans - skipping")
+        # Exclude if ANY subscription/plan exists (even finished ones)
+        # We only want mandates where NO payment arrangement was ever set up
+        if len(plans) > 0:
+            debug_log(f"Mandate {mandate_id} has {len(plans)} plans (any status) - skipping")
             continue
 
         # Get customer info
