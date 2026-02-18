@@ -1,9 +1,10 @@
 {
-  "version": "2.5.25",
+  "version": "2.5.26",
   "build_date": "2026-02-18",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GoCardless instalment schedule fixes and error dialog improvements",
+  "release_notes": "Fixed --list-sms-templates argument missing from compiled exe",
   "changelog": [
+    "FIX: --list-sms-templates argument now available in compiled exe (was missing from frozen argparse)",
     "FIX: GoCardless instalment schedule now correctly includes amount per payment",
     "FIX: Error dialogs now auto-size height for long/wrapped messages",
     "FIX: Toolbar background color now persists across reloads via INI",

@@ -4096,6 +4096,7 @@ def _parse_cli_args():
         parser.add_argument('--email-subject', type=str, default='')
         parser.add_argument('--email-template', type=str, default='')
         parser.add_argument('--list-email-templates', action='store_true')
+        parser.add_argument('--list-sms-templates', action='store_true')
         parser.add_argument('--void-invoice', type=str, default='')
     else:
         parser = argparse.ArgumentParser(description='Sync ProSelect invoice to GHL')
