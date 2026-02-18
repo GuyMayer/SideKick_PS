@@ -12,6 +12,13 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.26 (2026-02-18)
+
+### Bug Fixes
+- **SMS Templates Argument**: Fixed `--list-sms-templates` missing from compiled exe (was only in development argparse branch)
+
+---
+
 ## v2.5.25 (2026-02-18)
 
 ### Bug Fixes

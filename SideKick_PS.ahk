@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.23
+; Version:     2.5.26
 ; Build Date:  2026-02-18
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
