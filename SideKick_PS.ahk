@@ -1410,7 +1410,7 @@ LoadGHLCredentials() {
 		}
 	}
 	
-	; Fall back to legacy INI format for backwards compatibility
+	; Fall back to legacy INI format for GHL credentials only (not GoCardless tokens)
 	IniRead, GHL_API_Key_B64, %IniFilename%, GHL, API_Key_B64, %A_Space%
 	if (GHL_API_Key_B64 = "")
 		IniRead, GHL_API_Key_B64, %IniFilename%, GHL, API_Key_V2_B64, %A_Space%
@@ -1421,15 +1421,10 @@ LoadGHLCredentials() {
 	else
 		GHL_API_Key := ""
 	
-	; Also check for GoCardless token in INI (legacy)
-	IniRead, gcTokenIni, %IniFilename%, GoCardless, Token, %A_Space%
-	if (gcTokenIni != "")
-		Settings_GoCardlessToken := gcTokenIni
-	
-	; If we loaded from INI, migrate to JSON format
-	if (GHL_API_Key != "" || GHL_LocationID != "" || Settings_GoCardlessToken != "") {
+	; GoCardless tokens must be in credentials.json - no INI fallback for security
+	; If we loaded GHL credentials from INI, migrate to JSON format
+	if (GHL_API_Key != "" || GHL_LocationID != "") {
 		SaveGHLCredentials()
-		; Clean up legacy INI entries (optional - leave for now for safety)
 	}
 	
 	return false
@@ -8279,7 +8274,7 @@ CreateGoCardlessPanel()
 	
 	; API Token display (masked)
 	Gui, Settings:Add, Text, x210 y258 w90 BackgroundTrans vGCTokenLabel Hidden gTT_GCToken HwndHwndGCToken, API Token:
-	RegisterSettingsTooltip(HwndGCToken, "GOCARDLESS API TOKEN`n`nYour GoCardless access token.`nGet it from: GoCardless Dashboard > Developers > Create > Access token`n`nTokens are stored in the INI file.")
+	RegisterSettingsTooltip(HwndGCToken, "GOCARDLESS API TOKEN`n`nYour GoCardless access token.`nGet it from: GoCardless Dashboard > Developers > Create > Access token`n`nTokens are stored securely in credentials.json (base64 encoded).")
 	tokenDisplay := Settings_GoCardlessToken ? SubStr(Settings_GoCardlessToken, 1, 12) . "..." . SubStr(Settings_GoCardlessToken, -4) : "Not configured"
 	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
 	Gui, Settings:Add, Edit, x305 y255 w250 h25 vGCTokenDisplay Hidden ReadOnly, %tokenDisplay%
