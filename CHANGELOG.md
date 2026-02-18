@@ -12,6 +12,23 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.24 (2026-02-18)
+
+### New Features
+- **Use Another Mandate**: When no mandate found, search by partner's name or email to find their mandate
+- **Open GC Button**: Success dialog now has "Open GC" button to view customer in GoCardless dashboard
+
+### Improvements
+- **Dark No-Mandate Dialog**: "No mandate found" dialog now uses dark theme with Send Request/Use Another/Cancel buttons
+- **Larger Payment Plan Dialog**: Taller window (545px) with more space for payment list and detected info
+- **GoCardless Rounding**: Instalment schedules now send total_amount - GoCardless handles per-payment rounding
+
+### Bug Fixes
+- **JSON day_of_month Error**: Fixed invalid JSON when day had leading zero (e.g., 01 → 1)
+- **Instalment Schedule Not Created**: Fixed detection of total_amount parameter in payment plan creation
+
+---
+
 ## v2.5.23 (2026-02-18)
 
 ### New Features
@@ -29,6 +46,8 @@ AI INSTRUCTIONS - When publishing a new version:
 
 ### Bug Fixes
 - **Progress Bar Not Updating**: Fixed progress bar freezing during mandate fetch (was blocking on RunWait)
+- **Toolbar Background on Startup**: Added delayed background re-sample 2s after first show to fix color when ProSelect title bar isn't fully rendered during initial sample
+- **Existing Plans Display**: Expanded status filter to include 'completed' and 'finished' plans so all historical payment plans show in mandate dialog
 
 ---
 

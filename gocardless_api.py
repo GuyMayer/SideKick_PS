@@ -426,6 +426,110 @@ def check_customer_mandate(email: str, token: str, environment: str) -> Dict[str
     return result
 
 
+def check_customer_mandate_by_name(name: str, token: str, environment: str) -> Dict[str, Any]:
+    """Check if a customer has an active mandate by searching by name.
+
+    Args:
+        name: Customer name to search for (partial match)
+        token: GoCardless API token
+        environment: "sandbox" or "live"
+
+    Returns:
+        dict: {has_mandate: bool, mandate_id: str, mandate_status: str,
+               bank_name: str, customer_id: str, customer_name: str, error: str}
+    """
+    debug_log(f"check_customer_mandate_by_name called for name: {name}")
+
+    result = {
+        'has_mandate': False,
+        'mandate_id': '',
+        'mandate_status': '',
+        'bank_name': '',
+        'customer_id': '',
+        'customer_name': '',
+        'customer_email': '',
+        'error': '',
+    }
+
+    # Fetch all customers
+    debug_log(f"Fetching all customers to search for name: {name}")
+    customers_resp = gc_request('GET', '/customers', token, environment)
+
+    if 'error' in customers_resp:
+        error_log(f"Failed to get customers: {customers_resp['error']}")
+        result['error'] = customers_resp['error']
+        return result
+
+    all_customers = customers_resp.get('customers', [])
+    debug_log(f"Total customers in GoCardless: {len(all_customers)}")
+
+    # Search by name (case-insensitive partial match)
+    search_lower = name.lower()
+    matching_customers = []
+    for c in all_customers:
+        full_name = f"{c.get('given_name', '')} {c.get('family_name', '')}".strip()
+        if search_lower in full_name.lower():
+            matching_customers.append(c)
+            debug_log(f"Match found: {full_name} ({c.get('email', 'no email')})")
+
+    if not matching_customers:
+        debug_log("No customer found matching name")
+        return result
+
+    # Use first match
+    customer = matching_customers[0]
+    customer_id = customer.get('id', '')
+    result['customer_id'] = customer_id
+    result['customer_name'] = f"{customer.get('given_name', '')} {customer.get('family_name', '')}".strip()
+    result['customer_email'] = customer.get('email', '')
+    debug_log(f"Using customer: {result['customer_name']} (ID: {customer_id})")
+
+    # Get mandates for this customer
+    debug_log(f"Getting mandates for customer {customer_id}")
+    mandates_resp = gc_request('GET', f'/mandates?customer={customer_id}', token, environment)
+
+    if 'error' in mandates_resp:
+        error_log(f"Failed to get mandates: {mandates_resp['error']}")
+        result['error'] = mandates_resp['error']
+        return result
+
+    mandates = mandates_resp.get('mandates', [])
+    debug_log(f"Found {len(mandates)} mandate(s)")
+    if not mandates:
+        debug_log("Customer exists but has no mandates")
+        return result
+
+    # Find active mandate
+    active_statuses = ['active', 'pending_submission', 'submitted']
+    for mandate in mandates:
+        mandate_status = mandate.get('status')
+        debug_log(f"Mandate {mandate.get('id')}: status={mandate_status}")
+        if mandate_status in active_statuses:
+            result['has_mandate'] = True
+            result['mandate_id'] = mandate.get('id', '')
+            result['mandate_status'] = mandate_status
+
+            # Try to get bank account name
+            bank_account_id = mandate.get('links', {}).get('customer_bank_account', '')
+            if bank_account_id:
+                debug_log(f"Getting bank account details: {bank_account_id}")
+                bank_resp = gc_request('GET', f'/customer_bank_accounts/{bank_account_id}',
+                                       token, environment, timeout=10)
+                if 'error' not in bank_resp:
+                    bank_accounts = bank_resp.get('customer_bank_accounts', {})
+                    if isinstance(bank_accounts, list) and bank_accounts:
+                        result['bank_name'] = bank_accounts[0].get('bank_name', 'Bank account')
+                    elif isinstance(bank_accounts, dict):
+                        result['bank_name'] = bank_accounts.get('bank_name', 'Bank account')
+                    else:
+                        result['bank_name'] = 'Bank account'
+
+            return result
+
+    # No active mandate found
+    return result
+
+
 def create_billing_request_flow(contact_data: dict, token: str, environment: str,
                                 ghl_api_key: str = '', location_id: str = '') -> Dict[str, Any]:
     """Create a billing request flow for mandate setup.
@@ -722,7 +826,8 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
     Args:
         schedule_data: {
             mandate_id: str,           # Required: GoCardless mandate ID
-            amount: int,               # Amount per payment in pence (e.g., 5000 = £50.00)
+            total_amount: int,         # Total amount for all payments in pence (preferred)
+            amount: int,               # Amount per payment in pence (legacy - used to calculate total)
             currency: str,             # Currency code (default: GBP)
             name: str,                 # Name for the schedule
             day_of_month: int,         # 1-28 or -1 for last day
@@ -734,6 +839,9 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
 
     Returns:
         dict: {success: bool, schedule_id: str, error: str, payments: list, name: str}
+    
+    Note: GoCardless automatically handles rounding - it will adjust the first payment
+    to account for any rounding differences when dividing total_amount by count.
     """
     debug_log("create_instalment_schedule called", schedule_data)
 
@@ -746,16 +854,22 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
     }
 
     mandate_id = schedule_data.get('mandate_id', '')
-    amount = schedule_data.get('amount', 0)
     name = schedule_data.get('name', 'Payment Plan')
     count = schedule_data.get('count', 1)
     day_of_month = schedule_data.get('day_of_month', 15)
+    
+    # Support both total_amount (preferred) and amount (legacy per-payment)
+    total_amount = schedule_data.get('total_amount', 0)
+    if not total_amount:
+        amount_per_payment = schedule_data.get('amount', 0)
+        if amount_per_payment > 0:
+            total_amount = amount_per_payment * count
 
     if not mandate_id:
         result['error'] = 'No mandate ID provided'
         return result
 
-    if not amount or amount <= 0:
+    if not total_amount or total_amount <= 0:
         result['error'] = 'Invalid amount'
         return result
 
@@ -768,12 +882,12 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
     if unique_name != name:
         debug_log(f"Plan name '{name}' already exists, using '{unique_name}'")
 
-    # Calculate payment dates
+    # Calculate payment dates (GoCardless will calculate the amounts)
     from datetime import date, timedelta
     import calendar
 
     today = date.today()
-    payments = []
+    payment_dates = []
 
     # Start from next month
     year = today.year
@@ -793,10 +907,7 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
             charge_day = min(day_of_month, last_day)
 
         charge_date = date(year, month, charge_day)
-        payments.append({
-            'charge_date': charge_date.isoformat(),
-            'amount': amount,
-        })
+        payment_dates.append(charge_date.isoformat())
 
         # Move to next month
         month += 1
@@ -804,16 +915,15 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
             month = 1
             year += 1
 
-    # Build instalment schedule request
-    total_amount = amount * count
+    # Build instalment schedule request - only send dates, let GoCardless calculate amounts
+    # GoCardless will handle rounding by adjusting the first payment
     schedule_request = {
         'instalment_schedules': {
             'name': unique_name,
             'total_amount': str(total_amount),
             'currency': schedule_data.get('currency', 'GBP'),
             'instalments': [
-                {'charge_date': p['charge_date'], 'amount': str(p['amount'])}
-                for p in payments
+                {'charge_date': d} for d in payment_dates
             ],
             'links': {
                 'mandate': mandate_id,
@@ -840,10 +950,19 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
         result['error'] = 'No schedule ID returned'
         return result
 
+    # Get the payments that GoCardless created (with calculated amounts)
+    created_payments = []
+    amount_per_payment = total_amount // count
+    for d in payment_dates:
+        created_payments.append({
+            'charge_date': d,
+            'amount': amount_per_payment,  # Approximate - actual may differ due to rounding
+        })
+
     result['success'] = True
     result['schedule_id'] = schedule_id
     result['name'] = unique_name
-    result['payments'] = payments
+    result['payments'] = created_payments
 
     debug_log("Instalment schedule created successfully", result)
     return result
@@ -998,10 +1117,13 @@ def create_payment_plan(plan_data: dict, token: str, environment: str) -> Dict[s
 
     # Create instalment schedule if specified
     schedule_data = plan_data.get('subscription', {}) or plan_data.get('instalment', {})
-    if schedule_data and schedule_data.get('amount', 0) > 0:
+    # Check for amount OR total_amount (new preferred method)
+    has_schedule = schedule_data and (schedule_data.get('amount', 0) > 0 or schedule_data.get('total_amount', 0) > 0)
+    if has_schedule:
         schedule_result = create_instalment_schedule({
             'mandate_id': mandate_id,
             'amount': schedule_data.get('amount', 0),
+            'total_amount': schedule_data.get('total_amount', 0),
             'name': name,
             'count': schedule_data.get('count'),
             'day_of_month': schedule_data.get('day_of_month', 15),
@@ -1059,14 +1181,20 @@ Examples:
                         help='Test API connection and return creditor info')
     parser.add_argument('--check-mandate', type=str, metavar='EMAIL',
                         help='Check if customer has active mandate')
+    parser.add_argument('--check-mandate-by-name', type=str, metavar='NAME',
+                        help='Check if customer has active mandate by searching name')
     parser.add_argument('--create-billing-request', type=str, metavar='JSON',
                         help='Create billing request flow (JSON: email, first_name, last_name)')
     parser.add_argument('--create-instalment', type=str, metavar='JSON',
                         help='Create instalment schedule (JSON: mandate_id, amount, name, count, day_of_month)')
+    parser.add_argument('--create-instalment-file', type=str, metavar='FILE',
+                        help='Create instalment schedule from JSON file')
     parser.add_argument('--create-payment', type=str, metavar='JSON',
                         help='Create single payment (JSON: mandate_id, amount, charge_date, description)')
     parser.add_argument('--create-payment-plan', type=str, metavar='JSON',
                         help='Create mixed plan with single payments + instalment schedule')
+    parser.add_argument('--create-payment-plan-file', type=str, metavar='FILE',
+                        help='Create mixed plan from JSON file')
     parser.add_argument('--list-plans', type=str, metavar='MANDATE_ID',
                         help='List active instalment schedules for a mandate')
     parser.add_argument('--list-empty-mandates', action='store_true',
@@ -1121,8 +1249,10 @@ Examples:
         elif result['has_mandate']:
             # Also fetch existing subscriptions/schedules/payments for this mandate
             subs = list_mandate_subscriptions(result['mandate_id'], gc_token, environment)
-            # For plans: active/pending; for one-offs: include pending_submission, confirmed, paid_out
-            valid_statuses = ('active', 'pending', 'pending_submission', 'submitted', 'confirmed', 'paid_out')
+            # Show all meaningful plans: active, pending, completed, and relevant payment states
+            # Exclude: cancelled, errored (failed setup), failed payments
+            valid_statuses = ('active', 'pending', 'completed', 'finished',
+                              'pending_submission', 'submitted', 'confirmed', 'paid_out')
             active_subs = [s for s in subs if s['status'] in valid_statuses]
             sub_info = ""
             if active_subs:
@@ -1133,6 +1263,32 @@ Examples:
                   f"{result['mandate_status']}|{result['bank_name']}|{sub_info}")
         elif result['customer_id']:
             print(f"NO_MANDATE|{result['customer_id']}")
+        else:
+            print("NO_CUSTOMER")
+
+    elif getattr(args, 'check_mandate_by_name', None):
+        debug_log(f"Executing --check-mandate-by-name for: {args.check_mandate_by_name}")
+        result = check_customer_mandate_by_name(args.check_mandate_by_name, gc_token, environment)
+        debug_log("check_customer_mandate_by_name result:", result)
+        if result['error']:
+            print(f"ERROR|{result['error']}")
+        elif result['has_mandate']:
+            # Also fetch existing subscriptions/schedules/payments for this mandate
+            subs = list_mandate_subscriptions(result['mandate_id'], gc_token, environment)
+            valid_statuses = ('active', 'pending', 'completed', 'finished',
+                              'pending_submission', 'submitted', 'confirmed', 'paid_out')
+            active_subs = [s for s in subs if s['status'] in valid_statuses]
+            sub_info = ""
+            if active_subs:
+                type_labels = {'subscription': 'Sub', 'instalment': 'Plan', 'one-off': '1x'}
+                sub_names = [f"{type_labels.get(s['type'], s['type'])}: {s['name']} (£{int(s['amount'])/100:.2f})" for s in active_subs]
+                sub_info = "; ".join(sub_names)
+            # Include customer name and email in the response for name-based searches
+            print(f"MANDATE_FOUND|{result['customer_id']}|{result['mandate_id']}|"
+                  f"{result['mandate_status']}|{result['bank_name']}|{sub_info}|"
+                  f"{result['customer_name']}|{result['customer_email']}")
+        elif result['customer_id']:
+            print(f"NO_MANDATE|{result['customer_id']}|{result['customer_name']}|{result['customer_email']}")
         else:
             print("NO_CUSTOMER")
 
@@ -1177,14 +1333,23 @@ Examples:
         else:
             print(f"ERROR|{result['error']}")
 
-    elif args.create_instalment:
+    elif args.create_instalment or args.create_instalment_file:
         debug_log("Executing --create-instalment")
         try:
-            schedule_data = json.loads(args.create_instalment)
+            if args.create_instalment_file:
+                with open(args.create_instalment_file, 'r', encoding='utf-8') as f:
+                    json_str = f.read()
+                schedule_data = json.loads(json_str)
+            else:
+                schedule_data = json.loads(args.create_instalment)
             debug_log("Parsed schedule data:", schedule_data)
         except json.JSONDecodeError as e:
             error_log(f"Invalid JSON in --create-instalment: {e}")
             print(f"ERROR|Invalid JSON: {e}")
+            sys.exit(1)
+        except FileNotFoundError as e:
+            error_log(f"JSON file not found: {e}")
+            print(f"ERROR|File not found: {e}")
             sys.exit(1)
 
         result = create_instalment_schedule(schedule_data, gc_token, environment)
@@ -1218,14 +1383,23 @@ Examples:
         else:
             print(f"ERROR|{result['error']}")
 
-    elif args.create_payment_plan:
+    elif args.create_payment_plan or args.create_payment_plan_file:
         debug_log("Executing --create-payment-plan")
         try:
-            plan_data = json.loads(args.create_payment_plan)
+            if args.create_payment_plan_file:
+                with open(args.create_payment_plan_file, 'r', encoding='utf-8') as f:
+                    json_str = f.read()
+                plan_data = json.loads(json_str)
+            else:
+                plan_data = json.loads(args.create_payment_plan)
             debug_log("Parsed plan data:", plan_data)
         except json.JSONDecodeError as e:
             error_log(f"Invalid JSON in --create-payment-plan: {e}")
             print(f"ERROR|Invalid JSON: {e}")
+            sys.exit(1)
+        except FileNotFoundError as e:
+            error_log(f"JSON file not found: {e}")
+            print(f"ERROR|File not found: {e}")
             sys.exit(1)
 
         result = create_payment_plan(plan_data, gc_token, environment)
@@ -1233,7 +1407,8 @@ Examples:
 
         if result['success']:
             payment_ids = ",".join([p['id'] for p in result.get('payment_ids', [])])
-            print(f"SUCCESS|{payment_ids}|{result['subscription_id']}|{result['summary']}")
+            schedule_id = result.get('schedule_id', '')
+            print(f"SUCCESS|{payment_ids}|{schedule_id}|{result['summary']}")
         else:
             print(f"ERROR|{result['error']}")
 
