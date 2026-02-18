@@ -2051,6 +2051,10 @@ Toolbar_LastPosY := newY
 
 ; Show toolbar
 Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
+
+; Force redraw to apply background color immediately (fixes first-launch rendering issue)
+DllCall("InvalidateRect", "Ptr", ToolbarHwnd, "Ptr", 0, "Int", 1)
+DllCall("UpdateWindow", "Ptr", ToolbarHwnd)
 Return
 
 ; Updates toolbar background by sampling screen color behind it
@@ -2085,6 +2089,10 @@ UpdateToolbarBackground:
 	
 	; Show toolbar again
 	Gui, Toolbar:Show, x%tbX% y%tbY% w%tbW% h%tbH% NoActivate
+	
+	; Force redraw to apply background color immediately
+	DllCall("InvalidateRect", "Ptr", ToolbarHwnd, "Ptr", 0, "Int", 1)
+	DllCall("UpdateWindow", "Ptr", ToolbarHwnd)
 }
 Return
 
@@ -8255,7 +8263,12 @@ CreateGoCardlessPanel()
 	RegisterSettingsTooltip(HwndGCAutoSetup, "AUTO-PROMPT GOCARDLESS`n`nWhen enabled, automatically prompts to set up`nGoCardless payments after syncing an invoice`nthat has future payment dates.`n`nIf disabled you can still use the GC toolbar button.")
 	CreateToggleSlider("Settings", "GCAutoSetup", 630, 113, Settings_GCAutoSetup)
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y150 w440 BackgroundTrans vGCAutoHint Hidden, Applies to invoices with future payment dates.
+	Gui, Settings:Add, Text, x210 y150 w290 BackgroundTrans vGCAutoHint Hidden, Applies to invoices with future payment dates.
+	
+	; Setup Wizard button
+	Gui, Settings:Font, s9 Norm, Segoe UI
+	Gui, Settings:Add, Button, x510 y145 w160 h30 gGCSetupWizard vGCWizardBtn Hidden HwndHwndGCWizard, 🧙 Setup Wizard
+	RegisterSettingsTooltip(HwndGCWizard, "GOCARDLESS SETUP WIZARD`n`nStep-by-step guide to connect SideKick`nto your GoCardless account.`n`nPerfect for first-time setup!")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; API CONFIGURATION GROUP BOX (y200 to y350)
@@ -8471,6 +8484,335 @@ return
 OpenGCDashboard:
 	gcDashUrl := (Settings_GoCardlessEnvironment = "live") ? "https://manage.gocardless.com" : "https://manage-sandbox.gocardless.com"
 	Run, %gcDashUrl%
+return
+
+; ═══════════════════════════════════════════════════════════════════════════════════════════════
+; GoCardless Setup Wizard
+; Step-by-step guide for first-time GoCardless setup
+; ═══════════════════════════════════════════════════════════════════════════════════════════════
+GCSetupWizard:
+	global GCWizard_Step, GCWizard_Token
+	GCWizard_Step := 1
+	GCWizard_Token := ""
+	Gosub, GCWizard_ShowStep
+return
+
+GCWizard_ShowStep:
+	global GCWizard_Step, GCWizard_Token, Settings_GoCardlessEnvironment
+	
+	; Destroy previous wizard window if it exists
+	Gui, GCWizard:Destroy
+	
+	; Create wizard window
+	wizW := Round(520 * DPI_Scale)
+	wizH := Round(420 * DPI_Scale)
+	
+	Gui, GCWizard:New, +AlwaysOnTop -MinimizeBox +HwndGCWizardHwnd
+	Gui, GCWizard:Color, 1E1E1E
+	Gui, GCWizard:Margin, 20, 20
+	
+	; Header - step indicator
+	Gui, GCWizard:Font, s12 c888888, Segoe UI
+	stepText := "Step " . GCWizard_Step . " of 5"
+	Gui, GCWizard:Add, Text, x20 y15 w%wizW% BackgroundTrans, %stepText%
+	
+	; Progress dots
+	dotY := 18
+	Loop, 5 {
+		dotX := wizW - 120 + (A_Index * 20)
+		dotColor := (A_Index <= GCWizard_Step) ? "4FC3F7" : "444444"
+		Gui, GCWizard:Font, s14 c%dotColor%, Segoe UI
+		Gui, GCWizard:Add, Text, x%dotX% y%dotY% w20 h20 BackgroundTrans, ●
+	}
+	
+	; Divider line
+	Gui, GCWizard:Add, Text, x20 y45 w480 h1 Background333333
+	
+	; Content area based on step
+	contentY := 60
+	
+	if (GCWizard_Step = 1) {
+		; Step 1: Welcome
+		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, 🏦 Welcome to GoCardless Setup
+		
+		contentY += 50
+		Gui, GCWizard:Font, s11 cCCCCCC Norm, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, This wizard will help you connect SideKick to GoCardless for Direct Debit payments.
+		
+		contentY += 40
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, With GoCardless you can:
+		
+		contentY += 35
+		Gui, GCWizard:Font, s10 c4FC3F7, Segoe UI
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, ✓  Collect payment plans automatically via BACS Direct Debit
+		contentY += 28
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, ✓  Send mandate setup links to clients via email or SMS
+		contentY += 28
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, ✓  Check existing mandates before creating new ones
+		contentY += 28
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, ✓  Low fees: 1`% + 20p per transaction (capped at £4)
+		
+		contentY += 45
+		Gui, GCWizard:Font, s10 c888888, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, You'll need a GoCardless account. Don't have one? You can sign up in the next step.
+		
+	} else if (GCWizard_Step = 2) {
+		; Step 2: Choose Environment
+		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, 🔧 Choose Environment
+		
+		contentY += 50
+		Gui, GCWizard:Font, s11 cCCCCCC Norm, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, GoCardless has two environments. Select which one to use:
+		
+		contentY += 45
+		; Sandbox option
+		Gui, GCWizard:Font, s12 cFFFFFF, Segoe UI
+		sandboxSelected := (Settings_GoCardlessEnvironment != "live")
+		Gui, GCWizard:Add, Radio, x35 y%contentY% w200 vGCWizard_EnvSandbox Checked%sandboxSelected% gGCWizard_EnvChanged, Sandbox (Testing)
+		contentY += 28
+		Gui, GCWizard:Font, s9 c888888, Segoe UI
+		Gui, GCWizard:Add, Text, x55 y%contentY% w420 BackgroundTrans, No real money moves. Perfect for testing your setup first.
+		
+		contentY += 40
+		; Live option
+		Gui, GCWizard:Font, s12 cFFFFFF, Segoe UI
+		liveSelected := (Settings_GoCardlessEnvironment = "live")
+		Gui, GCWizard:Add, Radio, x35 y%contentY% w200 vGCWizard_EnvLive Checked%liveSelected% gGCWizard_EnvChanged, Live (Production)
+		contentY += 28
+		Gui, GCWizard:Font, s9 c888888, Segoe UI
+		Gui, GCWizard:Add, Text, x55 y%contentY% w420 BackgroundTrans, Real transactions. Use this when you're ready to collect payments.
+		
+		contentY += 50
+		Gui, GCWizard:Font, s10 cFFAA00, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, ⚠️ We recommend starting with Sandbox to test everything first.
+		
+	} else if (GCWizard_Step = 3) {
+		; Step 3: Sign up / Get token
+		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, 🔑 Get Your API Token
+		
+		contentY += 50
+		Gui, GCWizard:Font, s11 cCCCCCC Norm, Segoe UI
+		envName := (Settings_GoCardlessEnvironment = "live") ? "Live" : "Sandbox"
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Follow these steps in the GoCardless %envName% Dashboard:
+		
+		contentY += 40
+		Gui, GCWizard:Font, s10 c4FC3F7, Segoe UI
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, 1. Click the button below to open GoCardless Dashboard
+		contentY += 28
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, 2. Sign in (or create a new account if needed)
+		contentY += 28
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, 3. Go to: Developers → Create → Access Token
+		contentY += 28
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, 4. Name it "SideKick" and enable Read + Write access
+		contentY += 28
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, 5. Copy the token (starts with "live_" or "sandbox_")
+		
+		contentY += 45
+		gcDashUrl := (Settings_GoCardlessEnvironment = "live") ? "https://manage.gocardless.com/developers/access-tokens/create" : "https://manage-sandbox.gocardless.com/developers/access-tokens/create"
+		Gui, GCWizard:Font, s11, Segoe UI
+		Gui, GCWizard:Add, Button, x150 y%contentY% w220 h35 gGCWizard_OpenDashboard vGCWizard_DashBtn, 🌐 Open GoCardless Dashboard
+		
+	} else if (GCWizard_Step = 4) {
+		; Step 4: Paste token
+		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, 📋 Paste Your API Token
+		
+		contentY += 50
+		Gui, GCWizard:Font, s11 cCCCCCC Norm, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Paste the API token you copied from GoCardless:
+		
+		contentY += 40
+		Gui, GCWizard:Font, s10 cFFFFFF, Consolas
+		Gui, GCWizard:Add, Edit, x20 y%contentY% w480 h30 vGCWizard_TokenInput, %GCWizard_Token%
+		
+		contentY += 45
+		Gui, GCWizard:Font, s9 c888888, Segoe UI
+		envName := (Settings_GoCardlessEnvironment = "live") ? "live" : "sandbox"
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Token should start with "%envName%_" for %envName% environment.
+		
+		contentY += 35
+		Gui, GCWizard:Font, s9 c4FC3F7, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Your token is stored securely in encrypted credentials.json
+		
+	} else if (GCWizard_Step = 5) {
+		; Step 5: Test & Complete
+		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans vGCWizard_CompleteTitle, 🧪 Testing Connection...
+		
+		contentY += 50
+		Gui, GCWizard:Font, s11 cCCCCCC Norm, Segoe UI
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans vGCWizard_CompleteMsg, Verifying your GoCardless API token...
+		
+		contentY += 40
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 h100 BackgroundTrans cFFFFFF vGCWizard_ResultText,
+	}
+	
+	; Navigation buttons
+	btnY := wizH - 60
+	
+	; Back button (not on step 1)
+	if (GCWizard_Step > 1 && GCWizard_Step < 5) {
+		Gui, GCWizard:Font, s10, Segoe UI
+		Gui, GCWizard:Add, Button, x20 y%btnY% w100 h35 gGCWizard_Back, ← Back
+	}
+	
+	; Cancel button
+	Gui, GCWizard:Font, s10, Segoe UI
+	Gui, GCWizard:Add, Button, x300 y%btnY% w90 h35 gGCWizard_Cancel, Cancel
+	
+	; Next/Finish button
+	if (GCWizard_Step < 4) {
+		Gui, GCWizard:Add, Button, x400 y%btnY% w100 h35 gGCWizard_Next Default, Next →
+	} else if (GCWizard_Step = 4) {
+		Gui, GCWizard:Add, Button, x400 y%btnY% w100 h35 gGCWizard_TestToken Default, Test →
+	} else if (GCWizard_Step = 5) {
+		Gui, GCWizard:Add, Button, x400 y%btnY% w100 h35 gGCWizard_Finish vGCWizard_FinishBtn Default, Finish
+		GuiControl, GCWizard:Disable, GCWizard_FinishBtn
+	}
+	
+	; Show wizard
+	Gui, GCWizard:Show, w%wizW% h%wizH%, GoCardless Setup Wizard
+	
+	; If step 5, auto-run the test
+	if (GCWizard_Step = 5) {
+		SetTimer, GCWizard_RunTest, -500
+	}
+return
+
+GCWizard_EnvChanged:
+	Gui, GCWizard:Submit, NoHide
+	if (GCWizard_EnvLive)
+		Settings_GoCardlessEnvironment := "live"
+	else
+		Settings_GoCardlessEnvironment := "sandbox"
+return
+
+GCWizard_OpenDashboard:
+	gcDashUrl := (Settings_GoCardlessEnvironment = "live") ? "https://manage.gocardless.com/developers/access-tokens/create" : "https://manage-sandbox.gocardless.com/developers/access-tokens/create"
+	Run, %gcDashUrl%
+return
+
+GCWizard_Back:
+	global GCWizard_Step
+	if (GCWizard_Step > 1) {
+		GCWizard_Step--
+		Gosub, GCWizard_ShowStep
+	}
+return
+
+GCWizard_Next:
+	global GCWizard_Step
+	
+	; Validate step 2 (environment)
+	if (GCWizard_Step = 2) {
+		Gui, GCWizard:Submit, NoHide
+		if (GCWizard_EnvLive)
+			Settings_GoCardlessEnvironment := "live"
+		else
+			Settings_GoCardlessEnvironment := "sandbox"
+		; Save environment setting
+		IniWrite, %Settings_GoCardlessEnvironment%, %IniFilename%, GoCardless, Environment
+		; Update Settings GUI dropdown if visible
+		GuiControl, Settings:ChooseString, GCEnvDDL, % (Settings_GoCardlessEnvironment = "live") ? "Live" : "Sandbox"
+	}
+	
+	GCWizard_Step++
+	Gosub, GCWizard_ShowStep
+return
+
+GCWizard_TestToken:
+	global GCWizard_Step, GCWizard_Token
+	
+	; Get token from input
+	Gui, GCWizard:Submit, NoHide
+	GCWizard_Token := Trim(GCWizard_TokenInput)
+	
+	if (GCWizard_Token = "") {
+		DarkMsgBox("Token Required", "Please paste your GoCardless API token.", "warning")
+		return
+	}
+	
+	; Validate token prefix matches environment
+	envPrefix := (Settings_GoCardlessEnvironment = "live") ? "live_" : "sandbox_"
+	if (!InStr(GCWizard_Token, envPrefix) && GCWizard_Token != "") {
+		wrongEnv := (Settings_GoCardlessEnvironment = "live") ? "Sandbox" : "Live"
+		result := DarkMsgBox("Environment Mismatch", "This token appears to be for " . wrongEnv . " environment.`n`nYou selected: " . ((Settings_GoCardlessEnvironment = "live") ? "Live" : "Sandbox") . "`n`nContinue anyway?", "warning", ["Continue", "Go Back"])
+		if (result != "Continue")
+			return
+	}
+	
+	; Save token
+	Settings_GoCardlessToken := GCWizard_Token
+	SaveGHLCredentials()
+	
+	; Go to test step
+	GCWizard_Step := 5
+	Gosub, GCWizard_ShowStep
+return
+
+GCWizard_RunTest:
+	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment
+	
+	; Run API test
+	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	scriptCmd := GetScriptCommand("gocardless_api", "--test-connection" . envFlag)
+	
+	if (scriptCmd = "") {
+		GuiControl, GCWizard:, GCWizard_CompleteTitle, ❌ Setup Error
+		GuiControl, GCWizard:, GCWizard_CompleteMsg, Could not find the gocardless_api script.
+		GuiControl, GCWizard:, GCWizard_ResultText, Please ensure SideKick is properly installed.
+		GuiControl, GCWizard:Enable, GCWizard_FinishBtn
+		return
+	}
+	
+	; Run the script and capture output
+	tempResult := A_Temp . "\gc_wizard_test_" . A_TickCount . ".txt"
+	RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
+	
+	FileRead, testResult, %tempResult%
+	FileDelete, %tempResult%
+	
+	if (InStr(testResult, "SUCCESS|")) {
+		parts := StrSplit(testResult, "|")
+		creditorName := Trim(parts[2])
+		creditorId := Trim(parts[3])
+		
+		GuiControl, GCWizard:, GCWizard_CompleteTitle, ✅ Connection Successful!
+		GuiControl, GCWizard:, GCWizard_CompleteMsg, Your GoCardless account is now connected.
+		resultMsg := "Creditor: " . creditorName . "`nCreditor ID: " . creditorId . "`nEnvironment: " . ((Settings_GoCardlessEnvironment = "live") ? "Live" : "Sandbox")
+		GuiControl, GCWizard:, GCWizard_ResultText, %resultMsg%
+		
+		; Update Settings GUI
+		tokenDisplay := SubStr(Settings_GoCardlessToken, 1, 12) . "..." . SubStr(Settings_GoCardlessToken, -4)
+		GuiControl, Settings:, GCTokenDisplay, %tokenDisplay%
+		GuiControl, Settings:, GCStatusText, ✅ Connected
+		GuiControl, Settings:+c00FF00, GCStatusText
+		
+		; Enable GoCardless integration
+		Settings_GoCardlessEnabled := true
+		Toggle_GoCardlessEnabled_State := true
+		IniWrite, 1, %IniFilename%, GoCardless, Enabled
+		UpdateToggleSlider("Settings", "GoCardlessEnabled", Toggle_GoCardlessEnabled_State, 630)
+		
+	} else {
+		errMsg := InStr(testResult, "ERROR|") ? StrReplace(testResult, "ERROR|", "") : testResult
+		
+		GuiControl, GCWizard:, GCWizard_CompleteTitle, ❌ Connection Failed
+		GuiControl, GCWizard:, GCWizard_CompleteMsg, Could not connect to GoCardless.
+		GuiControl, GCWizard:, GCWizard_ResultText, Error: %errMsg%`n`nCheck your token and try again.
+	}
+	
+	GuiControl, GCWizard:Enable, GCWizard_FinishBtn
+return
+
+GCWizard_Finish:
+GCWizard_Cancel:
+GCWizardGuiClose:
+GCWizardGuiEscape:
+	Gui, GCWizard:Destroy
 return
 
 ListEmptyMandates:
@@ -10595,6 +10937,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GCAutoSetupLabel
 		GuiControl, Settings:Show, Toggle_GCAutoSetup
 		GuiControl, Settings:Show, GCAutoHint
+		GuiControl, Settings:Show, GCWizardBtn
 		GuiControl, Settings:Show, GCNamingLabel
 		GuiControl, Settings:Show, GCNamePart1DDL
 		GuiControl, Settings:Show, GCNameSep1

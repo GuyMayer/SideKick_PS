@@ -14,6 +14,9 @@ AI INSTRUCTIONS - When publishing a new version:
 
 ## v2.5.23 (2026-02-18)
 
+### New Features
+- **GoCardless Setup Wizard**: Step-by-step guide for first-time GoCardless setup - walks through environment selection, token creation, and connection testing
+
 ### Security
 - **CRITICAL: API Token Exposure Fix**: Removed GoCardless token fields from INI file - tokens now stored ONLY in `%APPDATA%\SideKick_PS\credentials.json`
 - **Removed INI Fallback**: GoCardless tokens no longer read from INI file (prevents accidental exposure via git)
@@ -22,6 +25,7 @@ AI INSTRUCTIONS - When publishing a new version:
 ### Improvements
 - **No Plans List**: Now excludes mandates that EVER had subscriptions (including finished ones), not just active - finds mandates where no payment was ever set up
 - **Real-time Progress Bar**: Mandate fetch progress now updates live during API calls (same pattern as update download)
+- **Toolbar Background Fix**: Added forced redraw on first launch to fix background color rendering
 
 ### Bug Fixes
 - **Progress Bar Not Updating**: Fixed progress bar freezing during mandate fetch (was blocking on RunWait)
