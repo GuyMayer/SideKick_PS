@@ -3029,8 +3029,9 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
             "taxInclusive": item.get('price_includes_tax', True)  # Per GHL docs: use boolean at item level
         }
         
-        # Add tax if item is taxable and has a tax rate
-        if item.get('taxable', True) and item.get('tax_rate', 0) > 0:
+        # Add tax if item is taxable, has a tax rate, AND has a price > 0
+        # GHL rejects taxes on zero-price items
+        if item.get('taxable', True) and item.get('tax_rate', 0) > 0 and item_price > 0:
             tax_rate = float(item.get('tax_rate', 0))
             tax_label = item.get('tax_label', f'VAT ({tax_rate}%)')
             ghl_item["taxes"] = [{

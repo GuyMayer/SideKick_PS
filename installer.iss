@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.26"
+#define MyAppVersion "2.5.30"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -76,6 +76,12 @@ Source: "Release\fonts\fa-solid-900.ttf"; DestDir: "{autofonts}"; FontInstall: "
 ; Logo images for Settings GUI
 Source: "Release\SideKick_Logo_2025_Dark.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Release\SideKick_Logo_2025_Light.png"; DestDir: "{app}"; Flags: ignoreversion
+
+; Icon masters and generation scripts for toolbar (dynamic color tinting)
+Source: "Release\Icon_GC_32_White.png"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Release\Icon_PS_32_White.png"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Release\GenerateGCIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Release\GeneratePSIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Python executables (compiled with cryptic names - NO Python install needed)
 Source: "Release\_vlk.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -164,6 +170,7 @@ begin
     end;
   end;
 end;
+
 
 
 

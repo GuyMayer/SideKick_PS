@@ -1,10 +1,15 @@
 {
-  "version": "2.5.26",
+  "version": "2.5.30",
   "build_date": "2026-02-18",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fixed --list-sms-templates argument missing from compiled exe",
+  "release_notes": "Dynamic GC icon color matching toolbar icons",
   "changelog": [
-    "FIX: --list-sms-templates argument now available in compiled exe (was missing from frozen argparse)",
+    "IMPROVED: GC toolbar icon now dynamically matches toolbar icon color",
+    "NEW: PowerShell script generates icon from white master on-the-fly",
+    "IMPROVED: Icon only regenerates when color actually changes",
+    "CLEANUP: Removed 9 legacy pre-generated icon files",
+    "FIX: Toolbar crash when window position values are empty (added safety checks)",
+    "FIX: GHL invoice creation - taxes no longer applied to £0 items",
     "FIX: GoCardless instalment schedule now correctly includes amount per payment",
     "FIX: Error dialogs now auto-size height for long/wrapped messages",
     "FIX: Toolbar background color now persists across reloads via INI",

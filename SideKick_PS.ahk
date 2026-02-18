@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.26
+; Version:     2.5.30
 ; Build Date:  2026-02-18
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -349,6 +349,7 @@ global Toolbar_LastBGCheckTime := 0  ; Timestamp of last BG color check
 global Toolbar_LastPosX := -1        ; Last toolbar X position (for detecting moves)
 global Toolbar_LastPosY := -1        ; Last toolbar Y position (for detecting moves)
 global Toolbar_FirstShowDone := false ; Track first show for delayed BG re-sample
+global GC_ButtonHBitmap := 0         ; HBITMAP handle for GC button image
 
 ; Toolbar button visibility settings
 global Settings_ShowBtn_Client := true
@@ -1699,10 +1700,23 @@ CreateFloatingToolbar()
 		nextX += btnSpacing
 	}
 	
-	; Photoshop button (Ps text) - moved next to camera
+	; Photoshop button (PNG icon - colored to match toolbar icons)
 	if (Settings_ShowBtn_Photoshop) {
-		Gui, Toolbar:Font, s%fontSizeSmall% w400, Segoe UI
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background001E36 c%iconColor% gToolbar_Photoshop vTB_Photoshop +HwndTB_Photoshop_Hwnd, Ps
+		; Calculate icon size: 51% of button (same as GC icon)
+		psIconW := Round(btnW * 0.51)
+		psIconH := Round(btnH * 0.51)
+		psIconX := nextX + Round((btnW - psIconW) / 2)
+		psIconY := btnY + Round((btnH - psIconH) / 2)
+		
+		; Generate icon matching current toolbar icon color (uses PowerShell)
+		iconPath := GeneratePSIcon(iconColor)
+		if (FileExist(iconPath)) {
+			Gui, Toolbar:Add, Picture, x%psIconX% y%psIconY% w%psIconW% h%psIconH% gToolbar_Photoshop vTB_Photoshop +HwndTB_Photoshop_Hwnd, %iconPath%
+		} else {
+			; Fallback to text if PNG not found
+			Gui, Toolbar:Font, s%fontSizeSmall% w400, Segoe UI
+			Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background001E36 c%iconColor% gToolbar_Photoshop vTB_Photoshop +HwndTB_Photoshop_Hwnd, Ps
+		}
 		ToolbarTooltips[TB_Photoshop_Hwnd] := "Open in Photoshop"
 		nextX += btnSpacing
 	}
@@ -1757,10 +1771,23 @@ CreateFloatingToolbar()
 		nextX += btnSpacing
 	}
 	
-	; GoCardless button (GC text styled to match toolbar icons)
+	; GoCardless button (PNG icon - colored to match toolbar icons)
 	if (Settings_GoCardlessEnabled) {
-		Gui, Toolbar:Font, s%fontSizeSmall% w700, Segoe UI
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background333333 c%iconColor% gToolbar_GoCardless vTB_GoCardless +HwndTB_GoCardless_Hwnd, GC
+		; Calculate icon size: 51% of button
+		gcIconW := Round(btnW * 0.51)
+		gcIconH := Round(btnH * 0.51)
+		gcIconX := nextX + Round((btnW - gcIconW) / 2)
+		gcIconY := btnY + Round((btnH - gcIconH) / 2)
+		
+		; Generate icon matching current toolbar icon color (uses PowerShell)
+		iconPath := GenerateGCIcon(iconColor)
+		if (FileExist(iconPath)) {
+			Gui, Toolbar:Add, Picture, x%gcIconX% y%gcIconY% w%gcIconW% h%gcIconH% gToolbar_GoCardless vTB_GoCardless +HwndTB_GoCardless_Hwnd, %iconPath%
+		} else {
+			; Fallback to text if PNG not found
+			Gui, Toolbar:Font, s%fontSizeSmall% w700, Segoe UI
+			Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background%initialBgColor% c%iconColor% gToolbar_GoCardless vTB_GoCardless +HwndTB_GoCardless_Hwnd, GC
+		}
 		ToolbarTooltips[TB_GoCardless_Hwnd] := "GoCardless Direct Debit"
 		nextX += btnSpacing
 	}
@@ -1878,6 +1905,69 @@ GetContrastingIconColor(bgColor) {
 	return (luminance < 128) ? "White" : "Black"
 }
 
+; Generate colored GC icon using PowerShell - any color supported
+GenerateGCIcon(colorHex) {
+	static lastColor := ""
+	dstPath := A_ScriptDir . "\Icon_GC_Current.png"
+	
+	; Normalize color to hex
+	colorHex := RegExReplace(colorHex, "^0x|^#", "")
+	if (colorHex = "White")
+		colorHex := "FFFFFF"
+	else if (colorHex = "Black")
+		colorHex := "282828"
+	else if (colorHex = "Yellow")
+		colorHex := "FFFF00"
+	else if (colorHex = "Orange")
+		colorHex := "FF8800"
+	
+	; Skip if color unchanged and file exists
+	if (colorHex = lastColor && FileExist(dstPath))
+		return dstPath
+	
+	lastColor := colorHex
+	
+	; Call PowerShell script to generate icon
+	psScript := A_ScriptDir . "\GenerateGCIcon.ps1"
+	if (FileExist(psScript)) {
+		RunWait, powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%psScript%" -ColorHex "%colorHex%",, Hide
+	}
+	
+	return dstPath
+}
+
+; Generate colored PS (Photoshop) icon using PowerShell - any color supported
+GeneratePSIcon(colorHex) {
+	static lastColor := ""
+	dstPath := A_ScriptDir . "\Icon_PS_Current.png"
+	
+	; Normalize color to hex
+	colorHex := RegExReplace(colorHex, "^0x|^#", "")
+	if (colorHex = "White")
+		colorHex := "FFFFFF"
+	else if (colorHex = "Black")
+		colorHex := "282828"
+	else if (colorHex = "Yellow")
+		colorHex := "FFFF00"
+	else if (colorHex = "Orange")
+		colorHex := "FF8800"
+	
+	; Skip if color unchanged and file exists
+	if (colorHex = lastColor && FileExist(dstPath))
+		return dstPath
+	
+	lastColor := colorHex
+	
+	; Call PowerShell script to generate icon
+	psScript := A_ScriptDir . "\GeneratePSIcon.ps1"
+	if (FileExist(psScript)) {
+		RunWait, powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%psScript%" -ColorHex "%colorHex%",, Hide
+	}
+	
+	return dstPath
+}
+
+; =====================================================
 PositionToolbar:
 ; Only show toolbar when ProSelect is the active window
 WinGet, activeExe, ProcessName, A
@@ -1899,7 +1989,8 @@ if (psTitle = "" || psTitle = "ProSelect")
 	return
 }
 
-if (psX = "" || psW = "")
+; Ensure we have valid window position data
+if (psX = "" || psY = "" || psW = "" || psH = "")
 {
 	Gui, Toolbar:Hide
 	return
@@ -1992,6 +2083,10 @@ if (!TB_CalibShowing) {
 ; Scale the offset for high-DPI displays (200 is the base offset at 100% scaling)
 ; Offset accounts for window close/maximize/minimize buttons to avoid overlap
 tbWidth := toolbarWidth
+if (tbWidth = "") {
+	; Toolbar not yet created - skip positioning
+	return
+}
 closeButtonOffset := Round(300 * DPI_Scale)
 newX := psX + psW - (tbWidth + closeButtonOffset)
 ; Y offset: position toolbar at very top of window title bar area
@@ -2044,12 +2139,19 @@ if (!foundMonitor) {
 }
 
 ; Final safety check - ensure at least X >= 0
-if (newX < 0)
+if (newX < 0 || newX = "")
 	newX := 0
+if (newY = "")
+	newY := 0
 
 ; Track position for drag detection (don't auto-update background on position change - causes flashing)
 Toolbar_LastPosX := newX
 Toolbar_LastPosY := newY
+
+; Validate all values before showing - if any are empty, skip this cycle
+if (tbWidth = "" || toolbarHeight = "") {
+	return
+}
 
 ; Show toolbar
 Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
