@@ -4,11 +4,11 @@
 
 | Purpose | URL |
 |---------|-----|
-| **Landing Page** | https://sidekick.zoom-photo.uk/ |
-| **Features** | https://sidekick.zoom-photo.uk/#features |
-| **Pricing** | https://sidekick.zoom-photo.uk/#pricing |
-| **How It Works** | https://sidekick.zoom-photo.uk/#how-it-works |
-| **FAQ** | https://sidekick.zoom-photo.uk/#faq |
+| **Landing Page** | https://ps.ghl-sidekick.com/ |
+| **Features** | https://ps.ghl-sidekick.com/#features |
+| **Pricing** | https://ps.ghl-sidekick.com/#pricing |
+| **How It Works** | https://ps.ghl-sidekick.com/#how-it-works |
+| **FAQ** | https://ps.ghl-sidekick.com/#faq |
 
 ## Hosting & Deployment
 
@@ -17,7 +17,7 @@
 | **Hosting Platform** | GitHub Pages |
 | **Branch** | `main` |
 | **Published From** | `/docs` folder |
-| **Custom Domain** | sidekick.zoom-photo.uk |
+| **Custom Domain** | ps.ghl-sidekick.com |
 | **HTTPS** | Enabled (via GitHub Pages) |
 
 ## DNS Configuration
@@ -47,7 +47,7 @@ If using the root domain, point to GitHub's IPs:
 SideKick_PS/
 └── docs/
     ├── index.html          # Main landing page
-    ├── CNAME               # Custom domain config (contains: sidekick.zoom-photo.uk)
+    ├── CNAME               # Custom domain config (contains: ps.ghl-sidekick.com)
     ├── images/             # Screenshots and assets (to be added)
     │   ├── favicon.png
     │   ├── hero-screenshot.png
@@ -96,7 +96,7 @@ git push origin main
 3. Wait 5-10 minutes for CDN propagation
 
 ### Custom Domain Not Working
-1. Verify CNAME file exists in `docs/` folder with content: `sidekick.zoom-photo.uk`
+1. Verify CNAME file exists in `docs/` folder with content: `ps.ghl-sidekick.com`
 2. Check DNS propagation: https://dnschecker.org
 3. In GitHub repo Settings > Pages, ensure custom domain is set
 
