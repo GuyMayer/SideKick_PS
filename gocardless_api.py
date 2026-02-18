@@ -514,7 +514,7 @@ def create_billing_request_flow(contact_data: dict, token: str, environment: str
     return result
 
 
-def list_mandates_without_plans(token: str, environment: str, progress_file: str = None) -> List[Dict[str, Any]]:
+def list_mandates_without_plans(token: str, environment: str, progress_file: Optional[str] = None) -> List[Dict[str, Any]]:
     """List all active mandates that have NEVER had any payment plans.
     
     This excludes mandates that have any subscriptions/plans (even finished ones),
