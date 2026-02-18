@@ -1,5 +1,5 @@
 # SideKick_PS Changelog
-
+#Requires AutoHotkey v1.1+
 <!--
 AI INSTRUCTIONS - When publishing a new version:
 1. Update this CHANGELOG.md with the new version entry

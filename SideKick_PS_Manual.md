@@ -1,6 +1,6 @@
 # SideKick PS — User Manual
 
-**Version 2.5.19** | February 2026 | © Zoom Photography
+**Version 2.5.23** | February 2026 | © Zoom Photography
 
 ---
 

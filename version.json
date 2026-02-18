@@ -1,6 +1,6 @@
 {
-  "version": "2.5.22",
-  "build_date": "2026-02-17",
+  "version": "2.5.23",
+  "build_date": "2026-02-18",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
   "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
   "changelog": [
