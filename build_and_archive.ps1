@@ -282,6 +282,16 @@ if (Test-Path $logoLight) {
     Write-Host "  Copied SideKick_Logo_2025_Light.png" -ForegroundColor Gray
 }
 
+# Copy toolbar icon source files and generation scripts (for dynamic icon colors)
+$iconFiles = @("Icon_GC_32_White.png", "Icon_PS_32_White.png", "GenerateGCIcon.ps1", "GeneratePSIcon.ps1")
+foreach ($iconFile in $iconFiles) {
+    $srcPath = "$SourceDir\$iconFile"
+    if (Test-Path $srcPath) {
+        Copy-Item $srcPath "$ReleaseDir\$iconFile"
+        Write-Host "  Copied $iconFile" -ForegroundColor Gray
+    }
+}
+
 # Copy EULA/License
 Write-Host "`n[6/8] Copying license files..." -ForegroundColor Yellow
 $eulaFile = "$ScriptDir\LICENSE.txt"

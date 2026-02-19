@@ -1,9 +1,0 @@
-# SideKick PS Website
-# https://ps.ghl-sidekick.com
-
-User-agent: *
-Allow: /
-Disallow: /docs.html
-
-# Sitemap location
-Sitemap: https://ps.ghl-sidekick.com/sitemap.xml
