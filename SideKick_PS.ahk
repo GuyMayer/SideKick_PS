@@ -11438,6 +11438,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_OpenInvoiceURL
 	GuiControl, Settings:Hide, GHLFinancialsOnly
 	GuiControl, Settings:Hide, Toggle_FinancialsOnly
+	GuiControl, Settings:Hide, GHLAutoSaveXML
+	GuiControl, Settings:Hide, Toggle_AutoSaveXML
 	GuiControl, Settings:Hide, GHLContactSheet
 	GuiControl, Settings:Hide, Toggle_ContactSheet
 	GuiControl, Settings:Hide, GHLTagsLabel
