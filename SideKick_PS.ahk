@@ -7202,7 +7202,7 @@ CheckMonthlyValidationAndUpdate() {
 	; Get today's date in yyyyMMdd format
 	FormatTime, today,, yyyyMMdd
 	
-	; Check if validation/update check is needed (monthly = 30 days)
+	; Check if validation/update check is needed (weekly = 7 days)
 	needsCheck := false
 	
 	if (Update_LastCheckDate = "") {
@@ -7211,7 +7211,7 @@ CheckMonthlyValidationAndUpdate() {
 		; Calculate days since last check using EnvSub (AHK v1 date math)
 		daysSinceCheck := today
 		EnvSub, daysSinceCheck, %Update_LastCheckDate%, Days
-		if (daysSinceCheck >= 30)
+		if (daysSinceCheck >= 7)
 			needsCheck := true
 	}
 	

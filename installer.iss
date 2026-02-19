@@ -78,10 +78,10 @@ Source: "Release\SideKick_Logo_2025_Dark.png"; DestDir: "{app}"; Flags: ignoreve
 Source: "Release\SideKick_Logo_2025_Light.png"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Icon masters and generation scripts for toolbar (dynamic color tinting)
-Source: "Release\Icon_GC_32_White.png"; DestDir: "{app}"; Flags: ignoreversion
-Source: "Release\Icon_PS_32_White.png"; DestDir: "{app}"; Flags: ignoreversion
-Source: "Release\GenerateGCIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "Release\GeneratePSIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Release\Icon_GC_32_White.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\Icon_PS_32_White.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\GenerateGCIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\GeneratePSIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Python executables (compiled with cryptic names - NO Python install needed)
 Source: "Release\_vlk.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -170,6 +170,7 @@ begin
     end;
   end;
 end;
+
 
 
 

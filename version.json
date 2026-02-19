@@ -5,6 +5,8 @@
   "release_notes": "Fix GHL invoice creation failing on orders with zero-price items",
   "changelog": [
     "FIX: GHL invoice creation - remove taxInclusive from £0 items (HTTP 422 error)",
+    "IMPROVED: Update check frequency changed from monthly to weekly",
+    "FIX: Build script now copies icon source files for installer",
     "NEW: PowerShell script generates icon from white master on-the-fly",
     "IMPROVED: Icon only regenerates when color actually changes",
     "CLEANUP: Removed 9 legacy pre-generated icon files",
