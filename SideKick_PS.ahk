@@ -2982,16 +2982,16 @@ GetAlbumFolder() {
 	; This gives us the real path including UNC paths for network locations
 	albumPath := ""
 	
-	; Method 1: Focus address bar with Alt+D, select all, copy
-	oldClipboard := ClipboardAll  ; Save clipboard
-	Clipboard := ""
+	; Method 1: Focus address bar with Alt+D, select all, copy (clipboard-safe)
+	savedClip := ""
+	ClipboardSafeGet(savedClip)
 	Send, !d  ; Alt+D focuses address bar in Explorer/Save dialogs
 	Sleep, 500
 	Send, ^c  ; Copy the path
 	ClipWait, 2
 	if (!ErrorLevel)
 		albumPath := Clipboard
-	Clipboard := oldClipboard  ; Restore clipboard
+	ClipboardSafeRestore(savedClip)
 	
 	; Fallback: try reading Edit1 and building path from it
 	if (albumPath = "" || InStr(albumPath, ".psa")) {
@@ -18367,10 +18367,52 @@ FindFBPEURLFromChrome()
 	return ""
 }
 
+; ============================================================
+; Clipboard Helper Functions
+; Safely get/copy text without losing user's clipboard contents
+; ============================================================
+
+ClipboardSafeGet(ByRef savedClip) {
+	; Save user's clipboard and clear for fresh copy
+	; Usage: savedClip := "", text := ClipboardSafeGet(savedClip)
+	;        ... do clipboard operation (Send ^c) ...
+	;        result := Clipboard
+	;        ClipboardSafeRestore(savedClip)
+	savedClip := ClipboardAll
+	Clipboard := ""
+	return savedClip
+}
+
+ClipboardSafeRestore(ByRef savedClip) {
+	; Restore user's original clipboard contents
+	; Call this after getting the text you need
+	if (savedClip != "") {
+		Clipboard := savedClip
+		savedClip := ""
+	}
+}
+
+ClipboardSafeCopy(timeout := 2) {
+	; Send Ctrl+C and wait for text, preserving user's clipboard
+	; Returns: copied text (or empty if failed), restores original clipboard
+	; Usage: text := ClipboardSafeCopy()
+	savedClip := ClipboardAll
+	Clipboard := ""
+	Send, ^c
+	ClipWait, %timeout%
+	if (ErrorLevel) {
+		Clipboard := savedClip
+		return ""
+	}
+	result := Clipboard
+	Clipboard := savedClip
+	return result
+}
+
 GetChromeTabURL()
 {
-	ClipSaved := ClipboardAll
-	Clipboard := ""
+	savedClip := ""
+	ClipboardSafeGet(savedClip)
 	
 	Send, ^l
 	Sleep, 100
@@ -18378,8 +18420,7 @@ GetChromeTabURL()
 	ClipWait, 1
 	
 	url := Clipboard
-	Clipboard := ClipSaved
-	ClipSaved := ""
+	ClipboardSafeRestore(savedClip)
 	
 	Send, {Escape}
 	return url
