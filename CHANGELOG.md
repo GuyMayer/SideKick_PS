@@ -12,6 +12,17 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.31 (2026-02-19)
+
+### Bug Fixes
+- **GHL Invoice Tax Error**: Fixed HTTP 422 "taxes allowed only on items with price greater than 0" - removed `taxInclusive` field from zero-price items
+- **Build Script Missing Icons**: Fixed installer failing due to missing icon files (Icon_GC_32_White.png, etc.)
+
+### Improvements
+- **Weekly Update Checks**: Changed auto-update check frequency from monthly (30 days) to weekly (7 days) for faster bug fixes
+
+---
+
 ## v2.5.26 (2026-02-18)
 
 ### Bug Fixes
