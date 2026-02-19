@@ -18,12 +18,15 @@ AI INSTRUCTIONS - When publishing a new version:
 - **Direct PSA File Reading**: Read payment data and thumbnails directly from ProSelect .psa album files (SQLite format)
 - **PSA Payment Extraction**: GoCardless payment dialog now reads payments directly from .psa file instead of requiring XML export
 - **PSA Thumbnail Extraction**: Contact sheet generation extracts thumbnails from .psa file directly
+- **GC Past Payment Detection**: Payment dialog detects past due dates and offers to bump them to future dates
+- **GC Dynamic Icon Color**: GoCardless toolbar icon now dynamically matches toolbar icon color scheme
 
 ### Bug Fixes
 - **GHL Invoice Tax Error**: Fixed HTTP 422 "taxes allowed only on items with price greater than 0" - removed `taxInclusive` field from zero-price items
 - **Build Script Missing Icons**: Fixed installer failing due to missing icon files (Icon_GC_32_White.png, etc.)
 - **GetAlbumFolder Path**: Fixed Save As dialog returning breadcrumb display names instead of actual path (uses Alt+D trick)
 - **Payment Regex Decimals**: Fixed regex to handle decimal payment values (e.g., £91.70 not just whole numbers)
+- **GC Search Mandate Dialog**: InputBox now stays on top of other windows
 
 ### Improvements
 - **Weekly Update Checks**: Changed auto-update check frequency from monthly (30 days) to weekly (7 days) for faster bug fixes
