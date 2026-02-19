@@ -702,6 +702,7 @@ def list_mandates_without_plans(token: str, environment: str, progress_file: Opt
 
         results.append({
             'mandate_id': mandate_id,
+            'customer_id': customer_id,
             'customer_name': customer['name'],
             'email': customer['email'],
             'created_at': mandate.get('created_at', '')[:10],  # Just date part
@@ -1309,8 +1310,8 @@ Examples:
             print("NO_EMPTY_MANDATES")
         else:
             for m in mandates:
-                # Format: mandate_id|customer_name|email|created_at|bank_name
-                print(f"{m['mandate_id']}|{m['customer_name']}|{m['email']}|{m['created_at']}|{m['bank_name']}")
+                # Format: mandate_id|customer_id|customer_name|email|created_at|bank_name
+                print(f"{m['mandate_id']}|{m['customer_id']}|{m['customer_name']}|{m['email']}|{m['created_at']}|{m['bank_name']}")
 
     elif args.create_billing_request:
         debug_log(f"Executing --create-billing-request")

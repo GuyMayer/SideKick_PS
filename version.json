@@ -1,10 +1,10 @@
 {
-  "version": "2.5.30",
-  "build_date": "2026-02-18",
+  "version": "2.5.31",
+  "build_date": "2026-02-19",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Dynamic GC icon color matching toolbar icons",
+  "release_notes": "Fix GHL invoice creation failing on orders with zero-price items",
   "changelog": [
-    "IMPROVED: GC toolbar icon now dynamically matches toolbar icon color",
+    "FIX: GHL invoice creation - remove taxInclusive from £0 items (HTTP 422 error)",
     "NEW: PowerShell script generates icon from white master on-the-fly",
     "IMPROVED: Icon only regenerates when color actually changes",
     "CLEANUP: Removed 9 legacy pre-generated icon files",

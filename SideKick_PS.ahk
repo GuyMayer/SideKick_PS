@@ -301,6 +301,7 @@ global Settings_DefaultPayType := "Gocardles DD"
 global Settings_GHL_Enabled := 1
 global Settings_GHL_AutoLoad := 0  ; 0=Manual confirmation, 1=Auto-load to ProSelect
 global Settings_OpenInvoiceURL := 1  ; Open invoice URL in browser after sync
+global Settings_AutoSaveXML := 0  ; Auto-save XML copy when exporting to GHL
 global Settings_InvoiceWatchFolder := ""  ; Folder to watch for ProSelect invoice XML files
 global Settings_GHLInvoiceWarningShown := 0  ; Has user been warned about GHL automated emails?
 global Settings_GHLPaymentSettingsURL := ""  ; URL to GHL payment settings for email configuration
@@ -687,8 +688,26 @@ if EnteringPaylines
 	Return
 
 ; If the Payment Calculator is open, don't hide or destroy it based on Add Payment focus
+; BUT verify it actually exists - reset flag if window was closed unexpectedly
 if (PayCalcOpen)
+{
+	if !WinExist("SideKick_PS v" . ScriptVersion . " - Payment Calculator")
+	{
+		; Payment Calculator was closed unexpectedly - reset flag and check windows
+		PayCalcOpen := false
+	}
+	else
+		Return
+}
+
+; Double-check: if neither Add Payment windows exist, always destroy button and stop
+if !WinExist("Add Payment", "Date") && !WinExist("Add Payment", "Payments")
+{
+	Gui, PP:Destroy
+	SetTimer, KeepPayPlanVisible, Off
+	SetTimer, WatchForAddPayment, 1000
 	Return
+}
 
 ; Check if the Payline window exists
 IfWinExist, Add Payment, Date
@@ -1656,7 +1675,7 @@ CreateFloatingToolbar()
 	grabY := 0  ; Top edge
 	grabH := btnH  ; Match button height
 	Gui, Toolbar:Font, s20 w700, Segoe UI
-	Gui, Toolbar:Add, Text, x%grabX% y%grabY% w%grabHandleWidth% h%grabH% Center 0x200 Background333333 c%iconColor% gToolbar_GrabHandle vTB_GrabHandle +HwndTB_GrabHandle_Hwnd, ⣿
+	Gui, Toolbar:Add, Text, x%grabX% y%grabY% w%grabHandleWidth% h%grabH% Center 0x200 Background%initialBgColor% c%iconColor% gToolbar_GrabHandle vTB_GrabHandle +HwndTB_GrabHandle_Hwnd, ⣿
 	ToolbarTooltips[TB_GrabHandle_Hwnd] := "Drag to move toolbar"
 	
 	; Dynamic x position - each visible button advances by btnSpacing (after grab handle)
@@ -2156,14 +2175,13 @@ if (tbWidth = "" || toolbarHeight = "") {
 ; Show toolbar
 Gui, Toolbar:Show, x%newX% y%newY% w%tbWidth% h%toolbarHeight% NoActivate
 
-; Force redraw to apply background color immediately (fixes first-launch rendering issue)
-DllCall("InvalidateRect", "Ptr", ToolbarHwnd, "Ptr", 0, "Int", 1)
-DllCall("UpdateWindow", "Ptr", ToolbarHwnd)
-
 ; On first show, schedule a delayed re-sample of background color
 ; This catches cases where ProSelect's title bar wasn't fully rendered yet
 if (!Toolbar_FirstShowDone && Settings_ToolbarAutoBG) {
 	Toolbar_FirstShowDone := true
+	; Force redraw on first show only (not every timer cycle to avoid flicker)
+	DllCall("InvalidateRect", "Ptr", ToolbarHwnd, "Ptr", 0, "Int", 1)
+	DllCall("UpdateWindow", "Ptr", ToolbarHwnd)
 	SetTimer, FirstLaunchBackgroundSample, -2000
 }
 Return
@@ -2946,42 +2964,61 @@ Return
 GetAlbumFolder() {
 	; Activate ProSelect
 	WinActivate, ahk_exe ProSelect.exe
-	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	WinWaitActive, ahk_exe ProSelect.exe, , 5
 	if ErrorLevel
 		return ""
+	Sleep, 500
 	
 	; Use menu to open Save Album As dialog (avoids triggering other hotkeys)
 	WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Save Album as...
 	
 	; Wait for the Save As dialog
-	WinWait, Save, , 5
+	WinWait, Save, , 10
 	if ErrorLevel
 		return ""
-	Sleep, 500
+	Sleep, 2000
 	
-	; Read the current folder path from the breadcrumb/address bar
-	; ToolbarWindow324 is the standard breadcrumb bar control in Win10/11 Save dialogs
+	; Get the actual folder path by focusing the address bar (Alt+D) and copying
+	; This gives us the real path including UNC paths for network locations
 	albumPath := ""
 	
-	; Try ToolbarWindow324 (breadcrumb bar in modern dialogs)
-	ControlGetText, albumPath, ToolbarWindow324, Save
+	; Method 1: Focus address bar with Alt+D, select all, copy
+	oldClipboard := ClipboardAll  ; Save clipboard
+	Clipboard := ""
+	Send, !d  ; Alt+D focuses address bar in Explorer/Save dialogs
+	Sleep, 500
+	Send, ^c  ; Copy the path
+	ClipWait, 2
+	if (!ErrorLevel)
+		albumPath := Clipboard
+	Clipboard := oldClipboard  ; Restore clipboard
 	
-	; If that returned something like "Address: C:\Users\...\Albums\ClientName"
-	; strip the "Address: " prefix
-	if (InStr(albumPath, "Address: ") = 1)
-		albumPath := SubStr(albumPath, 10)
-	
-	; Fallback: try reading the Edit1 control which may have the folder
-	if (albumPath = "" || albumPath = "Address") {
-		ControlGetText, editPath, Edit1, Save
-		SplitPath, editPath,, editDir
-		if (editDir != "")
-			albumPath := editDir
+	; Fallback: try reading Edit1 and building path from it
+	if (albumPath = "" || InStr(albumPath, ".psa")) {
+		; Edit1 contains the filename - we need the folder
+		; Try the breadcrumb bar as fallback
+		ControlGetText, breadcrumb, ToolbarWindow324, Save
+		if (InStr(breadcrumb, "Address: ") = 1)
+			albumPath := SubStr(breadcrumb, 10)
 	}
 	
 	; Cancel the Save dialog without saving
-	Send, {Escape}
+	; After Alt+D, focus is in address bar - need to click Cancel button
+	Sleep, 300
+	ControlClick, Button2, Save  ; Cancel button
+	Sleep, 200
+	if WinExist("Save") {
+		WinActivate, Save
+		Send, {Escape}
+		Sleep, 200
+	}
+	if WinExist("Save") {
+		; Last resort - click Cancel again
+		ControlClick, Cancel, Save
+		Sleep, 200
+	}
 	WinWaitClose, Save, , 3
+	Sleep, 300
 	
 	; Clean up trailing backslash
 	albumPath := RTrim(albumPath, "\")
@@ -3843,9 +3880,20 @@ Return
 GC_SearchMandateByNameOrEmail(contactData) {
 	global Settings_GoCardlessEnvironment, DebugLogFile
 	
-	; Show input dialog for name or email
-	InputBox, searchTerm, Search Mandate, Enter name or email to search for mandate:,, 320, 150
-	if (ErrorLevel || searchTerm = "")
+	; Show input dialog for name or email (AlwaysOnTop)
+	Gui, GCSearchInput:New, +AlwaysOnTop +ToolWindow +HwndGCSearchHwnd
+	Gui, GCSearchInput:Add, Text, x15 y15, Enter name or email to search for mandate:
+	Gui, GCSearchInput:Add, Edit, x15 y40 w280 vGCSearchTerm
+	Gui, GCSearchInput:Add, Button, x85 y75 w60 gGCSearchOK Default, OK
+	Gui, GCSearchInput:Add, Button, x155 y75 w60 gGCSearchCancel, Cancel
+	Gui, GCSearchInput:Show, w310 h115, Search Mandate
+	
+	; Wait for user input
+	global GCSearchResult := ""
+	WinWaitClose, ahk_id %GCSearchHwnd%
+	searchTerm := GCSearchResult
+	
+	if (searchTerm = "")
 		return
 	
 	; Detect if it's an email (contains @) or a name
@@ -3909,10 +3957,16 @@ GC_SearchMandateByNameOrEmail(contactData) {
 		
 		msg := "✅ Found mandate for " . foundName . plansMsg
 		
-		result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Add PayPlan", "Cancel"]})
+		result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
 		
 		if (result = "Add PayPlan") {
 			GC_ShowPayPlanDialog(contactData, mandateResult)
+		}
+		else if (result = "Open GC Client") {
+			; Open GoCardless customer page
+			gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
+			gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . mandateResult.customerId
+			Run, %gcUrl%
 		}
 		return
 	}
@@ -3930,6 +3984,20 @@ GC_SearchMandateByNameOrEmail(contactData) {
 	DarkMsgBox("Search Error", "Unexpected response from search.`n`n" . SubStr(scriptOutput, 1, 200), "error")
 }
 Return
+
+; Button handlers for Search Mandate dialog
+GCSearchOK:
+Gui, GCSearchInput:Submit
+GCSearchResult := GCSearchTerm
+Gui, GCSearchInput:Destroy
+return
+
+GCSearchCancel:
+GCSearchInputGuiClose:
+GCSearchInputGuiEscape:
+GCSearchResult := ""
+Gui, GCSearchInput:Destroy
+return
 
 Toolbar_CaptureRoom:
 ; Capture the central room view from ProSelect and save as JPG
@@ -4267,121 +4335,7 @@ if (ExportCancelled) {
 	Return
 }
 
-FileAppend, % A_Now . " - Activating ProSelect...`n", %DebugLogFile%
-; Open ProSelect Export Orders dialog (Orders menu -> Export Order)
-WinActivate, ahk_exe ProSelect.exe
-Sleep, 300
-
-FileAppend, % A_Now . " - Waiting for ProSelect active...`n", %DebugLogFile%
-; Wait for ProSelect to be active
-WinWaitActive, ahk_exe ProSelect.exe, , 2
-FileAppend, % A_Now . " - ProSelect active`n", %DebugLogFile%
-
-; Try multiple methods to open Export Orders dialog
-exportOpened := false
-
-FileAppend, % A_Now . " - Method 1: WinMenuSelectItem...`n", %DebugLogFile%
-; Method 1: WinMenuSelectItem - most reliable for standard menus
-WinMenuSelectItem, ahk_exe ProSelect.exe, , Orders, Export Orders...
-Sleep, 800
-if WinExist("Export Orders ahk_exe ProSelect.exe")
-{
-	exportOpened := true
-	FileAppend, % A_Now . " - Method 1 SUCCESS`n", %DebugLogFile%
-}
-
-; Method 2: SendInput with longer delays (fallback)
-if (!exportOpened)
-{
-	FileAppend, % A_Now . " - Method 2: SendInput Alt+O, E...`n", %DebugLogFile%
-	WinActivate, ahk_exe ProSelect.exe
-	Sleep, 300
-	SendInput, {Alt down}o{Alt up}
-	Sleep, 500
-	SendInput, e
-	Sleep, 800
-	if WinExist("Export Orders ahk_exe ProSelect.exe")
-	{
-		exportOpened := true
-		FileAppend, % A_Now . " - Method 2 SUCCESS`n", %DebugLogFile%
-	}
-}
-
-; Method 3: Send with even longer delays (last resort)
-if (!exportOpened)
-{
-	FileAppend, % A_Now . " - Method 3: Send !o, e...`n", %DebugLogFile%
-	WinActivate, ahk_exe ProSelect.exe
-	Sleep, 500
-	Send, !o
-	Sleep, 800
-	Send, e
-	Sleep, 1000
-	if WinExist("Export Orders ahk_exe ProSelect.exe")
-	{
-		exportOpened := true
-		FileAppend, % A_Now . " - Method 3 SUCCESS`n", %DebugLogFile%
-	}
-}
-
-; Only wait if dialog didn't open yet (skip 5s wait if already open)
-if (!exportOpened)
-{
-	FileAppend, % A_Now . " - Waiting 5s for Export Orders dialog...`n", %DebugLogFile%
-	WinWait, Export Orders ahk_exe ProSelect.exe, , 5
-	
-	; Check if user cancelled during wait
-	if (ExportCancelled) {
-		Hotkey, Escape, ExportCancelCheck, Off
-		Gui, InvoiceHandsOff:Destroy
-		ExportInProgress := false
-		Return
-	}
-	
-	if ErrorLevel
-	{
-		FileAppend, % A_Now . " - FAILED: Export Orders dialog did not open`n", %DebugLogFile%
-		ExportInProgress := false  ; Re-enable file watcher
-		Gui, InvoiceHandsOff:Destroy
-		DarkMsgBox("SideKick PS", "Export Orders dialog did not open.`n`nTry opening it manually: Orders menu → Export Orders...", "warning")
-		Return
-	}
-}
-FileAppend, % A_Now . " - Export Orders dialog opened`n", %DebugLogFile%
-Sleep, 300
-
-; Get the window handle for more reliable control interaction
-exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
-
-; Ensure Export To is set to "Standard XML" (ComboBox1)
-ControlFocus, ComboBox1, ahk_id %exportWin%
-Sleep, 100
-Control, ChooseString, Standard XML, ComboBox1, ahk_id %exportWin%
-Sleep, 300
-
-; Click "Check All" button (Button4) - try multiple methods for reliability
-; Method 1: ControlClick with window handle
-ControlClick, Button4, ahk_id %exportWin%, , , , NA
-Sleep, 500
-
-; Check if it worked by verifying window is still responsive
-if !WinExist("ahk_id " . exportWin)
-{
-	ExportInProgress := false  ; Re-enable file watcher
-	Gui, InvoiceHandsOff:Destroy
-	DarkMsgBox("SideKick PS", "Export Orders dialog closed unexpectedly", "warning")
-	Return
-}
-
-; Method 2: If first click didn't work, try sending BM_CLICK message directly
-ControlGet, checkAllHwnd, Hwnd, , Button4, ahk_id %exportWin%
-if (checkAllHwnd)
-{
-	SendMessage, 0x00F5, 0, 0, , ahk_id %checkAllHwnd%  ; BM_CLICK = 0x00F5
-}
-Sleep, 1500
-
-; Use configured watch folder as the export folder (most reliable method)
+; Use configured watch folder as the export folder
 ExportFolder := Settings_InvoiceWatchFolder
 
 ; If no watch folder configured, show error
@@ -4393,183 +4347,143 @@ if (ExportFolder = "" || !FileExist(ExportFolder))
 	Return
 }
 
-; Click Export Now (Button2) - single click is sufficient
-Sleep, 300
-ControlClick, Button2, ahk_id %exportWin%, , , , NA
-
-; Wait for "Export in Standard XML format completed" confirmation dialog
-WinWait, Export Orders, completed, 15
-if !ErrorLevel
-{
-	Sleep, 500
-	; Get the completion dialog window handle (the one with "completed" text)
-	completedWin := WinExist("Export Orders")
-	
-	; Click OK on the completion dialog - try multiple methods
-	; Method 1: ControlClick
-	ControlClick, OK, ahk_id %completedWin%, , , , NA
-	Sleep, 300
-	
-	; Method 2: Try Button1 with ControlClick
-	ControlClick, Button1, ahk_id %completedWin%, , , , NA
-	Sleep, 300
-	
-	; Method 3: Send Enter key to the window
-	ControlSend, , {Enter}, ahk_id %completedWin%
-	Sleep, 500
-	
-	; Wait for the completion dialog to close
-	WinWaitClose, ahk_id %completedWin%, , 3
-	
-	; Now find and close the main Export Orders window
-	Sleep, 300
-	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
-	
-	; Click Cancel to close the Export Orders window
-	if (exportWin) {
-		; Try Cancel button
-		ControlClick, Cancel, ahk_id %exportWin%, , , , NA
-		Sleep, 300
-		
-		; Try Button3 (Cancel is often Button3)
-		ControlClick, Button3, ahk_id %exportWin%, , , , NA
-		Sleep, 300
-		
-		; Send Escape key as fallback
-		ControlSend, , {Escape}, ahk_id %exportWin%
-		Sleep, 500
-		
-		; Wait for window to close
-		WinWaitClose, ahk_id %exportWin%, , 3
-	}
-	Sleep, 300
-	
-	; Find the most recent XML file in the export folder
-	Sleep, 500  ; Give filesystem time to write file
-	latestXml := ""
-	latestTime := 0
-	Loop, Files, %ExportFolder%\*.xml
-	{
-		FileGetTime, fileTime, %A_LoopFileFullPath%, M
-		if (fileTime > latestTime)
-		{
-			latestTime := fileTime
-			latestXml := A_LoopFileFullPath
-		}
-	}
-	
-	if (latestXml = "")
-	{
-		ExportInProgress := false  ; Re-enable file watcher
-		Gui, InvoiceHandsOff:Destroy
-		ToolTip, No XML files found in: %ExportFolder%
-		SetTimer, RemoveToolTip, -3000
-		Return
-	}
-	
-	; Safety check: Verify XML contains a client ID before syncing
-	FileRead, xmlContent, %latestXml%
-	
-	; Check for Client_ID tag with actual content
-	hasClientID := false
-	if (InStr(xmlContent, "<Client_ID>"))
-	{
-		; Extract the Client_ID value using regex
-		if (RegExMatch(xmlContent, "<Client_ID>(.+?)</Client_ID>", match))
-		{
-			if (match1 != "")
-				hasClientID := true
-		}
-	}
-	
-	if (!hasClientID)
-	{
-		FileAppend, % A_Now . " - ERROR: Missing Client ID`n", %DebugLogFile%
-		ExportInProgress := false  ; Re-enable file watcher
-		Gui, InvoiceHandsOff:Destroy
-		DarkMsgBox("Missing Client ID", "Invoice XML is missing a Client ID.`n`nPlease link this order to a GHL contact before exporting.`n`nFile: " . latestXml, "warning")
-		Return
-	}
-	FileAppend, % A_Now . " - Client ID found in XML`n", %DebugLogFile%
-	
-	; Run sync_ps_invoice to upload to GHL (non-blocking with progress GUI)
-	scriptPath := GetScriptPath("sync_ps_invoice")
-	FileAppend, % A_Now . " - Script path: " . scriptPath . "`n", %DebugLogFile%
-	FileAppend, % A_Now . " - Script exists: " . FileExist(scriptPath) . "`n", %DebugLogFile%
-	
-	if (!FileExist(scriptPath))
-	{
-		FileAppend, % A_Now . " - ERROR: Script not found`n", %DebugLogFile%
-		ExportInProgress := false  ; Re-enable file watcher
-		Gui, InvoiceHandsOff:Destroy
-		DarkMsgBox("Script Missing", "Invoice exported but sync_ps_invoice not found.`n`nLooking for: " . scriptPath . "`nScript Dir: " . A_ScriptDir, "warning")
-		Return
-	}
-	
-	; Build arguments with optional financials-only flag
-	syncArgs := """" . latestXml . """"
-	if (Settings_FinancialsOnly)
-		syncArgs .= " --financials-only"
-	if (!Settings_ContactSheet)
-		syncArgs .= " --no-contact-sheet"
-	if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
-		syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
-	if (Settings_RoundingInDeposit)
-		syncArgs .= " --rounding-in-deposit"
-	if (!Settings_OpenInvoiceURL)
-		syncArgs .= " --no-open-browser"
-	syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
-	FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
-	
-	; Check if user cancelled before syncing
-	if (ExportCancelled) {
-		Hotkey, Escape, ExportCancelCheck, Off
-		Gui, InvoiceHandsOff:Destroy
-		ExportInProgress := false
-		Return
-	}
-	
-	FileAppend, % A_Now . " - Showing progress GUI...`n", %DebugLogFile%
-	; Close hands-off GUI before showing sync progress
-	Gui, InvoiceHandsOff:Destroy
-	; Disable ESC handler once we move to sync phase
+; Trigger ProSelect XML export using shared function
+if (!PS_TriggerXMLExport(true)) {
+	; Export failed - function already showed error message
+	ExportInProgress := false
 	Hotkey, Escape, ExportCancelCheck, Off
-	; Show non-blocking progress GUI
-	ShowSyncProgressGUI(latestXml)
-	FileAppend, % A_Now . " - Progress GUI shown`n", %DebugLogFile%
-	
-	; Run in background (non-blocking) - AHK's Run is async by default
-	scriptPath := GetScriptPath("sync_ps_invoice")
-	FileAppend, % A_Now . " - Running sync process...`n", %DebugLogFile%
-	FileAppend, % A_Now . " - syncCmd: " . syncCmd . "`n", %DebugLogFile%
-	FileAppend, % A_Now . " - Working dir: " . A_ScriptDir . "`n", %DebugLogFile%
-	
-	; Run directly - AHK Run is already non-blocking
-	; Don't use start /b as it can cause issues with argument parsing
-	try {
-		Run, %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
-		FileAppend, % A_Now . " - Run succeeded, PID: " . SyncProgress_ProcessId . "`n", %DebugLogFile%
-	} catch e {
-		FileAppend, % A_Now . " - Run FAILED: " . e.Message . "`n", %DebugLogFile%
-	}
-	
-	; Update folder watcher's file list so it doesn't re-prompt for this file
-	SplitPath, latestXml, fileName
-	if (!InStr(LastInvoiceFiles, fileName . "|"))
-		LastInvoiceFiles .= fileName . "|"
-	
-	FileAppend, % A_Now . " - Export completed, file watcher re-enabled`n", %DebugLogFile%
-	ExportInProgress := false  ; Re-enable file watcher immediately so user can continue
-	Hotkey, Escape, ExportCancelCheck, Off  ; Disable ESC handler
-}
-else
-{
-	FileAppend, % A_Now . " - ERROR: Export timeout`n", %DebugLogFile%
-	ExportInProgress := false  ; Re-enable file watcher
-	Hotkey, Escape, ExportCancelCheck, Off  ; Disable ESC handler
 	Gui, InvoiceHandsOff:Destroy
-	DarkMsgBox("Export Timeout", "Export timeout - check ProSelect", "warning")
+	Return
 }
+
+; Find the most recent XML file in the export folder
+Sleep, 500  ; Give filesystem time to write file
+latestXml := ""
+latestTime := 0
+Loop, Files, %ExportFolder%\*.xml
+{
+	FileGetTime, fileTime, %A_LoopFileFullPath%, M
+	if (fileTime > latestTime)
+	{
+		latestTime := fileTime
+		latestXml := A_LoopFileFullPath
+	}
+}
+
+if (latestXml = "")
+{
+	ExportInProgress := false  ; Re-enable file watcher
+	Gui, InvoiceHandsOff:Destroy
+	ToolTip, No XML files found in: %ExportFolder%
+	SetTimer, RemoveToolTip, -3000
+	Return
+}
+
+; Safety check: Verify XML contains a client ID before syncing
+FileRead, xmlContent, %latestXml%
+
+; Check for Client_ID tag with actual content
+hasClientID := false
+if (InStr(xmlContent, "<Client_ID>"))
+{
+	; Extract the Client_ID value using regex
+	if (RegExMatch(xmlContent, "<Client_ID>(.+?)</Client_ID>", match))
+	{
+		if (match1 != "")
+			hasClientID := true
+	}
+}
+
+if (!hasClientID)
+{
+	FileAppend, % A_Now . " - ERROR: Missing Client ID`n", %DebugLogFile%
+	ExportInProgress := false  ; Re-enable file watcher
+	Gui, InvoiceHandsOff:Destroy
+	DarkMsgBox("Missing Client ID", "Invoice XML is missing a Client ID.`n`nPlease link this order to a GHL contact before exporting.`n`nFile: " . latestXml, "warning")
+	Return
+}
+FileAppend, % A_Now . " - Client ID found in XML`n", %DebugLogFile%
+
+; Auto-save XML copy to watch folder if enabled
+if (Settings_AutoSaveXML && Settings_InvoiceWatchFolder != "") {
+	SplitPath, latestXml, xmlFileName
+	destPath := Settings_InvoiceWatchFolder . "\\" . xmlFileName
+	FileCopy, %latestXml%, %destPath%, 1  ; 1 = overwrite
+	if (!ErrorLevel)
+		FileAppend, % A_Now . " - Auto-saved XML copy to: " . destPath . "`n", %DebugLogFile%
+	else
+		FileAppend, % A_Now . " - WARN: Failed to auto-save XML to: " . destPath . "`n", %DebugLogFile%
+}
+
+; Run sync_ps_invoice to upload to GHL (non-blocking with progress GUI)
+scriptPath := GetScriptPath("sync_ps_invoice")
+FileAppend, % A_Now . " - Script path: " . scriptPath . "`n", %DebugLogFile%
+FileAppend, % A_Now . " - Script exists: " . FileExist(scriptPath) . "`n", %DebugLogFile%
+
+if (!FileExist(scriptPath))
+{
+	FileAppend, % A_Now . " - ERROR: Script not found`n", %DebugLogFile%
+	ExportInProgress := false  ; Re-enable file watcher
+	Gui, InvoiceHandsOff:Destroy
+	DarkMsgBox("Script Missing", "Invoice exported but sync_ps_invoice not found.`n`nLooking for: " . scriptPath . "`nScript Dir: " . A_ScriptDir, "warning")
+	Return
+}
+
+; Build arguments with optional financials-only flag
+syncArgs := """" . latestXml . """"
+if (Settings_FinancialsOnly)
+	syncArgs .= " --financials-only"
+if (!Settings_ContactSheet)
+	syncArgs .= " --no-contact-sheet"
+if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
+	syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
+if (Settings_RoundingInDeposit)
+	syncArgs .= " --rounding-in-deposit"
+if (!Settings_OpenInvoiceURL)
+	syncArgs .= " --no-open-browser"
+syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
+FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
+
+; Check if user cancelled before syncing
+if (ExportCancelled) {
+	Hotkey, Escape, ExportCancelCheck, Off
+	Gui, InvoiceHandsOff:Destroy
+	ExportInProgress := false
+	Return
+}
+
+FileAppend, % A_Now . " - Showing progress GUI...`n", %DebugLogFile%
+; Close hands-off GUI before showing sync progress
+Gui, InvoiceHandsOff:Destroy
+; Disable ESC handler once we move to sync phase
+Hotkey, Escape, ExportCancelCheck, Off
+; Show non-blocking progress GUI
+ShowSyncProgressGUI(latestXml)
+FileAppend, % A_Now . " - Progress GUI shown`n", %DebugLogFile%
+
+; Run in background (non-blocking) - AHK's Run is async by default
+scriptPath := GetScriptPath("sync_ps_invoice")
+FileAppend, % A_Now . " - Running sync process...`n", %DebugLogFile%
+FileAppend, % A_Now . " - syncCmd: " . syncCmd . "`n", %DebugLogFile%
+FileAppend, % A_Now . " - Working dir: " . A_ScriptDir . "`n", %DebugLogFile%
+
+; Run directly - AHK Run is already non-blocking
+; Don't use start /b as it can cause issues with argument parsing
+try {
+	Run, %syncCmd%, %A_ScriptDir%, Hide, SyncProgress_ProcessId
+	FileAppend, % A_Now . " - Run succeeded, PID: " . SyncProgress_ProcessId . "`n", %DebugLogFile%
+} catch e {
+	FileAppend, % A_Now . " - Run FAILED: " . e.Message . "`n", %DebugLogFile%
+}
+
+; Update folder watcher's file list so it doesn't re-prompt for this file
+SplitPath, latestXml, fileName
+if (!InStr(LastInvoiceFiles, fileName . "|"))
+	LastInvoiceFiles .= fileName . "|"
+
+FileAppend, % A_Now . " - Export completed, file watcher re-enabled`n", %DebugLogFile%
+ExportInProgress := false  ; Re-enable file watcher immediately so user can continue
+Hotkey, Escape, ExportCancelCheck, Off  ; Disable ESC handler
 Return
 
 ; ESC key handler during export - shows cancel confirmation
@@ -5093,6 +5007,13 @@ ToggleClick_FinancialsOnly:
 Toggle_FinancialsOnly_State := !Toggle_FinancialsOnly_State
 Settings_FinancialsOnly := Toggle_FinancialsOnly_State
 UpdateToggleSlider("Settings", "FinancialsOnly", Toggle_FinancialsOnly_State, 590)
+SaveSettings()
+Return
+
+ToggleClick_AutoSaveXML:
+Toggle_AutoSaveXML_State := !Toggle_AutoSaveXML_State
+Settings_AutoSaveXML := Toggle_AutoSaveXML_State
+UpdateToggleSlider("Settings", "AutoSaveXML", Toggle_AutoSaveXML_State, 590)
 SaveSettings()
 Return
 
@@ -6550,10 +6471,10 @@ CreateGHLPanel()
 	Gui, Settings:Add, Button, x560 y255 w100 h26 gRunGHLSetupWizard vGHLSetupBtn Hidden, 🔧 Wizard
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; INVOICE SYNC GROUP BOX (y305 to y520)
+	; INVOICE SYNC GROUP BOX (y305 to y580)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y305 w480 h250 vGHLInvoiceHeader Hidden, Invoice Sync
+	Gui, Settings:Add, GroupBox, x195 y305 w480 h280 vGHLInvoiceHeader Hidden, Invoice Sync
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
@@ -6573,15 +6494,21 @@ CreateGHLPanel()
 	RegisterSettingsTooltip(HwndFinancialsOnly, "FINANCIALS ONLY MODE`n`nWhen enabled, invoice sync will only include:`n• Lines with monetary values`n• Comment/text lines`n`nExcludes lines that are just image numbers (e.g. 001, 002).`nThis keeps your GHL invoices clean and financial-focused.")
 	CreateToggleSlider("Settings", "FinancialsOnly", 630, 388, Settings_FinancialsOnly)
 	
+	; Auto-save XML toggle slider
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y420 w360 BackgroundTrans vGHLAutoSaveXML Hidden HwndHwndAutoSaveXML, Auto-save XML copy to watch folder
+	RegisterSettingsTooltip(HwndAutoSaveXML, "AUTO-SAVE XML COPY`n`nWhen enabled, saves a copy of the invoice XML`nto the watch folder during export.`n`nUseful for integration with other programs`nthat read ProSelect XML files.")
+	CreateToggleSlider("Settings", "AutoSaveXML", 630, 418, Settings_AutoSaveXML)
+	
 	; Contact Sheet toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y420 w360 BackgroundTrans vGHLContactSheet Hidden HwndHwndContactSheet, Create contact sheet with order
+	Gui, Settings:Add, Text, x210 y450 w360 BackgroundTrans vGHLContactSheet Hidden HwndHwndContactSheet, Create contact sheet with order
 	RegisterSettingsTooltip(HwndContactSheet, "CONTACT SHEET WITH ORDER`n`nWhen enabled, creates a JPG contact sheet showing`nall product images and uploads to GHL Media.`n`nThe contact sheet is added as a note on the contact`nfor easy reference.")
-	CreateToggleSlider("Settings", "ContactSheet", 630, 418, Settings_ContactSheet)
+	CreateToggleSlider("Settings", "ContactSheet", 630, 448, Settings_ContactSheet)
 	
 	; GHL Contact Tags field with ComboBox for selecting from existing tags
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y453 w95 BackgroundTrans vGHLTagsLabel Hidden HwndHwndGHLTags, Contact tags:
+	Gui, Settings:Add, Text, x210 y483 w95 BackgroundTrans vGHLTagsLabel Hidden HwndHwndGHLTags, Contact tags:
 	RegisterSettingsTooltip(HwndGHLTags, "CONTACT TAGS`n`nTags to add to the GHL contact when syncing.`nThese appear in CRM > Contacts > Tags.`n`nClick 🔄 to fetch existing tags from GHL,`nor type a new tag name to create it.`n`nExample: proselect, vip-client")
 	; Build tag list for ComboBox (saved value first, then cached tags)
 	tagList := Settings_GHLTags
@@ -6590,17 +6517,17 @@ CreateGHLPanel()
 			tagList .= "||"
 		tagList .= GHL_CachedTags
 	}
-	Gui, Settings:Add, ComboBox, x305 y450 w170 r15 vGHLTagsEdit Hidden, %tagList%
-	Gui, Settings:Add, Button, x480 y449 w40 h27 gRefreshGHLTags vGHLTagsRefresh Hidden HwndHwndTagsRefresh, 🔄
+	Gui, Settings:Add, ComboBox, x305 y480 w170 r15 vGHLTagsEdit Hidden, %tagList%
+	Gui, Settings:Add, Button, x480 y479 w40 h27 gRefreshGHLTags vGHLTagsRefresh Hidden HwndHwndTagsRefresh, 🔄
 	RegisterSettingsTooltip(HwndTagsRefresh, "REFRESH CONTACT TAGS`n`nFetch your existing contact tags from GHL.")
 	Gui, Settings:Font, s8 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x525 y453 w100 BackgroundTrans vAutoTagContactLabel Hidden, Auto tag on inv
+	Gui, Settings:Add, Text, x525 y483 w100 BackgroundTrans vAutoTagContactLabel Hidden, Auto tag on inv
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	CreateToggleSlider("Settings", "AutoAddContactTags", 630, 448, Settings_AutoAddContactTags)
+	CreateToggleSlider("Settings", "AutoAddContactTags", 630, 478, Settings_AutoAddContactTags)
 	
 	; GHL Opportunity Tags field with ComboBox
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y483 w95 BackgroundTrans vGHLOppTagsLabel Hidden HwndHwndGHLOppTags, Opp tags:
+	Gui, Settings:Add, Text, x210 y513 w95 BackgroundTrans vGHLOppTagsLabel Hidden HwndHwndGHLOppTags, Opp tags:
 	RegisterSettingsTooltip(HwndGHLOppTags, "OPPORTUNITY TAGS`n`nTags to add to the GHL opportunity when syncing.`nThese are used for Smart Lists and filtering.`n`nClick 🔄 to fetch existing opp tags from GHL,`nor type any tag name you want to use.`n`nExample: proselect, invoice-synced")
 	; Build opp tag list for ComboBox (saved value first, then cached opp tags)
 	oppTagList := Settings_GHLOppTags
@@ -6609,25 +6536,25 @@ CreateGHLPanel()
 			oppTagList .= "||"
 		oppTagList .= GHL_CachedOppTags
 	}
-	Gui, Settings:Add, ComboBox, x305 y480 w170 r15 vGHLOppTagsEdit Hidden, %oppTagList%
-	Gui, Settings:Add, Button, x480 y479 w40 h27 gRefreshGHLOppTags vGHLOppTagsRefresh Hidden HwndHwndOppTagsRefresh, 🔄
+	Gui, Settings:Add, ComboBox, x305 y510 w170 r15 vGHLOppTagsEdit Hidden, %oppTagList%
+	Gui, Settings:Add, Button, x480 y509 w40 h27 gRefreshGHLOppTags vGHLOppTagsRefresh Hidden HwndHwndOppTagsRefresh, 🔄
 	RegisterSettingsTooltip(HwndOppTagsRefresh, "REFRESH OPPORTUNITY TAGS`n`nFetch existing tags from your GHL opportunities.")
 	Gui, Settings:Font, s8 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x525 y483 w100 BackgroundTrans vAutoTagOppLabel Hidden, Auto tag on inv
+	Gui, Settings:Add, Text, x525 y513 w100 BackgroundTrans vAutoTagOppLabel Hidden, Auto tag on inv
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	CreateToggleSlider("Settings", "AutoAddOppTags", 630, 478, Settings_AutoAddOppTags)
+	CreateToggleSlider("Settings", "AutoAddOppTags", 630, 508, Settings_AutoAddOppTags)
 	
 	; Set Order QR button - unified format works for both phone and scanner
 	Gui, Settings:Font, s9 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x210 y512 w150 h26 gSetOrderQRUrl vGHLSetOrderQRBtn Hidden HwndHwndSetOrderQR, 📱 Set Order QR URL
+	Gui, Settings:Add, Button, x210 y545 w150 h26 gSetOrderQRUrl vGHLSetOrderQRBtn Hidden HwndHwndSetOrderQR, 📱 Set Order QR URL
 	RegisterSettingsTooltip(HwndSetOrderQR, "SET ORDER QR URL`n`nConfigures ProSelect QR code that works for BOTH:`n`n📱 Phone: Scan with camera → opens GHL contact`n🔫 Scanner: Barcode scanner → SideKick opens URL`n`nThe long URL path provides natural padding for scanner timing.")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; CONTACT SHEET COLLECTION GROUP BOX (y590 to y680)
+	; CONTACT SHEET COLLECTION GROUP BOX (y590 to y685)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y590 w480 h95 vGHLInfo Hidden, Contact Sheet Collection
-	
+
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Collect Contact Sheets toggle slider
@@ -9110,7 +9037,9 @@ ListEmptyMandates:
 	}
 	
 	GuiControl, Settings:, GCProgressBar, 0
+	GuiControl, Settings:Show, GCProgressBar
 	GuiControl, Settings:, GCProgressText, Fetching mandates from GoCardless...
+	GuiControl, Settings:Show, GCProgressText
 	
 	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
 	scriptCmd := GetScriptCommand("gocardless_api", "--list-empty-mandates" . envFlag)
@@ -9185,14 +9114,18 @@ GC_ProcessFetchResults:
 	
 	if (InStr(mandatesOutput, "NO_EMPTY_MANDATES")) {
 		GuiControl, Settings:, GCProgressBar, 0
+		GuiControl, Settings:Hide, GCProgressBar
 		GuiControl, Settings:, GCProgressText,
+		GuiControl, Settings:Hide, GCProgressText
 		DarkMsgBox("All Mandates Have Plans", "✅ Great news!`n`nAll active mandates have payment plans assigned.", "success")
 		return
 	}
 	
 	if (InStr(mandatesOutput, "ERROR")) {
 		GuiControl, Settings:, GCProgressBar, 0
+		GuiControl, Settings:Hide, GCProgressBar
 		GuiControl, Settings:, GCProgressText,
+		GuiControl, Settings:Hide, GCProgressText
 		DarkMsgBox("Error", "Failed to fetch mandates.`n`n" . mandatesOutput, "error")
 		return
 	}
@@ -9230,12 +9163,13 @@ GC_ProcessFetchResults:
 			continue
 		
 		parts := StrSplit(A_LoopField, "|")
-		if (parts.Length() >= 5) {
+		if (parts.Length() >= 6) {
 			mandateId := parts[1]
-			customerName := parts[2]
-			email := parts[3]
-			createdAt := parts[4]
-			bankName := parts[5]
+			customerId := parts[2]
+			customerName := parts[3]
+			email := parts[4]
+			createdAt := parts[5]
+			bankName := parts[6]
 			
 			currentMandate++
 			
@@ -9263,13 +9197,15 @@ GC_ProcessFetchResults:
 			}
 			
 			mandateCount++
-			GC_EmptyMandatesArray.Push({mandateId: mandateId, name: customerName, email: email, date: createdAt, shootNo: shootNo, raw: A_LoopField})
+			GC_EmptyMandatesArray.Push({mandateId: mandateId, customerId: customerId, name: customerName, email: email, date: createdAt, shootNo: shootNo, raw: A_LoopField})
 		}
 	}
 	
-	; Clear progress bar
+	; Clear and hide progress bar
 	GuiControl, Settings:, GCProgressBar, 0
+	GuiControl, Settings:Hide, GCProgressBar
 	GuiControl, Settings:, GCProgressText, 
+	GuiControl, Settings:Hide, GCProgressText
 	
 	; Sort by date (newest first) - simple bubble sort for AHK
 	Loop, % GC_EmptyMandatesArray.Length() - 1
@@ -9314,8 +9250,9 @@ GC_ProcessFetchResults:
 	Gui, GCEmptyMandates:Add, ListBox, x15 y45 w720 h250 vGC_EmptyMandatesList Background3D3D3D cWhite gGC_MandateListClick AltSubmit, %displayList%
 	
 	Gui, GCEmptyMandates:Font, s10 cWhite, Segoe UI
-	Gui, GCEmptyMandates:Add, Button, x180 y305 w120 h30 gGC_CopyEmptyMandates, Copy to Clipboard
-	Gui, GCEmptyMandates:Add, Button, x320 y305 w100 h30 gGC_CloseEmptyMandates, Close
+	Gui, GCEmptyMandates:Add, Button, x120 y305 w100 h30 gGC_OpenInGC, Open in GC
+	Gui, GCEmptyMandates:Add, Button, x240 y305 w120 h30 gGC_CopyEmptyMandates, Copy to Clipboard
+	Gui, GCEmptyMandates:Add, Button, x380 y305 w100 h30 gGC_CloseEmptyMandates, Close
 	
 	Gui, GCEmptyMandates:Show, w750 h350, Mandates Without Plans
 return
@@ -9474,6 +9411,31 @@ GC_CopyEmptyMandates:
 	Clipboard := clipText
 	ToolTip, Copied to clipboard!
 	SetTimer, RemoveToolTip, -1500
+return
+
+GC_OpenInGC:
+	global GC_EmptyMandatesArray, Settings_GoCardlessEnvironment
+	
+	; Get selected index from ListBox
+	Gui, GCEmptyMandates:Submit, NoHide
+	GuiControlGet, selectedIndex,, GC_EmptyMandatesList
+	
+	if (selectedIndex = "" || selectedIndex < 1 || selectedIndex > GC_EmptyMandatesArray.Length()) {
+		DarkMsgBox("No Selection", "Please select a mandate to open in GoCardless.", "warning")
+		return
+	}
+	
+	; Get customer ID from array
+	m := GC_EmptyMandatesArray[selectedIndex]
+	if (m.customerId = "") {
+		DarkMsgBox("Error", "No customer ID found for this mandate.", "error")
+		return
+	}
+	
+	; Open GoCardless customer page
+	gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
+	gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . m.customerId
+	Run, %gcUrl%
 return
 
 GC_CloseEmptyMandates:
@@ -9792,87 +9754,187 @@ GC_CheckCustomerMandate(customerEmail) {
 	}
 }
 
-; Trigger ProSelect Export Orders and click Export
-GC_TriggerExport() {
+; Shared function to trigger ProSelect XML export
+; Returns true on success, false on failure
+; showErrors: if true, shows DarkMsgBox on errors; if false, fails silently
+PS_TriggerXMLExport(showErrors := false) {
 	global DebugLogFile
 	
-	FileAppend, % A_Now . " - GC_TriggerExport - Starting export`n", %DebugLogFile%
+	FileAppend, % A_Now . " - PS_TriggerXMLExport - Starting export`n", %DebugLogFile%
 	
 	; Activate ProSelect
 	WinActivate, ahk_exe ProSelect.exe
 	Sleep, 300
 	WinWaitActive, ahk_exe ProSelect.exe, , 2
 	
-	; Open Export Orders dialog
+	; Try multiple methods to open Export Orders dialog
+	exportOpened := false
+	
+	FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 1: WinMenuSelectItem...`n", %DebugLogFile%
+	; Method 1: WinMenuSelectItem - most reliable for standard menus
 	WinMenuSelectItem, ahk_exe ProSelect.exe, , Orders, Export Orders...
 	Sleep, 800
+	if WinExist("Export Orders ahk_exe ProSelect.exe")
+	{
+		exportOpened := true
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 1 SUCCESS`n", %DebugLogFile%
+	}
 	
-	if (!WinExist("Export Orders ahk_exe ProSelect.exe")) {
-		; Fallback: keyboard shortcut
+	; Method 2: SendInput with longer delays (fallback)
+	if (!exportOpened)
+	{
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 2: SendInput Alt+O, E...`n", %DebugLogFile%
+		WinActivate, ahk_exe ProSelect.exe
+		Sleep, 300
 		SendInput, {Alt down}o{Alt up}
 		Sleep, 500
 		SendInput, e
 		Sleep, 800
+		if WinExist("Export Orders ahk_exe ProSelect.exe")
+		{
+			exportOpened := true
+			FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 2 SUCCESS`n", %DebugLogFile%
+		}
 	}
 	
-	; Wait for dialog
-	WinWait, Export Orders ahk_exe ProSelect.exe, , 5
-	if (ErrorLevel) {
-		FileAppend, % A_Now . " - GC_TriggerExport - Export Orders dialog did not open`n", %DebugLogFile%
-		return
+	; Method 3: Send with even longer delays (last resort)
+	if (!exportOpened)
+	{
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 3: Send !o, e...`n", %DebugLogFile%
+		WinActivate, ahk_exe ProSelect.exe
+		Sleep, 500
+		Send, !o
+		Sleep, 800
+		Send, e
+		Sleep, 1000
+		if WinExist("Export Orders ahk_exe ProSelect.exe")
+		{
+			exportOpened := true
+			FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 3 SUCCESS`n", %DebugLogFile%
+		}
 	}
 	
+	; Wait for dialog if not already open
+	if (!exportOpened)
+	{
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - Waiting 5s for Export Orders dialog...`n", %DebugLogFile%
+		WinWait, Export Orders ahk_exe ProSelect.exe, , 5
+		if ErrorLevel
+		{
+			FileAppend, % A_Now . " - PS_TriggerXMLExport - FAILED: Export Orders dialog did not open`n", %DebugLogFile%
+			if (showErrors)
+				DarkMsgBox("SideKick PS", "Export Orders dialog did not open.`n`nTry opening it manually: Orders menu → Export Orders...", "warning")
+			return false
+		}
+	}
+	FileAppend, % A_Now . " - PS_TriggerXMLExport - Export Orders dialog opened`n", %DebugLogFile%
+	Sleep, 300
+	
+	; Get the window handle for more reliable control interaction
 	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
 	
-	; Set to Standard XML
+	; Ensure Export To is set to "Standard XML" (ComboBox1)
 	ControlFocus, ComboBox1, ahk_id %exportWin%
 	Sleep, 100
 	Control, ChooseString, Standard XML, ComboBox1, ahk_id %exportWin%
 	Sleep, 300
 	
-	; Click "Check All" button
-	ControlClick, Check All, ahk_id %exportWin%, , , , NA
+	; Click "Check All" button (Button4) - try multiple methods for reliability
+	; Method 1: ControlClick with window handle
+	ControlClick, Button4, ahk_id %exportWin%, , , , NA
 	Sleep, 500
 	
-	; Click "Export Now" button
-	ControlClick, Export Now, ahk_id %exportWin%, , , , NA
-	Sleep, 1000
-	
-	FileAppend, % A_Now . " - GC_TriggerExport - Clicked Export Now button`n", %DebugLogFile%
-	
-	; Wait for completion/success dialog (message box) - ProSelect shows this after export
-	Loop, 20  ; Try for up to 10 seconds
+	; Check if it worked by verifying window is still responsive
+	if !WinExist("ahk_id " . exportWin)
 	{
-		; Check for any message box belonging to ProSelect
-		if (WinExist("ahk_class #32770 ahk_exe ProSelect.exe")) {
-			completedWin := WinExist("ahk_class #32770 ahk_exe ProSelect.exe")
-			FileAppend, % A_Now . " - GC_TriggerExport - Found completion dialog`n", %DebugLogFile%
-			Sleep, 200
-			ControlClick, OK, ahk_id %completedWin%, , , , NA
-			Sleep, 300
-			; Fallback: Enter key
-			if (WinExist("ahk_id " . completedWin)) {
-				SendInput, {Enter}
-				Sleep, 300
-			}
-			break
-		}
-		Sleep, 500
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - Export Orders dialog closed unexpectedly`n", %DebugLogFile%
+		if (showErrors)
+			DarkMsgBox("SideKick PS", "Export Orders dialog closed unexpectedly", "warning")
+		return false
 	}
 	
-	; Close main Export Orders window by clicking Cancel
+	; Method 2: If first click didn't work, try sending BM_CLICK message directly
+	ControlGet, checkAllHwnd, Hwnd, , Button4, ahk_id %exportWin%
+	if (checkAllHwnd)
+	{
+		SendMessage, 0x00F5, 0, 0, , ahk_id %checkAllHwnd%  ; BM_CLICK = 0x00F5
+	}
+	Sleep, 1500
+	
+	; Click Export Now (Button2)
 	Sleep, 300
-	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
-	if (exportWin) {
-		ControlClick, Cancel, ahk_id %exportWin%, , , , NA
-		Sleep, 300
-		; Fallback: Escape key
-		if (WinExist("Export Orders ahk_exe ProSelect.exe")) {
-			WinClose, Export Orders ahk_exe ProSelect.exe
-		}
-	}
+	ControlClick, Button2, ahk_id %exportWin%, , , , NA
 	
-	FileAppend, % A_Now . " - GC_TriggerExport - Export complete`n", %DebugLogFile%
+	; Wait for "Export in Standard XML format completed" confirmation dialog
+	WinWait, Export Orders, completed, 15
+	if !ErrorLevel
+	{
+		Sleep, 500
+		; Get the completion dialog window handle (the one with "completed" text)
+		completedWin := WinExist("Export Orders")
+		
+		; Click OK on the completion dialog - try multiple methods
+		; Method 1: ControlClick
+		ControlClick, OK, ahk_id %completedWin%, , , , NA
+		Sleep, 300
+		
+		; Method 2: Try Button1 with ControlClick
+		ControlClick, Button1, ahk_id %completedWin%, , , , NA
+		Sleep, 300
+		
+		; Method 3: Send Enter key to the window
+		ControlSend, , {Enter}, ahk_id %completedWin%
+		Sleep, 500
+		
+		; Wait for the completion dialog to close
+		WinWaitClose, ahk_id %completedWin%, , 3
+		
+		; Now find and close the main Export Orders window
+		Sleep, 300
+		exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
+		
+		; Click Cancel to close the Export Orders window
+		if (exportWin) {
+			; Try Cancel button
+			ControlClick, Cancel, ahk_id %exportWin%, , , , NA
+			Sleep, 300
+			
+			; Try Button3 (Cancel is often Button3)
+			ControlClick, Button3, ahk_id %exportWin%, , , , NA
+			Sleep, 300
+			
+			; Send Escape key as fallback
+			ControlSend, , {Escape}, ahk_id %exportWin%
+			Sleep, 500
+			
+			; Wait for window to close
+			WinWaitClose, ahk_id %exportWin%, , 3
+		}
+		
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - Export complete`n", %DebugLogFile%
+		return true
+	}
+	else
+	{
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - Completion dialog did not appear`n", %DebugLogFile%
+		; Close export dialog anyway
+		exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
+		if (exportWin) {
+			ControlClick, Cancel, ahk_id %exportWin%, , , , NA
+			Sleep, 300
+			ControlSend, , {Escape}, ahk_id %exportWin%
+		}
+		if (showErrors)
+			DarkMsgBox("SideKick PS", "Export did not complete.`n`nPlease try exporting manually.", "warning")
+		return false
+	}
+}
+
+; Trigger ProSelect Export Orders and click Export (wrapper for GoCardless flow)
+GC_TriggerExport() {
+	global DebugLogFile
+	FileAppend, % A_Now . " - GC_TriggerExport - Calling shared PS_TriggerXMLExport`n", %DebugLogFile%
+	PS_TriggerXMLExport(false)  ; Silent mode - no error dialogs
 }
 
 GC_SendMandateRequest(contactData, sendEmail, sendSMS) {
@@ -10048,6 +10110,10 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	global GC_PP_BtnCreate, GC_PP_BtnCreateSingles
 	global PayPlanLine, PayNo, DownpaymentLineAdded
 	global Settings_InvoiceWatchFolder
+	global GC_PP_PsaFilePath  ; Store .psa file path for display
+	
+	; Initialize .psa path
+	GC_PP_PsaFilePath := ""
 	
 	; Store data for GUI handlers
 	GC_PP_ContactData := contactData
@@ -10149,158 +10215,125 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 			ddCommonAmount := payAmount
 	}
 	
-	; If no DD payments found in PayPlanLine, try to read from XML
-	if (ddPaymentCount = 0 && Settings_InvoiceWatchFolder != "") {
+	; If no DD payments found in PayPlanLine, try to read from .psa album file
+	if (ddPaymentCount = 0) {
 		; Build search terms string for logging
 		searchTermsStr := ""
 		for idx, term in searchTerms
 			searchTermsStr .= (searchTermsStr ? ", " : "") . term
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No DD payments in PayPlanLine, checking XML folder: " . Settings_InvoiceWatchFolder . "`n", %DebugLogFile%
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No DD payments in PayPlanLine, will read from .psa album file`n", %DebugLogFile%
 		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Search terms: " . searchTermsStr . "`n", %DebugLogFile%
 		
-		; Find XML file matching any search term (get the newest one if multiple)
-		xmlFile := ""
-		xmlFileTime := ""
-		latestMatchTime := 0
-		Loop, Files, %Settings_InvoiceWatchFolder%\*.xml
+		; Ask user to save the album FIRST (before opening any dialogs)
+		result := DarkMsgBox("Save Album", "📁 The album needs to be saved to read payment data.`n`nClick 'Save Album' to save and continue.", "info", {buttons: ["Save Album", "Cancel"]})
+		
+		if (result = "Cancel")
+			return
+		
+		; Save the album for the user (Ctrl+S in ProSelect)
+		Send, ^s
+		Sleep, 3000  ; Wait for save to complete (slow ProSelect)
+		
+		; NOW get the album folder using Save As dialog trick
+		albumFolder := GetAlbumFolder()
+		if (albumFolder = "" || !FileExist(albumFolder)) {
+			DarkMsgBox("Album Not Found", "Could not determine album location.`n`nFolder: " . (albumFolder ? albumFolder : "(empty)") . "`n`nMake sure an album is open in ProSelect.", "error")
+			return
+		}
+		
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Album folder: " . albumFolder . "`n", %DebugLogFile%
+		
+		; Find .psa file in the album folder (use most recently modified)
+		psaFile := ""
+		latestTime := 0
+		Loop, Files, %albumFolder%\*.psa
 		{
-			; Check if filename contains any of our search terms
-			matchFound := false
-			for idx, term in searchTerms {
-				if (InStr(A_LoopFileName, term)) {
-					matchFound := true
-					break
-				}
-			}
-			if (matchFound) {
-				FileGetTime, thisFileTime, %A_LoopFileFullPath%, M
-				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found matching XML: " . A_LoopFileName . " (time: " . thisFileTime . ")`n", %DebugLogFile%
-				if (thisFileTime > latestMatchTime) {
-					latestMatchTime := thisFileTime
-					xmlFile := A_LoopFileFullPath
-					xmlFileTime := thisFileTime
-				}
+			FileGetTime, fileTime, %A_LoopFileFullPath%, M
+			if (fileTime > latestTime) {
+				latestTime := fileTime
+				psaFile := A_LoopFileFullPath
 			}
 		}
 		
-		; If no match by name, try to find most recent XML (within last 5 minutes)
-		if (xmlFile = "") {
-			latestTime := 0
-			fiveMinAgo := A_Now
-			fiveMinAgo += -5, Minutes  ; Subtract 5 minutes
-			Loop, Files, %Settings_InvoiceWatchFolder%\*.xml
+		if (psaFile = "") {
+			DarkMsgBox("Album Not Found", "No .psa album file found in:`n" . albumFolder . "`n`nMake sure the album has been saved.", "error")
+			return
+		}
+		
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found .psa file: " . psaFile . "`n", %DebugLogFile%
+		GC_PP_PsaFilePath := psaFile  ; Store for display in dialog
+		
+		; Call Python script to read payments from .psa
+		ToolTip, Reading payment data from album...
+		scriptCmd := GetScriptCommand("read_psa_payments", """" . psaFile . """")
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Running: " . scriptCmd . "`n", %DebugLogFile%
+		
+		tempResult := A_Temp . "\psa_payments_" . A_TickCount . ".txt"
+		fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
+		RunWait, %fullCmd%, , Hide
+		
+		FileRead, scriptOutput, %tempResult%
+		FileDelete, %tempResult%
+		ToolTip
+		
+		scriptOutput := Trim(scriptOutput)
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Script output: " . scriptOutput . "`n", %DebugLogFile%
+		
+		if (InStr(scriptOutput, "ERROR|")) {
+			errorMsg := StrReplace(scriptOutput, "ERROR|", "")
+			DarkMsgBox("Read Error", "Failed to read album file.`n`n" . errorMsg, "error")
+			return
+		}
+		
+		if (InStr(scriptOutput, "NO_PAYMENTS")) {
+			; No payments at all - let user know
+			DarkMsgBox("No Payments", "No payments found in the album.`n`nAdd a payment schedule in ProSelect first.", "warning")
+			return
+		}
+		
+		if (InStr(scriptOutput, "PAYMENTS|")) {
+			; Parse payments: PAYMENTS|count|day,month,year,amount,methodName,methodID|...
+			parts := StrSplit(scriptOutput, "|")
+			paymentCount := parts[2]
+			
+			Loop, %paymentCount%
 			{
-				FileGetTime, fileTime, %A_LoopFileFullPath%, M
-				if (fileTime > latestTime && fileTime > fiveMinAgo) {
-					latestTime := fileTime
-					xmlFile := A_LoopFileFullPath
-					xmlFileTime := fileTime
-				}
-			}
-		}
-		
-		; If XML found, offer choice to use it or generate new
-		if (xmlFile != "") {
-			; Format the file time for display
-			FormatTime, displayTime, %xmlFileTime%, dd/MM/yyyy HH:mm
-			SplitPath, xmlFile, xmlFileName
-			
-			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found XML: " . xmlFile . " from " . displayTime . "`n", %DebugLogFile%
-			
-			result := DarkMsgBox("XML Found", "Found existing invoice XML:`n`n📄 " . xmlFileName . "`n📅 Exported: " . displayTime . "`n`nUse this file or generate a fresh export?", "info", {buttons: ["Use Existing", "Export New", "Cancel"]})
-			
-			if (result = "Cancel") {
-				return
-			}
-			else if (result = "Export New") {
-				; Delete old XML and generate new
-				oldXmlFile := xmlFile
-				xmlFile := ""
-				FileDelete, %oldXmlFile%
-				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Deleted old XML, will export new`n", %DebugLogFile%
-			}
-			; else "Use Existing" - xmlFile is already set
-		}
-		
-		; If no XML found (or user chose to export new), offer to export from ProSelect
-		if (xmlFile = "") {
-			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No matching XML found, prompting for export`n", %DebugLogFile%
-			
-			result := DarkMsgBox("Export Required", "No invoice XML found for this album.`n`nThe payment schedule needs to be exported from ProSelect first.`n`nClick Export to open ProSelect's Export Orders dialog.", "warning", {buttons: ["Export", "Cancel"]})
-			
-			if (result = "Export") {
-				; Capture time BEFORE export (with 5 second buffer for clock drift)
-				startTime := A_Now
-				startTime += -5, Seconds
+				paymentData := parts[A_Index + 2]
+				payParts := StrSplit(paymentData, ",")
 				
-				; Trigger ProSelect Export Orders dialog
-				GC_TriggerExport()
-				
-				; Wait for XML to appear (up to 30 seconds)
-				ToolTip, Waiting for export to complete...
-				timeoutTime := A_TickCount + 30000
-				while (A_TickCount < timeoutTime) {
-					Sleep, 1000
-					Loop, Files, %Settings_InvoiceWatchFolder%\*.xml
-					{
-						FileGetTime, fileTime, %A_LoopFileFullPath%, M
-						if (fileTime > startTime) {
-							xmlFile := A_LoopFileFullPath
-							FileAppend, % A_Now . " - Found new XML: " . xmlFile . " (time: " . fileTime . " > " . startTime . ")`n", %DebugLogFile%
-							break 2
-						}
-					}
-				}
-				ToolTip
-				
-				if (xmlFile = "") {
-					DarkMsgBox("Export Failed", "Export did not complete or no new XML was created.`n`nPlease export manually and try again.", "error")
-					return
-				}
-			} else {
-				return
-			}
-		}
-		
-		if (xmlFile != "") {
-			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Reading XML: " . xmlFile . "`n", %DebugLogFile%
-			FileRead, xmlContent, %xmlFile%
-			
-			; Extract DD payments from XML - look for Method="DD" or MethodName containing GoCardless/Direct Debit
-			pos := 1
-			while (pos := InStr(xmlContent, "<Payment", true, pos)) {
-				endPos := InStr(xmlContent, "</Payment>", true, pos)
-				if (!endPos)
-					break
-				
-				paymentXml := SubStr(xmlContent, pos, endPos - pos + 10)
-				
-				; Check if DD payment
-				if (InStr(paymentXml, "<Method>DD</Method>") || InStr(paymentXml, "GoCardless") || InStr(paymentXml, "Direct Debit")) {
-					; Extract date and amount
-					payDate := ""
-					payAmount := ""
-					if (RegExMatch(paymentXml, "<DateSQL>(\d{4})-(\d{2})-(\d{2})</DateSQL>", m))
-						payDate := m3 . "/" . m2 . "/" . m1  ; dd/mm/yyyy
-					if (RegExMatch(paymentXml, "<Amount>([0-9.]+)</Amount>", m))
-						payAmount := m1
+				if (payParts.Length() >= 6) {
+					payDay := payParts[1]
+					payMonth := payParts[2]
+					payYear := payParts[3]
+					payAmount := payParts[4]
+					methodName := payParts[5]
+					methodID := payParts[6]
 					
-					if (payDate != "" && payAmount != "") {
-						; Add to ddPayments - format: day,month,year,PayType,Amount
-						dateParts := StrSplit(payDate, "/")
-						lineData := dateParts[1] . "," . dateParts[2] . "," . dateParts[3] . ",DD," . payAmount
+					; Check if this is a DD payment (GoCardless, DD, Direct Debit, BACS)
+					isDDPayment := false
+					if (InStr(methodName, "GoCardless") || InStr(methodName, "Direct Debit") || InStr(methodName, " DD") || methodName = "DD" || InStr(methodName, "BACS"))
+						isDDPayment := true
+					
+					if (isDDPayment) {
+						; Format: day,month,year,PayType,Amount
+						lineData := payDay . "," . payMonth . "," . payYear . ",DD," . payAmount
 						ddPayments.Push(lineData)
 						ddPaymentCount++
 						ddTotalAmount += payAmount
 						if (ddFirstDay = 0)
-							ddFirstDay := dateParts[1]
+							ddFirstDay := payDay
 						if (ddCommonAmount = 0)
 							ddCommonAmount := payAmount
-						FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found DD payment in XML: " . lineData . "`n", %DebugLogFile%
+						FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found DD payment in .psa: " . lineData . "`n", %DebugLogFile%
+					} else {
+						FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Skipping non-DD payment: " . methodName . " - " . payAmount . "`n", %DebugLogFile%
 					}
 				}
-				pos := endPos + 1
 			}
+		} else {
+			; Unexpected script output - show it for debugging
+			DarkMsgBox("Unexpected Output", "Script returned unexpected output:`n`n" . SubStr(scriptOutput, 1, 500), "warning")
+			return
 		}
 	}
 	
@@ -10408,14 +10441,22 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	; Payment preview (detected from invoice) - wrap long text
 	Gui, GCPayPlan:Add, Text, x15 y90 w80 cAAAAAA, Detected:
 	previewColor := (singlePayments.Length() > 0 && instalmentPayments.Length() > 0) ? "00CC66" : (ddPaymentCount > 0 ? "AAAAAA" : "FF6666")
-	Gui, GCPayPlan:Add, Text, x100 y90 w270 h40 c%previewColor%, %paymentPreview%
+	Gui, GCPayPlan:Add, Text, x100 y90 w270 h30 c%previewColor%, %paymentPreview%
+	
+	; Show .psa file path if we have one (just filename, full path in tooltip)
+	psaDisplayPath := GC_PP_PsaFilePath ? GC_PP_PsaFilePath : "(not loaded)"
+	SplitPath, psaDisplayPath, psaFileName
+	if (psaFileName = "")
+		psaFileName := psaDisplayPath
+	Gui, GCPayPlan:Add, Text, x15 y120 w80 cAAAAAA, Album:
+	Gui, GCPayPlan:Add, Edit, x100 y117 w270 h22 ReadOnly Background2D2D2D c888888, %psaDisplayPath%
 	
 	; Separator
-	Gui, GCPayPlan:Add, Text, x15 y135 w355 h1 0x10  ; SS_ETCHEDHORZ
+	Gui, GCPayPlan:Add, Text, x15 y145 w355 h1 0x10  ; SS_ETCHEDHORZ
 	
 	; Plan Name
-	Gui, GCPayPlan:Add, Text, x15 y150 w80 cAAAAAA, Plan Name:
-	Gui, GCPayPlan:Add, Edit, x100 y147 w270 h24 vGC_PP_Name Background3D3D3D cWhite, %defaultName%
+	Gui, GCPayPlan:Add, Text, x15 y160 w80 cAAAAAA, Plan Name:
+	Gui, GCPayPlan:Add, Edit, x100 y157 w270 h24 vGC_PP_Name Background3D3D3D cWhite, %defaultName%
 	
 	; Build payment list for display
 	paymentListText := ""
@@ -10439,8 +10480,8 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		paymentListText := "(No DD payments found in invoice)"
 	
 	; Payment list (read-only)
-	Gui, GCPayPlan:Add, Text, x15 y180 cAAAAAA, Payments:
-	Gui, GCPayPlan:Add, Edit, x15 y200 w355 h280 vGC_PP_PaymentList ReadOnly Background3D3D3D cWhite, %paymentListText%
+	Gui, GCPayPlan:Add, Text, x15 y190 cAAAAAA, Payments:
+	Gui, GCPayPlan:Add, Edit, x15 y210 w355 h270 vGC_PP_PaymentList ReadOnly Background3D3D3D cWhite, %paymentListText%
 	
 	; Store data for create function
 	global GC_PP_MandateResult, GC_PP_ContactData
@@ -10465,6 +10506,134 @@ GC_PP_CreateMixed:
 	
 	if (GC_PP_DDPayments.Length() = 0) {
 		DarkMsgBox("No Payments", "No DD payments found in the invoice to create.", "warning")
+		return
+	}
+	
+	; Check for past payment dates
+	FormatTime, todayISO, , yyyy-MM-dd
+	pastPayments := ""
+	pastCount := 0
+	earliestPastDate := ""
+	
+	for idx, payment in GC_PP_DDPayments {
+		if (payment.date < todayISO) {
+			; Format date for display (YYYY-MM-DD to DD/MM/YYYY)
+			parts := StrSplit(payment.date, "-")
+			displayDate := parts[3] . "/" . parts[2]  . "/" . parts[1]
+			pastPayments .= "   • " . displayDate . " - £" . Format("{:.2f}", payment.amount) . "`n"
+			pastCount++
+			if (earliestPastDate = "" || payment.date < earliestPastDate)
+				earliestPastDate := parts[3] . "," . parts[2] . "," . parts[1]  ; Store as D,M,YYYY
+		}
+	}
+	
+	if (pastCount > 0) {
+		; Calculate months to bump
+		FormatTime, CurrentMonth, , M
+		FormatTime, CurrentYear, , yyyy
+		FormatTime, CurrentDay, , d
+		
+		; Get day from earliest past payment
+		epParts := StrSplit(earliestPastDate, ",")
+		PaymentDay := epParts[1] + 0
+		
+		; Determine next available month
+		NextAvailMonth := CurrentMonth + 0
+		NextAvailYear := CurrentYear + 0
+		
+		; If we're past the payment day this month, use next month
+		if ((CurrentDay + 0) >= PaymentDay) {
+			NextAvailMonth++
+			if (NextAvailMonth > 12) {
+				NextAvailMonth := 1
+				NextAvailYear++
+			}
+		}
+		
+		; Get month names
+		GC_Months := {1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June"
+			, 7: "July", 8: "August", 9: "September", 10: "October", 11: "November", 12: "December"}
+		NextMonthName := GC_Months[NextAvailMonth]
+		
+		; Calculate bump from earliest payment
+		OrigMonth := epParts[2] + 0
+		OrigYear := epParts[3] + 0
+		MonthsBump := (NextAvailYear - OrigYear) * 12 + (NextAvailMonth - OrigMonth)
+		OrigMonthName := GC_Months[OrigMonth]
+		
+		msg := "⚠️ PAYMENT DATES IN THE PAST ⚠️`n`n"
+		msg .= "The following payment dates have already passed:`n`n" . pastPayments
+		msg .= "`nGoCardless will REJECT payments with past dates.`n`n"
+		msg .= "📅 Bump by " . MonthsBump . " month" . (MonthsBump > 1 ? "s" : "") . "`n"
+		msg .= "    From: " . OrigMonthName . " " . OrigYear . "`n"
+		msg .= "    To: " . NextMonthName . " " . NextAvailYear . "`n`n"
+		msg .= "Click 'Cancel' to go back and review."
+		
+		result := DarkMsgBox("Past Payment Dates", msg, "warning", {buttons: ["Bump Dates", "Cancel"]})
+		
+		if (result != "Bump Dates")
+			return
+		
+		; Bump all payment dates by MonthsBump months
+		for idx, payment in GC_PP_DDPayments {
+			parts := StrSplit(payment.date, "-")
+			pYear := parts[1] + 0
+			pMonth := parts[2] + 0
+			pDay := parts[3] + 0
+			
+			; Add months
+			pMonth += MonthsBump
+			while (pMonth > 12) {
+				pMonth -= 12
+				pYear++
+			}
+			
+			GC_PP_DDPayments[idx].date := Format("{}-{:02d}-{:02d}", pYear, pMonth, pDay)
+		}
+		
+		; Also bump GC_PP_SinglePayments (format: day,month,year,?,amount)
+		for idx, payment in GC_PP_SinglePayments {
+			parts := StrSplit(payment, ",")
+			pDay := parts[1]
+			pMonth := parts[2] + 0
+			pYear := parts[3] + 0
+			
+			pMonth += MonthsBump
+			while (pMonth > 12) {
+				pMonth -= 12
+				pYear++
+			}
+			
+			GC_PP_SinglePayments[idx] := pDay . "," . pMonth . "," . pYear . "," . parts[4] . "," . parts[5]
+		}
+		
+		; Also bump GC_PP_InstalmentPayments
+		for idx, payment in GC_PP_InstalmentPayments {
+			parts := StrSplit(payment, ",")
+			pDay := parts[1]
+			pMonth := parts[2] + 0
+			pYear := parts[3] + 0
+			
+			pMonth += MonthsBump
+			while (pMonth > 12) {
+				pMonth -= 12
+				pYear++
+			}
+			
+			GC_PP_InstalmentPayments[idx] := pDay . "," . pMonth . "," . pYear . "," . parts[4] . "," . parts[5]
+		}
+		
+		; Update the payments list display in the GUI
+		paymentListText := ""
+		for idx, payment in GC_PP_DDPayments {
+			parts := StrSplit(payment.date, "-")
+			dateStr := Format("{:02d}/{:02d}/{}", parts[3], parts[2], parts[1])
+			amountStr := Format("£{:.2f}", payment.amount)
+			paymentListText .= dateStr . "  " . amountStr . "`n"
+		}
+		GuiControl, GCPayPlan:, GC_PP_PaymentList, %paymentListText%
+		
+		DarkMsgBox("Dates Updated", "✅ Payment dates bumped by " . MonthsBump . " month" . (MonthsBump > 1 ? "s" : "") . ".`n`nReview the updated dates and click 'Create Payments' again.", "success")
 		return
 	}
 	
@@ -11632,6 +11801,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_OpenInvoiceURL
 		GuiControl, Settings:Show, GHLFinancialsOnly
 		GuiControl, Settings:Show, Toggle_FinancialsOnly
+		GuiControl, Settings:Show, GHLAutoSaveXML
+		GuiControl, Settings:Show, Toggle_AutoSaveXML
 		GuiControl, Settings:Show, GHLContactSheet
 		GuiControl, Settings:Show, Toggle_ContactSheet
 		GuiControl, Settings:Show, GHLTagsLabel
@@ -13168,7 +13339,14 @@ Settings_ContactSheetFolder := GHLCSFolderEdit
 SaveSettings()
 ; Rebuild toolbar to reflect button visibility changes
 Gui, Toolbar:Destroy
+; Cancel any pending background sample timers
+SetTimer, FirstLaunchBackgroundSample, Off
+global Toolbar_FirstShowDone := true
+; Use saved background color (don't resample - it's unreliable after dialogs close)
+global Settings_ToolbarAutoBG_Temp := Settings_ToolbarAutoBG
+Settings_ToolbarAutoBG := false
 CreateFloatingToolbar()
+Settings_ToolbarAutoBG := Settings_ToolbarAutoBG_Temp
 ToolTip, Settings saved!
 SetTimer, RemoveSettingsTooltip, -1500
 Return
@@ -13260,10 +13438,19 @@ Settings_InvoiceWatchFolder := GHLWatchFolderEdit
 Settings_ContactSheetFolder := GHLCSFolderEdit
 ; Save settings
 SaveSettings()
-; Rebuild toolbar to reflect button visibility changes
+; Rebuild toolbar: hide Settings first to prevent flash during destruction
+Gui, Settings:Hide
 Gui, Toolbar:Destroy
-CreateFloatingToolbar()
+Sleep, 50
 Gui, Settings:Destroy
+; Cancel any pending background sample timers
+SetTimer, FirstLaunchBackgroundSample, Off
+global Toolbar_FirstShowDone := true
+; Use saved background color (don't resample - it's unreliable after dialogs close)
+global Settings_ToolbarAutoBG_Temp := Settings_ToolbarAutoBG
+Settings_ToolbarAutoBG := false
+CreateFloatingToolbar()
+Settings_ToolbarAutoBG := Settings_ToolbarAutoBG_Temp
 Settings_CurrentTab := "General"  ; Reset to General for next open
 Return
 
@@ -15602,9 +15789,15 @@ CheckGoCardlessAfterSync:
 	if (mandateResult.hasMandate) {
 		; Customer has active mandate - offer to set up payment plan
 		bankInfo := mandateResult.bankName != "" ? " (" . mandateResult.bankName . ")" : ""
-		planResult := DarkMsgBox("Mandate Found", clientName . " already has an active Direct Debit mandate" . bankInfo . ".`n`nMandate ID: " . mandateResult.mandateId . "`n`nWould you like to set up a payment plan using this mandate?", "success", {buttons: ["Set Up PayPlan", "Cancel"]})
+		planResult := DarkMsgBox("Mandate Found", clientName . " already has an active Direct Debit mandate" . bankInfo . ".`n`nMandate ID: " . mandateResult.mandateId . "`n`nWould you like to set up a payment plan using this mandate?", "success", {buttons: ["Set Up PayPlan", "Open GC Client", "Cancel"]})
 		
-		if (planResult = "Set Up PayPlan") {
+		if (planResult = "Open GC Client") {
+			; Open GoCardless customer page
+			gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
+			gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . mandateResult.customerId
+			Run, %gcUrl%
+		}
+		else if (planResult = "Set Up PayPlan") {
 			; Store data for PayPlan dialog
 			global GC_PayPlan_ContactData := {}
 			GC_PayPlan_ContactData.name := clientName
@@ -16386,6 +16579,7 @@ LoadSettings()
 	IniRead, Settings_InvoiceWatchFolder, %IniFilename%, GHL, InvoiceWatchFolder, %A_Space%
 	IniRead, Settings_OpenInvoiceURL, %IniFilename%, GHL, OpenInvoiceURL, 1
 	IniRead, Settings_FinancialsOnly, %IniFilename%, GHL, FinancialsOnly, 0
+	IniRead, Settings_AutoSaveXML, %IniFilename%, GHL, AutoSaveXML, 0
 	IniRead, Settings_ContactSheet, %IniFilename%, GHL, ContactSheet, 1
 	IniRead, Settings_CollectContactSheets, %IniFilename%, GHL, CollectContactSheets, 0
 	IniRead, Settings_ContactSheetFolder, %IniFilename%, GHL, ContactSheetFolder, %A_Space%
@@ -16559,6 +16753,7 @@ SaveSettings()
 	IniWrite, %Settings_InvoiceWatchFolder%, %IniFilename%, GHL, InvoiceWatchFolder
 	IniWrite, %Settings_OpenInvoiceURL%, %IniFilename%, GHL, OpenInvoiceURL
 	IniWrite, %Settings_FinancialsOnly%, %IniFilename%, GHL, FinancialsOnly
+	IniWrite, %Settings_AutoSaveXML%, %IniFilename%, GHL, AutoSaveXML
 	IniWrite, %Settings_ContactSheet%, %IniFilename%, GHL, ContactSheet
 	IniWrite, %Settings_CollectContactSheets%, %IniFilename%, GHL, CollectContactSheets
 	IniWrite, %Settings_ContactSheetFolder%, %IniFilename%, GHL, ContactSheetFolder
@@ -16755,6 +16950,124 @@ if (LastPayPlanMonth := 12)
 	PayPlanYear := 1
 Return
 
+CheckPastPaymentDates:
+; Check if first payment date is in the past and offer to bump to next available month
+if (PayNo < 1)
+	return
+
+; Get first payment line data (index 1, not 0 which is downpayment)
+FirstPayLine := PayPlanLine[1]
+if (FirstPayLine = "")
+	return
+
+Data := StrSplit(FirstPayLine, ",")
+FirstDay := Data[1]
+FirstMonth := Data[2]
+FirstYear := Data[3]
+
+; Build full year (assuming 20xx)
+FullYear := "20" . FirstYear
+
+; Build date in YYYYMMDD format for comparison
+FirstPayDate := FullYear . Format("{:02}", FirstMonth) . Format("{:02}", FirstDay)
+
+; Get today's date in same format
+FormatTime, Today, , yyyyMMdd
+
+; Check if first payment is in the past
+if (FirstPayDate < Today)
+{
+	; Calculate how many months behind
+	FormatTime, CurrentMonth, , M
+	FormatTime, CurrentYear, , yyyy
+	FormatTime, CurrentDay, , d
+	
+	MonthsBehind := 0
+	TempMonth := FirstMonth
+	TempYear := FullYear
+	
+	; Count months until we reach current month
+	Loop, 24  ; Max 2 years
+	{
+		TempDate := TempYear . Format("{:02}", TempMonth) . Format("{:02}", FirstDay)
+		if (TempDate >= Today)
+			break
+		MonthsBehind++
+		TempMonth++
+		if (TempMonth > 12)
+		{
+			TempMonth := 1
+			TempYear++
+		}
+	}
+	
+	; Determine next available month
+	NextAvailMonth := CurrentMonth
+	NextAvailYear := CurrentYear
+	
+	; If we're past the payment day this month, use next month
+	if (CurrentDay >= FirstDay)
+	{
+		NextAvailMonth++
+		if (NextAvailMonth > 12)
+		{
+			NextAvailMonth := 1
+			NextAvailYear++
+		}
+	}
+	
+	NextMonthName := Months[NextAvailMonth]
+	
+	; Calculate how many months we're bumping
+	OriginalMonthName := Months[FirstMonth]
+	MonthsBump := (NextAvailYear - FullYear) * 12 + (NextAvailMonth - FirstMonth)
+	
+	; Build message showing which payments are past due
+	PastPayments := ""
+	Loop, %PayNo%
+	{
+		LineData := StrSplit(PayPlanLine[A_Index], ",")
+		LineDate := "20" . LineData[3] . Format("{:02}", LineData[2]) . Format("{:02}", LineData[1])
+		if (LineDate < Today)
+		{
+			PastPayments .= "   • " . LineData[1] . "/" . LineData[2] . "/20" . LineData[3] . " - £" . LineData[5] . "`n"
+		}
+	}
+	
+	msg := "⚠️ PAYMENT DATES IN THE PAST ⚠️`n`n"
+	msg .= "The following payment dates have already passed:`n`n" . PastPayments
+	msg .= "`nGoCardless will REJECT payments with past dates.`n`n"
+	msg .= "📅 Bump by " . MonthsBump . " month" . (MonthsBump > 1 ? "s" : "") . "`n"
+	msg .= "    From: " . OriginalMonthName . " " . FullYear . "`n"
+	msg .= "    To: " . NextMonthName . " " . NextAvailYear . "`n`n"
+	msg .= "Click 'Cancel' to go back and fix the dates manually."
+	
+	result := DarkMsgBox("Past Payment Dates", msg, "warning", {buttons: ["Bump Dates", "Cancel"]})
+	
+	if (result = "Bump Dates")
+	{
+		; Update PayMonth and PayYear to next available
+		PayMonth := NextMonthName
+		PayYear := NextAvailYear
+		
+		; Rebuild payment plan lines with new start date
+		Gosub, BuildPayPlanLines
+		
+		ToolTip, 📅 Payment dates bumped to start from %NextMonthName% %NextAvailYear%
+		SetTimer, RemovePPTooltip, -2000
+	}
+	else
+	{
+		; User cancelled - abort the save operation
+		return
+	}
+}
+return
+
+RemovePPTooltip:
+ToolTip
+return
+
 BuildPayPlanLines: ; make PayPlanLines
 
 ; If downpayment amount is entered, add it as the FIRST payment line (index 0)
@@ -16882,6 +17195,10 @@ if !FileExist(IniFilename) {
 }
 
 Gosub, BuildPayPlanLines
+
+; Check if any payment dates are in the past and offer to bump them
+Gosub, CheckPastPaymentDates
+
 IniWrite, %PayDue%, %IniFilename%, Payments, PayDue
 Sleep 100
 IniWrite, %PayNo%, %IniFilename%, Payments, PayNo
@@ -17864,13 +18181,16 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 					WinActivate, ahk_id %saveAsDialogHwnd%
 					Sleep, 500
 					
+					; Read original filename from edit control before changing it
+					ControlGetText, originalFileName, Edit1, ahk_id %saveAsDialogHwnd%
+					
 					; Focus filename edit, select all, type new name
 					ControlFocus, Edit1, ahk_id %saveAsDialogHwnd%
 					Sleep, 200
 					SendInput, ^a
 					Sleep, 200
 					SendInput, %newAlbumName%
-					Sleep, 500
+					Sleep, 2000
 					
 					; Click Save button (Button2)
 					ControlClick, Button2, ahk_id %saveAsDialogHwnd%
@@ -17883,7 +18203,36 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 						Sleep, 500
 					}
 					
-					ToolTip, ✅ Album saved with client ID!
+					; Delete original .psa file if it differs from new name
+					if (originalFileName != "" && originalFileName != newAlbumName)
+					{
+						; Get album folder from original albumPath
+						SplitPath, albumPath, , albumDir
+						if (albumDir != "")
+						{
+							originalFullPath := albumDir . "\" . originalFileName
+							if FileExist(originalFullPath)
+							{
+								FileDelete, %originalFullPath%
+								if !ErrorLevel
+									ToolTip, ✅ Album saved and old file removed!
+								else
+									ToolTip, ✅ Album saved (old file still exists)
+							}
+							else
+							{
+								ToolTip, ✅ Album saved with client ID!
+							}
+						}
+						else
+						{
+							ToolTip, ✅ Album saved with client ID!
+						}
+					}
+					else
+					{
+						ToolTip, ✅ Album saved with client ID!
+					}
 					SetTimer, RemoveUpdateTooltip, -2000
 				}
 				else

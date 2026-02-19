@@ -3026,12 +3026,16 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
             "amount": item_price,  # Invoice items use pounds (record-payment uses pence)
             "qty": int(item['quantity']),
             "currency": "GBP",
-            "taxInclusive": item.get('price_includes_tax', True)  # Per GHL docs: use boolean at item level
         }
         
-        # Add tax if item is taxable, has a tax rate, AND has a price > 0
-        # GHL rejects taxes on zero-price items
-        if item.get('taxable', True) and item.get('tax_rate', 0) > 0 and item_price > 0:
+        # Only include tax fields for items with price >= £0.01
+        # GHL rejects taxes on zero-price items, and taxInclusive can trigger location defaults
+        if item_price >= 0.01:
+            ghl_item["taxInclusive"] = item.get('price_includes_tax', True)
+        
+        # Add tax if item is taxable, has a tax rate, AND has a meaningful price (>= 1p)
+        # GHL API error: "taxes allowed only on items with price greater than 0"
+        if item.get('taxable', True) and item.get('tax_rate', 0) > 0 and item_price >= 0.01:
             tax_rate = float(item.get('tax_rate', 0))
             tax_label = item.get('tax_label', f'VAT ({tax_rate}%)')
             ghl_item["taxes"] = [{
@@ -3577,15 +3581,20 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
                 error_msg = "Invalid invoice data - check order details"
             elif response.status_code == 404:
                 error_msg = "Contact not found - link client to GHL first"
+            elif response.status_code == 422:
+                error_msg = "Invoice validation failed - check item data"
             print(f"✗ {error_msg}")
             print(f"  Response: {response.text}")
             # Log error for diagnostics (always - even when DEBUG_MODE off)
+            # Include first 10 items for debugging
+            items_preview = [{"name": i.get("name", "?")[:30], "amount": i.get("amount"), "has_taxes": "taxes" in i} for i in ghl_items[:10]]
             error_log(f"GHL Invoice Creation Failed: {error_msg}", {
                 "status_code": response.status_code,
                 "response": response.text[:2000],
                 "contact_id": contact_id,
                 "invoice_name": invoice_name,
                 "items_count": len(ghl_items),
+                "items_preview": items_preview,
                 "payload_preview": {k: v for k, v in payload.items() if k != 'items'}
             })
             return {'success': False, 'error': error_msg, 'status_code': response.status_code}
@@ -3935,16 +3944,19 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"""
     print(f"   ✓ Note added to contact")
 
 
-def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_folder: str = '') -> None:
+def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_folder: str = '', psa_path: str = '') -> None:
     """Create and upload contact sheet JPG to GHL.
 
     Args:
         xml_path: Path to the ProSelect XML file.
         contact_id: GHL contact ID for adding notes.
         collect_folder: Optional folder to save a local copy of the contact sheet.
+        psa_path: Path to .psa album file for extracting thumbnails.
     """
     print(f"\n📸 Creating contact sheet...")
-    debug_log("CONTACT SHEET - Starting creation", {"xml_path": xml_path})
+    debug_log("CONTACT SHEET - Starting creation", {"xml_path": xml_path, "psa_path": psa_path})
+
+    temp_thumb_folder = None  # Track temp folder for cleanup
 
     try:
         debug_log("CONTACT SHEET - Importing module")
@@ -3957,7 +3969,28 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
         cs_data = cs_parse_xml(xml_path)
         debug_log("CONTACT SHEET - XML parsed", {"shoot_no": cs_data.get('shoot_no', 'unknown')})
 
-        thumb_folder = get_thumbnail_folder(xml_path)
+        # Extract thumbnails directly from .psa file
+        thumb_folder = None
+        
+        if psa_path and os.path.exists(psa_path):
+            print(f"   ℹ Extracting thumbnails from album...")
+            debug_log("CONTACT SHEET - Extracting from PSA", {"psa_path": psa_path})
+            
+            try:
+                from read_psa_images import extract_thumbnails
+                import tempfile
+                
+                temp_thumb_folder = tempfile.mkdtemp(prefix="psa_thumbs_")
+                result = extract_thumbnails(psa_path, temp_thumb_folder)
+                
+                if result.get("success") and result.get("count", 0) > 0:
+                    thumb_folder = temp_thumb_folder
+                    print(f"   ✓ Extracted {result['count']} thumbnails")
+                    debug_log("CONTACT SHEET - PSA extraction success", {"count": result['count']})
+                else:
+                    debug_log("CONTACT SHEET - PSA extraction failed", result)
+            except Exception as psa_err:
+                debug_log("CONTACT SHEET - PSA extraction error", {"error": str(psa_err)})
 
         if not thumb_folder:
             print(f"   ℹ No thumbnail folder found")
@@ -4014,6 +4047,15 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
     except Exception as e:
         print(f"   ⚠ Contact sheet error: {e}")
         debug_log("CONTACT SHEET - Exception", {"error": str(e), "type": type(e).__name__})
+    finally:
+        # Clean up temp thumbnail folder if we created one
+        if temp_thumb_folder and os.path.isdir(temp_thumb_folder):
+            try:
+                import shutil
+                shutil.rmtree(temp_thumb_folder)
+                debug_log("CONTACT SHEET - Cleaned up temp folder", {"temp_thumb_folder": temp_thumb_folder})
+            except Exception as cleanup_err:
+                debug_log("CONTACT SHEET - Cleanup error", {"error": str(cleanup_err)})
 
 
 def _print_sync_header(xml_path: str, financials_only: bool, create_invoice: bool, create_contact_sheet: bool) -> None:
@@ -4217,7 +4259,18 @@ def _process_sync(
     if create_contact_sheet:
         current_step += 1
         write_progress(current_step, total_steps, f"Creating contact sheet for {client_name}...")
-        _create_and_upload_contact_sheet(xml_path, contact_id, collect_folder)
+        # Try to find .psa file for thumbnail extraction if XML folder doesn't exist
+        psa_path = ''
+        album_path = ps_data.get('album_path', '')
+        if album_path and os.path.isdir(album_path):
+            # Find most recent .psa file in album folder
+            psa_files = [f for f in os.listdir(album_path) if f.endswith('.psa')]
+            if psa_files:
+                # Sort by modification time, get most recent
+                psa_files_full = [os.path.join(album_path, f) for f in psa_files]
+                psa_path = max(psa_files_full, key=os.path.getmtime)
+                debug_log("CONTACT SHEET - Found PSA file", {"psa_path": psa_path})
+        _create_and_upload_contact_sheet(xml_path, contact_id, collect_folder, psa_path)
 
     # Step 3: Update contact
     current_step += 1
