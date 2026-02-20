@@ -1,6 +1,6 @@
 # SideKick PS — User Manual
 
-**Version 2.5.23** | February 2026 | © Zoom Photography
+**Version 2.5.31** | February 2026 | © Zoom Photography
 
 ---
 
@@ -259,7 +259,25 @@ Manage Direct Debit payments through GoCardless — check mandates, send setup l
 
 ### What is GoCardless?
 
-GoCardless is a Direct Debit payment platform ideal for photography payment plans. It allows you to collect recurring payments automatically from your clients' bank accounts via BACS Direct Debit in the UK.
+GoCardless is a Direct Debit payment platform ideal for photography payment plans. It allows you to collect recurring payments automatically from your clients' bank accounts.
+
+**Supported Regions:**
+- 🇬🇧 United Kingdom (BACS Direct Debit)
+- 🇺🇸 United States (ACH)
+- 🇪🇺 European Union (SEPA)
+- 🇦🇺 Australia (BECS)
+- 🇨🇦 Canada (PAD)
+- 🇳🇿 New Zealand
+
+### Why Set Up DD During the Sale?
+
+**The #1 mistake photographers make:** Agreeing a payment plan with a client, then forgetting to set up the Direct Debit later. This leads to:
+
+- Lost revenue
+- Awkward chasing conversations
+- Complicated accounting
+
+**With SideKick + GoCardless:** You set up DD payments right there during the sale — before the client leaves. Payments are collected automatically. Never forget, never chase.
 
 ### Checking for Existing Mandates
 
@@ -321,9 +339,10 @@ The dialog shows the actual name used after creation.
 ### Tips
 
 - **Mandate setup takes 2-3 business days** — plan ahead before the first payment date
-- GoCardless deducts fees (1% + 20p, capped at £4) from each payment
+- GoCardless fees vary by region (UK: 1% + 20p, capped at £4)
 - Payments are collected automatically on the scheduled dates
 - Failed payments are automatically retried by GoCardless
+- **Best practice:** Set up DD during the sale, not later
 
 ---
 
@@ -331,7 +350,17 @@ The dialog shows the actual name used after creation.
 
 **Trigger:** Appears automatically when ProSelect's "Add Payment" window is open | **Shortcut:** Ctrl+Shift+P
 
-Calculate payment schedules and auto-enter them into ProSelect.
+Calculate payment schedules and auto-enter them into ProSelect. **Done for you** — no typing, no mistakes, no forgetting.
+
+### The Problem This Solves
+
+Manually entering payment plans is tedious, error-prone, and easy to forget:
+
+- Calculating dates and amounts
+- Typing each payment line by line
+- Remembering to set up Direct Debit afterwards
+
+**With SideKick:** Tell it the balance and schedule, and it enters every payment into ProSelect automatically. Then set up GoCardless DD on the spot so the client doesn't leave until payments are sorted.
 
 ### Opening the Calculator
 
@@ -372,7 +401,7 @@ The calculator has two sections:
 
 ### What Happens Next
 
-SideKick PS enters all the payments into ProSelect automatically:
+SideKick PS enters all the payments into ProSelect automatically (**Done For You**):
 
 - Each payment is entered with the correct date, amount, and type
 - A **progress bar** shows "Payment X of Y" during entry
@@ -380,6 +409,17 @@ SideKick PS enters all the payments into ProSelect automatically:
 - Audio feedback plays after each payment is entered
 
 > **⚠ Important:** Do not touch the mouse or keyboard while payments are being entered. SideKick PS is automating the ProSelect UI and any interaction will interfere.
+
+### After Entry — Set Up DD Immediately
+
+Once payments are entered, **set up GoCardless DD on the spot**:
+
+1. Click the **GC** button on the toolbar
+2. Check if the client has an existing mandate
+3. If not, **Send Mandate Request** via email/SMS
+4. Create the **Payment Plan** in GoCardless
+
+This ensures you never forget to set up the Direct Debit — it's done before the client leaves.
 
 ### Direct Debit Date Rules
 
