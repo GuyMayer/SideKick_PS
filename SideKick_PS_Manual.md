@@ -336,6 +336,25 @@ If you create multiple plans for the same shoot (e.g., client adds more products
 
 The dialog shows the actual name used after creation.
 
+### Finding Forgotten Mandates — "No Plans" Button
+
+Even with best intentions, some mandates slip through without payment plans. The **No Plans** button in Settings → GoCardless scans all your active mandates and finds those with no payment plans ever created.
+
+**To use:**
+1. Open **Settings → GoCardless**
+2. Click the **No Plans** button
+3. SideKick scans all active mandates (progress bar shows status)
+4. Results show clients with a Direct Debit mandate but no payments set up
+5. Click **Copy** to copy the list to clipboard for follow-up
+
+**Useful for:**
+- Finding mandates where you forgot to set up the payment plan
+- Follow-up reminders to clients who never completed their order
+- Identifying setup issues
+- Monthly audit of outstanding mandates
+
+**Pro tip:** Run this monthly to catch any forgotten setups before they become awkward conversations.
+
 ### Tips
 
 - **Mandate setup takes 2-3 business days** — plan ahead before the first payment date
@@ -343,6 +362,7 @@ The dialog shows the actual name used after creation.
 - Payments are collected automatically on the scheduled dates
 - Failed payments are automatically retried by GoCardless
 - **Best practice:** Set up DD during the sale, not later
+- **Monthly check:** Use the "No Plans" button to find forgotten mandates
 
 ---
 
