@@ -12,6 +12,17 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.32 (2026-02-20)
+
+### Documentation & Legal
+- **Enhanced EULA**: Added Third-Party Services section (§9), expanded Disclaimer of Warranties and Limitation of Liability, added Indemnification clause
+- **Terms of Service Pages**: Created comprehensive terms.html for docs/ and Website/ with full legal terms
+- **Privacy Policy Updates**: Enhanced Section 3.2 with detailed warranty disclaimers, third-party service notices, liability limits, and indemnification
+- **Manual Disclaimers**: Updated GHL and GoCardless sections with comprehensive "AS IS" disclaimers and user responsibility notices
+- **GoCardless Auto-Detect**: Removed hardcoded 'bacs' scheme - GoCardless now auto-detects scheme based on customer's bank country
+
+---
+
 ## v2.5.31 (2026-02-19)
 
 ### New Features

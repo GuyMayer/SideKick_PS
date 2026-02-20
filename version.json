@@ -1,9 +1,14 @@
 {
-  "version": "2.5.31",
-  "build_date": "2026-02-19",
+  "version": "2.5.32",
+  "build_date": "2026-02-20",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Direct PSA file reading, GC past payment detection, GHL invoice tax fix",
+  "release_notes": "Enhanced legal documentation, GoCardless international support",
   "changelog": [
+    "NEW: Terms of Service pages - comprehensive terms.html for docs and website",
+    "IMPROVED: EULA - added Third-Party Services, Indemnification, expanded liability sections",
+    "IMPROVED: Privacy Policy - detailed warranty disclaimers, third-party notices, indemnification",
+    "IMPROVED: Manual - enhanced GHL and GoCardless disclaimers with AS IS language",
+    "FIX: GoCardless auto-detect scheme - removed hardcoded BACS, supports BECS/SEPA/ACH/PAD",
     "NEW: Direct PSA file reading - extract payments and thumbnails from .psa album files",
     "NEW: GoCardless payment dialog reads from .psa instead of XML export",
     "NEW: Contact sheet generation extracts thumbnails from .psa directly",

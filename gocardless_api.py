@@ -560,11 +560,11 @@ def create_billing_request_flow(contact_data: dict, token: str, environment: str
         return result
 
     # Step 1: Create billing request
+    # Don't specify scheme - let GoCardless auto-detect based on customer's bank country
+    # This enables international support: BACS (UK), BECS (AU), SEPA (EU), ACH (US), PAD (CA)
     billing_request_data = {
         'billing_requests': {
-            'mandate_request': {
-                'scheme': 'bacs',  # UK Direct Debit
-            },
+            'mandate_request': {},  # Auto-detect scheme from customer's bank
         }
     }
 

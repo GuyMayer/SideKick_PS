@@ -3722,6 +3722,9 @@ QRCode_UrlEncode(str) {
 }
 
 Toolbar_DownloadSD:
+; License check for SD download feature
+if (!CheckLicenseForFeature("SD Card Download"))
+	return
 ; Placeholder - Image download functionality coming soon
 DarkMsgBox("Coming Soon", "📥 Image Download`n`nImage download functionality to follow in a future update.", "info", {timeout: 5})
 Return
@@ -7156,8 +7159,8 @@ IsTrialValid() {
 	return (daysUsed < License_TrialDays)
 }
 
-CheckLicenseForGHL(featureName := "GHL Integration") {
-	; Check if license is valid before using GHL features
+CheckLicenseForFeature(featureName := "This feature") {
+	; Check if license is valid before using licensed features
 	; Returns true if allowed to proceed, false if blocked
 	global License_PurchaseURL, License_Status
 	
@@ -17734,7 +17737,7 @@ Return
 
 OpenGHLClientURL:
 ; Check license before allowing GHL features
-if (!CheckLicenseForGHL("Open GHL Client"))
+if (!CheckLicenseForFeature("Open GHL Client"))
 	Return
 
 ; Check if we have a location ID configured
@@ -17815,7 +17818,7 @@ Return
 
 GHLClientLookup:
 ; Check license before allowing GHL features
-if (!CheckLicenseForGHL("GHL Client Lookup"))
+if (!CheckLicenseForFeature("GHL Client Lookup"))
 	Return
 
 ; Check ProSelect state to determine action

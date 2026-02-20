@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service — SideKick PS</title>
+    <meta name="description" content="Terms of Service for SideKick PS - ProSelect automation software for photographers.">
+    <link rel="icon" type="image/png" href="images/favicon.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#1a1a2e',
+                            mid: '#16213e',
+                            accent: '#e67e22',
+                            light: '#f39c12',
+                            text: '#e0e0e0',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-hero { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); }
+        .gradient-accent { background: linear-gradient(135deg, #e67e22 0%, #f39c12 100%); }
+        .btn-primary {
+            background: linear-gradient(135deg, #e67e22 0%, #f39c12 100%);
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(230, 126, 34, 0.4);
+        }
+        html { scroll-behavior: smooth; }
+        .legal-section { background: rgba(22, 33, 62, 0.6); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 32px; margin-bottom: 24px; }
+        .legal-section h2 { color: #e67e22; font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; }
+        .legal-section h3 { color: white; font-size: 1rem; font-weight: 600; margin-top: 20px; margin-bottom: 8px; }
+        .legal-section p, .legal-section li { color: #9ca3af; line-height: 1.7; }
+        .legal-section ul { list-style: disc; margin-left: 24px; margin-top: 8px; }
+    </style>
+</head>
+<body class="bg-brand-dark text-brand-text">
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/5">
+        <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="index.html" class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg gradient-accent flex items-center justify-center text-white font-bold text-sm">SK</div>
+                    <span class="text-white font-semibold text-lg">SideKick <span class="text-brand-accent">PS</span></span>
+                </a>
+            </div>
+            <div class="hidden md:flex items-center gap-8 text-sm text-gray-400">
+                <a href="index.html#features" class="hover:text-white transition">Features</a>
+                <a href="index.html#pricing" class="hover:text-white transition">Pricing</a>
+                <a href="docs.html" class="hover:text-white transition">Docs</a>
+                <a href="https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c" class="btn-primary text-white px-5 py-2 rounded-lg font-medium text-sm">Start Free Trial</a>
+            </div>
+            <button id="mobile-menu-btn" class="md:hidden text-gray-400 hover:text-white">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+        </div>
+        <div id="mobile-menu" class="hidden md:hidden px-6 pb-4 space-y-3">
+            <a href="index.html#features" class="block text-gray-400 hover:text-white transition">Features</a>
+            <a href="index.html#pricing" class="block text-gray-400 hover:text-white transition">Pricing</a>
+            <a href="docs.html" class="block text-gray-400 hover:text-white transition">Docs</a>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="gradient-hero pt-28 pb-12 px-6">
+        <div class="max-w-4xl mx-auto">
+            <div class="flex items-center gap-2 text-sm text-gray-400 mb-4">
+                <a href="index.html" class="hover:text-white">Home</a>
+                <span>/</span>
+                <span class="text-brand-accent">Terms of Service</span>
+            </div>
+            <h1 class="text-3xl md:text-4xl font-bold text-white mb-4">Terms of Service</h1>
+            <p class="text-gray-400">Last updated: 20 February 2026</p>
+        </div>
+    </section>
+
+    <!-- Content -->
+    <section class="py-12 px-6">
+        <div class="max-w-4xl mx-auto">
+            
+            <div class="legal-section">
+                <h2>1. Acceptance of Terms</h2>
+                <p>By installing, copying, or otherwise using SideKick PS ("Software"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, do not install or use the Software.</p>
+                <p class="mt-4">These Terms are offered subject to your acceptance without modification of all terms and conditions contained herein and all operating rules, policies (including our <a href="privacy.html" class="text-brand-accent hover:underline">Privacy Policy</a>) that may be published from time to time.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>2. Description of Service</h2>
+                <p>SideKick PS is a Windows companion application for ProSelect photography software. It provides integration with third-party services including GoHighLevel (CRM), GoCardless (payment processing), and LemonSqueezy (subscription billing).</p>
+                <p class="mt-4">The Software operates entirely locally on your computer. We do NOT store, process, or have access to your client data, payment information, or API credentials.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>3. Your Account & Responsibilities</h2>
+                <p>Once you create an account or install the Software, you are responsible for:</p>
+                <ul>
+                    <li>Maintaining the security of your account and credentials</li>
+                    <li>All activities that occur under your account</li>
+                    <li>Ensuring your use complies with applicable laws and regulations</li>
+                    <li>The accuracy of client data, invoices, and payments you create</li>
+                    <li>Complying with terms of service for GoHighLevel, GoCardless, and other integrated services</li>
+                </ul>
+                <p class="mt-4">You must immediately notify us of any unauthorized use of your account or any other breaches of security.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>4. Third-Party Services</h2>
+                <p>The Software integrates with third-party services including but not limited to GoHighLevel, GoCardless, and LemonSqueezy. You acknowledge that:</p>
+                <ul>
+                    <li>The license to each Third-Party Service is a binding agreement between <strong>YOU</strong> and the Application Provider</li>
+                    <li>Zoom Photography Ltd is <strong>NOT</strong> acting as agent for any Third-Party Service provider</li>
+                    <li>Zoom Photography Ltd is <strong>NOT</strong> a party to the license between you and any Third-Party Service provider</li>
+                    <li>The Application Provider of each Third-Party Service is solely responsible for that service, the content therein, any warranties to the extent not disclaimed, and any claims relating to that service</li>
+                    <li>We have no control over Third-Party Services and are not responsible for their contents, availability, or use</li>
+                    <li>By linking to or integrating with a Third-Party Service, we do not represent or imply that we endorse such service</li>
+                    <li>Third-Party Services may change their APIs, pricing, or terms at any time without notice to us</li>
+                </ul>
+                <p class="mt-4">We disclaim any responsibility for any harm resulting from your use of Third-Party Services.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>5. Billing, Cancellation & Refunds</h2>
+                <p>SideKick PS is sold on an annual subscription basis through LemonSqueezy.</p>
+                <ul>
+                    <li>Subscriptions automatically renew unless cancelled</li>
+                    <li>Refunds are available within 14 days of purchase if the Software is unused</li>
+                    <li>Price changes will be notified 30 days before renewal</li>
+                    <li>Cancellation takes effect at the end of your current billing period</li>
+                </ul>
+                <p class="mt-4">All payments are processed by LemonSqueezy. We never see or have access to your payment card details.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>6. Disclaimer of Warranties</h2>
+                <p><strong>THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.</strong></p>
+                <p class="mt-4">Zoom Photography Ltd and its suppliers and licensors hereby disclaim all warranties of any kind, including but not limited to:</p>
+                <ul>
+                    <li>WARRANTIES OF MERCHANTABILITY</li>
+                    <li>FITNESS FOR A PARTICULAR PURPOSE</li>
+                    <li>NON-INFRINGEMENT</li>
+                    <li>ACCURACY OR RELIABILITY OF RESULTS</li>
+                    <li>QUIET ENJOYMENT</li>
+                    <li>TITLE</li>
+                </ul>
+                <p class="mt-4">Neither Zoom Photography Ltd nor its suppliers and licensors makes any warranty that the Software will be error free or that access will be continuous or uninterrupted. <strong>You understand that you download from, or otherwise obtain content or services through, the Software at your own discretion and risk.</strong></p>
+            </div>
+
+            <div class="legal-section">
+                <h2>7. Limitation of Liability</h2>
+                <p><strong>YOU EXPRESSLY UNDERSTAND AND AGREE THAT ZOOM PHOTOGRAPHY LTD SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES, INCLUDING BUT NOT LIMITED TO:</strong></p>
+                <ul>
+                    <li>Damages for loss of profits, goodwill, use, data, or other intangible losses</li>
+                    <li>The use or inability to use the Software</li>
+                    <li>The cost of procurement of substitute goods and services</li>
+                    <li>Unauthorized access to or alteration of your transmissions or data</li>
+                    <li>Statements or conduct of any third party on the Software</li>
+                    <li>Any bugs, errors, or malfunctions arising in the Software</li>
+                    <li>Any rejection of your data by GoHighLevel, GoCardless, or other Third-Party Services</li>
+                    <li>Failed payments, chargebacks, disputes, or refunds through GoCardless</li>
+                    <li>Data synchronization errors between ProSelect, GHL, or GoCardless</li>
+                    <li>Any amounts exceeding the fees paid by you in the twelve (12) months prior to the cause of action</li>
+                </ul>
+                <p class="mt-4">Zoom Photography Ltd shall have no liability for any failure or delay due to matters beyond its reasonable control. The foregoing limitations apply even if Zoom Photography Ltd has been advised of the possibility of such damages and regardless of the theory of liability (contract, tort, strict liability, or otherwise).</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>8. Indemnification</h2>
+                <p>You agree to indemnify and hold harmless Zoom Photography Ltd, its contractors, licensors, and their respective directors, officers, employees, and agents from and against any and all claims, damages, obligations, losses, liabilities, costs, or debts, and expenses (including but not limited to legal fees) arising from:</p>
+                <ul>
+                    <li>Your use of and access to the Software</li>
+                    <li>Your violation of any term of these Terms</li>
+                    <li>Your violation of any third-party right, including without limitation any copyright, intellectual property, or privacy right</li>
+                    <li>Any claim arising from incorrect invoices, payments, or client data created using the Software</li>
+                    <li>Any disputes with your customers regarding payments processed through GoCardless</li>
+                    <li>Your failure to comply with GoCardless, GoHighLevel, or other Third-Party Service terms of service</li>
+                </ul>
+                <p class="mt-4">This defense and indemnification obligation will survive termination of these Terms and your use of the Software.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>9. Changes to Terms</h2>
+                <p>Zoom Photography Ltd reserves the right, at its sole discretion, to modify or replace any part of these Terms. It is your responsibility to check these Terms periodically for changes. Your continued use of or access to the Software following the posting of any changes constitutes acceptance of those changes.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>10. Termination</h2>
+                <p>Zoom Photography Ltd may terminate your access to the Software at any time, with or without cause, with or without notice, effective immediately. If you wish to terminate your account, you may simply discontinue using the Software and cancel your subscription.</p>
+                <p class="mt-4">All provisions of these Terms which by their nature should survive termination shall survive termination, including, without limitation, ownership provisions, warranty disclaimers, indemnity, and limitations of liability.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>11. Governing Law</h2>
+                <p>These Terms shall be governed by the laws of England and Wales. Any disputes arising out of or related hereto shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>12. Contact Us</h2>
+                <p>If you have any questions about these Terms, please contact us:</p>
+                <ul>
+                    <li>Email: <a href="mailto:guy@zoom-photo.co.uk" class="text-brand-accent hover:underline">guy@zoom-photo.co.uk</a></li>
+                    <li>Company: Zoom Photography Studios Ltd</li>
+                    <li>Website: <a href="https://zoom-photo.uk" class="text-brand-accent hover:underline">zoom-photo.uk</a></li>
+                </ul>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-white/5 py-8 px-6">
+        <div class="max-w-4xl mx-auto text-center">
+            <p class="text-sm text-gray-600">&copy; 2026 Zoom Photography Studios Ltd. All rights reserved.</p>
+            <div class="flex justify-center gap-6 mt-4 text-sm text-gray-500">
+                <a href="terms.html" class="text-brand-accent">Terms of Service</a>
+                <a href="privacy.html" class="hover:text-gray-300">Privacy Policy</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const btn = document.getElementById('mobile-menu-btn');
+        const menu = document.getElementById('mobile-menu');
+        btn.addEventListener('click', () => menu.classList.toggle('hidden'));
+        menu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.add('hidden')));
+    </script>
+
+</body>
+</html>

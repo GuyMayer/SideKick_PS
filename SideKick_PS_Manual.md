@@ -1,6 +1,6 @@
 # SideKick PS — User Manual
 
-**Version 2.5.31** | February 2026 | © Zoom Photography
+**Version 2.5.32** | February 2026 | © Zoom Photography
 
 ---
 
@@ -249,6 +249,26 @@ Delete the last synced invoice from GHL.
 - The client must have a Client ID in the album name
 - Payment schedules associated with the invoice are also cancelled
 
+### GHL Integration Disclaimer
+
+**Important:** SideKick connects to YOUR GoHighLevel account using credentials you provide. You are solely responsible for your GHL account and data.
+
+**SideKick does NOT:**
+- Have access to your GHL account beyond what you configure
+- Act as an agent for GoHighLevel
+- Take responsibility for GHL service availability, errors, or outages
+- Guarantee accuracy of synced data between ProSelect and GHL
+- Accept liability for incorrect invoices, payments, or client data
+- Support or maintain GoHighLevel — contact GHL for their issues
+
+**Third-Party Service Notice:** The license or agreement for GoHighLevel is between YOU and GoHighLevel. Zoom Photography Ltd is NOT a party to that agreement. GoHighLevel is solely responsible for their service, warranties (to the extent not disclaimed), and any claims relating to their service. GoHighLevel may change their API, pricing, or terms at any time without notice.
+
+**Disclaimer of Warranties:** SideKick PS is provided "AS IS" and "AS AVAILABLE" without warranty of any kind, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, and non-infringement. You understand that you use the Software at your own discretion and risk.
+
+**Limitation of Liability:** Zoom Photography Studios Ltd shall not be liable for any direct, indirect, incidental, special, consequential, or exemplary damages arising from your use of GoHighLevel integration, including but not limited to damages for loss of profits, data, or business interruption.
+
+**Indemnification:** You agree to indemnify and hold harmless Zoom Photography Ltd from any claims, damages, or expenses arising from your use of the GHL integration or violation of GoHighLevel's terms of service.
+
 ---
 
 ## GoCardless Integration
@@ -363,6 +383,53 @@ Even with best intentions, some mandates slip through without payment plans. The
 - Failed payments are automatically retried by GoCardless
 - **Best practice:** Set up DD during the sale, not later
 - **Monthly check:** Use the "No Plans" button to find forgotten mandates
+
+### Compliance & Your Responsibilities
+
+**Important:** When you use GoCardless through SideKick, YOU are the merchant. SideKick is simply a tool that connects to YOUR GoCardless account.
+
+**You are solely responsible for:**
+- Having your own valid GoCardless merchant account
+- Complying with GoCardless Terms of Service
+- Following your regional Direct Debit scheme rules (BACS/BECS/SEPA/ACH/PAD)
+- Providing advance payment notifications to your customers (GoCardless handles this automatically)
+- Keeping mandate authorization records (GoCardless stores these for you)
+- Handling customer disputes and refunds through your GoCardless dashboard
+
+**GoCardless handles for you:**
+- DDR Service Agreement (provided to your customers during mandate setup)
+- PCI compliance for payment processing
+- Payment notifications to customers
+- Failed payment retries
+- Scheme rule compliance for payment submissions
+
+**SideKick does NOT:**
+- Process payments (GoCardless does)
+- Store your customers' bank details (stored by GoCardless)
+- Have access to your GoCardless account (you provide your own API token)
+- Act as an agent for GoCardless
+- Take any responsibility for GoCardless service availability, errors, or outages
+- Guarantee the accuracy or completeness of any payment data
+- Accept liability for failed payments, chargebacks, or disputes
+
+**Third-Party Service Notice:** The license or agreement for GoCardless is between YOU and GoCardless. Zoom Photography Ltd is NOT a party to that agreement. GoCardless is solely responsible for their service, payment processing, warranties (to the extent not disclaimed), and any claims relating to their service. GoCardless may change their API, pricing, or terms at any time without notice.
+
+**Disclaimer of Warranties:** SideKick PS is provided "AS IS" and "AS AVAILABLE" without warranty of any kind, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, and non-infringement. You understand that you use the Software at your own discretion and risk.
+
+**Limitation of Liability:** Zoom Photography Studios Ltd shall not be liable for any direct, indirect, incidental, special, consequential, or exemplary damages arising from your use of GoCardless or payment processing functionality, including but not limited to:
+- Failed payments, chargebacks, disputes, or refunds
+- Damages for loss of profits, data, or business interruption
+- The cost of procurement of substitute payment services
+- Any amounts exceeding fees paid in the prior 12 months
+
+**Indemnification:** You agree to indemnify and hold harmless Zoom Photography Ltd from any claims, damages, or expenses arising from your use of the GoCardless integration, disputes with your customers regarding payments, or violation of GoCardless terms of service.
+
+See the [End User License Agreement](LICENSE_EULA.txt) for full terms.
+
+For full compliance details, refer to:
+- [GoCardless Merchant Terms](https://gocardless.com/legal/merchants/)
+- [GoCardless Privacy Policy](https://gocardless.com/privacy/)
+- Your regional Direct Debit scheme documentation
 
 ---
 
