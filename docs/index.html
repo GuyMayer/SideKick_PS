@@ -138,10 +138,97 @@
                         "name": "Is there a free trial?",
                         "acceptedAnswer": {
                             "@type": "Answer",
-                            "text": "Yes, SideKick PS offers a 14-day free trial with full functionality. No credit card required to start."
+                            "text": "Yes, SideKick PS offers a 14-day free trial with full functionality. Cancel anytime during the trial period."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "How do I sync ProSelect invoices to GoHighLevel?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Export your order from ProSelect as XML, then click the Invoice Sync button on the SideKick toolbar. The invoice is created in GHL with all line items, payments, and the contact sheet image in seconds."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Does SideKick PS work with GoCardless Direct Debit?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Yes, SideKick PS integrates with GoCardless for Direct Debit payments in the UK, USA, EU, Australia, Canada, and New Zealand. You can check mandates, send setup links, and create recurring payments directly from the toolbar."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "What payment methods does the payment calculator support?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "The payment calculator supports credit card, Direct Debit, cash, check, and mixed payment methods. You can set a deposit with one payment method and recurring payments with another."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "How much does SideKick PS cost?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "SideKick PS costs £14.99 per month, billed annually at £149 per year. This includes all features and updates. A 14-day free trial is available."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Can I use SideKick PS on multiple computers?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Your SideKick PS license is tied to your GoHighLevel Location ID, not a specific computer. You can deactivate on one machine and activate on another as needed."
                         }
                     }
                 ]
+            },
+            {
+                "@type": "HowTo",
+                "@id": "https://ps.ghl-sidekick.com/#howto-sync",
+                "name": "How to Sync ProSelect Orders to GoHighLevel",
+                "description": "Step-by-step guide to automatically sync your ProSelect photo orders to GoHighLevel CRM using SideKick PS.",
+                "totalTime": "PT2M",
+                "estimatedCost": {
+                    "@type": "MonetaryAmount",
+                    "currency": "GBP",
+                    "value": "0"
+                },
+                "tool": {
+                    "@type": "HowToTool",
+                    "name": "SideKick PS"
+                },
+                "step": [
+                    {
+                        "@type": "HowToStep",
+                        "position": 1,
+                        "name": "Export Order from ProSelect",
+                        "text": "In ProSelect, go to File > Export Order and save the XML file to your designated folder."
+                    },
+                    {
+                        "@type": "HowToStep",
+                        "position": 2,
+                        "name": "Click Invoice Sync",
+                        "text": "On the SideKick toolbar floating on ProSelect, click the Invoice Sync button."
+                    },
+                    {
+                        "@type": "HowToStep",
+                        "position": 3,
+                        "name": "Select Contact in GHL",
+                        "text": "SideKick will search for the client in GoHighLevel. Confirm the correct contact or create new."
+                    },
+                    {
+                        "@type": "HowToStep",
+                        "position": 4,
+                        "name": "Invoice Created",
+                        "text": "The invoice is created in GHL with all line items, payment schedule, and contact sheet attached. Your GHL workflows are triggered automatically."
+                    }
+                ]
+            },
+            {
+                "@type": "Speakable",
+                "@id": "https://ps.ghl-sidekick.com/#speakable",
+                "cssSelector": ["h1", ".gradient-hero p", "#features h2"]
             }
         ]
     }

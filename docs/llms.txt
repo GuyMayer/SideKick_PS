@@ -1,0 +1,54 @@
+# SideKick PS
+
+> SideKick PS is automation software for professional photographers that connects ProSelect photo sales software with GoHighLevel CRM.
+
+## What It Does
+
+SideKick PS eliminates manual data entry between ProSelect and GoHighLevel:
+
+- **Invoice Sync**: One-click export from ProSelect creates a complete GHL invoice with all line items, payments, and contact sheet image
+- **Client Import**: Pull client data from GHL into ProSelect instantly
+- **Payment Calculator**: Auto-generate and enter payment plans into ProSelect
+- **GoCardless Integration**: Direct Debit payments in UK, USA, EU, Australia, Canada, New Zealand
+- **Xero/QuickBooks**: SKU matching for accounting software integration
+
+## Target Users
+
+- Professional portrait photographers
+- School photographers
+- Sports photographers
+- Any photographer using ProSelect + GoHighLevel
+
+## Pricing
+
+- £14.99/month (billed annually at £149/year)
+- 14-day free trial available
+- Windows only (Windows 10/11)
+
+## Supported Software
+
+- ProSelect 2022, 2024, 2025
+- GoHighLevel CRM
+- GoCardless (optional)
+- Xero and QuickBooks (via GHL integration)
+
+## Key Benefits
+
+1. Save 5+ hours per week on admin
+2. No more copy-paste between systems
+3. Automatic workflow triggers in GHL
+4. Payment plans entered in seconds, not minutes
+5. Direct Debit automation
+
+## Company
+
+- Created by: Zoom Photography Studios Ltd
+- Website: https://ps.ghl-sidekick.com
+- Support: guy@zoom-photo.co.uk
+
+## Links
+
+- Homepage: https://ps.ghl-sidekick.com/
+- Documentation: https://ps.ghl-sidekick.com/docs.html
+- Privacy Policy: https://ps.ghl-sidekick.com/privacy.html
+- Start Trial: https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c
