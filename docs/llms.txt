@@ -8,9 +8,18 @@ SideKick PS eliminates manual data entry between ProSelect and GoHighLevel:
 
 - **Invoice Sync**: One-click export from ProSelect creates a complete GHL invoice with all line items, payments, and contact sheet image
 - **Client Import**: Pull client data from GHL into ProSelect instantly
-- **Payment Calculator**: Auto-generate and enter payment plans into ProSelect
-- **GoCardless Integration**: Direct Debit payments in UK, USA, EU, Australia, Canada, New Zealand
+- **Payment Calculator (Done For You)**: Auto-generate and enter payment plans into ProSelect — no typing, no mistakes, no forgetting
+- **GoCardless Integration**: Set up Direct Debit payments during the sale so you never forget — available in UK, USA, EU, Australia, Canada, New Zealand
 - **Xero/QuickBooks**: SKU matching for accounting software integration
+
+## The Problem It Solves
+
+Photographers often agree payment plans with clients but forget to set up the Direct Debit later. This leads to:
+- Lost revenue
+- Awkward chasing conversations
+- Complicated accounting
+
+With SideKick, you set up DD payments right there during the sale — before the client leaves. Payments are collected automatically.
 
 ## Target Users
 
@@ -38,7 +47,8 @@ SideKick PS eliminates manual data entry between ProSelect and GoHighLevel:
 2. No more copy-paste between systems
 3. Automatic workflow triggers in GHL
 4. Payment plans entered in seconds, not minutes
-5. Direct Debit automation
+5. Never forget to set up Direct Debit — do it during the sale
+6. Get paid on autopilot
 
 ## Company
 
