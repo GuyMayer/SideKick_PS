@@ -381,6 +381,16 @@ global Settings_QRCode_Text2 := ""
 global Settings_QRCode_Text3 := ""
 global Settings_QRCode_Display := 1  ; Which monitor to show QR on (1 = primary)
 global QRDisplay_Created := false  ; Track if QR fullscreen GUI exists
+global Settings_DisplaySize := 80  ; Fullscreen display size (25-85%)
+; Bank Transfer display settings
+global Settings_BankInstitution := ""  ; Bank name (e.g., HSBC, Barclays)
+global Settings_BankName := ""  ; Account holder name
+global Settings_BankSortCode := ""
+global Settings_BankAccNo := ""
+; Custom image display settings
+global Settings_DisplayImage1 := ""
+global Settings_DisplayImage2 := ""
+global Settings_DisplayImage3 := ""
 ; QR code cache folder and tracking
 global QR_CacheFolder := A_Temp . "\SideKick_QR_Cache"
 global QR_CachedFiles := []  ; Array of cached file paths
@@ -544,6 +554,9 @@ FileAppend, % A_Now . " - License checked`n", %DebugLogFile%
 
 ; Monthly license validation and update check (delayed to not block startup)
 SetTimer, AsyncMonthlyCheck, -5000  ; Run once after 5 seconds
+
+; Always check for updates on every launch (non-blocking, 3s delay)
+SetTimer, CheckForUpdatesOnLaunch, -3000
 
 FileAppend, % A_Now . " - Checking first-run GHL setup...`n", %DebugLogFile%
 ; Check for first-run GHL setup
@@ -3458,57 +3471,68 @@ QR_SimpleHash(str) {
 }
 
 Toolbar_QRCode:
-; Show fullscreen QR code display - cycles through configured QR texts
+; Show fullscreen display - cycles through QR codes, bank details, and images
 {
 	global Settings_QRCode_Text1, Settings_QRCode_Text2, Settings_QRCode_Text3
-	global QR_CurrentIndex, QR_Texts, QR_Labels, QR_Count
+	global Settings_BankInstitution, Settings_BankName, Settings_BankSortCode, Settings_BankAccNo
+	global Settings_DisplayImage1, Settings_DisplayImage2, Settings_DisplayImage3
+	global Slide_CurrentIndex, Slide_Items, Slide_Count
 	
-	; Build array of non-empty QR texts (trim whitespace - IniRead defaults to space)
-	QR_Texts := []
-	QR_Labels := []
+	; Build array of all slide items
+	Slide_Items := []
+	
+	; Add QR codes (if not blank)
 	qrText1 := Trim(Settings_QRCode_Text1)
 	qrText2 := Trim(Settings_QRCode_Text2)
 	qrText3 := Trim(Settings_QRCode_Text3)
-	if (qrText1 != "") {
-		QR_Texts.Push(qrText1)
-		QR_Labels.Push(qrText1)
-	}
-	if (qrText2 != "") {
-		QR_Texts.Push(qrText2)
-		QR_Labels.Push(qrText2)
-	}
-	if (qrText3 != "") {
-		QR_Texts.Push(qrText3)
-		QR_Labels.Push(qrText3)
-	}
+	if (qrText1 != "")
+		Slide_Items.Push({type: "qr", data: qrText1})
+	if (qrText2 != "")
+		Slide_Items.Push({type: "qr", data: qrText2})
+	if (qrText3 != "")
+		Slide_Items.Push({type: "qr", data: qrText3})
 	
-	QR_Count := QR_Texts.Length()
-	if (QR_Count = 0) {
-		DarkMsgBox("QR Code", "No QR code text configured.`n`nGo to Settings → Shortcuts tab to add text/URLs for QR codes.", "info", {timeout: 5})
+	; Add bank details slide (if any bank field is not blank)
+	bankInst := Trim(Settings_BankInstitution)
+	bankName := Trim(Settings_BankName)
+	bankSort := Trim(Settings_BankSortCode)
+	bankAcc := Trim(Settings_BankAccNo)
+	if (bankInst != "" || bankName != "" || bankSort != "" || bankAcc != "")
+		Slide_Items.Push({type: "bank", data: {inst: bankInst, name: bankName, sort: bankSort, acc: bankAcc}})
+	
+	; Add images (if not blank and file exists)
+	img1 := Trim(Settings_DisplayImage1)
+	img2 := Trim(Settings_DisplayImage2)
+	img3 := Trim(Settings_DisplayImage3)
+	if (img1 != "" && FileExist(img1))
+		Slide_Items.Push({type: "image", data: img1})
+	if (img2 != "" && FileExist(img2))
+		Slide_Items.Push({type: "image", data: img2})
+	if (img3 != "" && FileExist(img3))
+		Slide_Items.Push({type: "image", data: img3})
+	
+	Slide_Count := Slide_Items.Length()
+	if (Slide_Count = 0) {
+		DarkMsgBox("Display", "No content configured.`n`nGo to Settings → Display tab to add QR codes, bank details, or images.", "info", {timeout: 5})
 		return
 	}
 	
-	QR_CurrentIndex := 1
-	ShowFullscreenQR(QR_CurrentIndex)
+	Slide_CurrentIndex := 1
+	ShowFullscreenSlide(Slide_CurrentIndex)
 }
 Return
 
-ShowFullscreenQR(index) {
-	global QR_Texts, QR_Labels, QR_Count, QR_CurrentIndex
+ShowFullscreenSlide(index) {
+	global Slide_Items, Slide_Count, Slide_CurrentIndex
 	global QRImage, QRLabel, QRCounter, QRDisplayHwnd
 	global QR_CacheFolder, QR_CachedFiles
-	global Settings_QRCode_Display
-	global QRDisplay_Created  ; Track if GUI already exists
+	global Settings_QRCode_Display, Settings_DisplaySize
+	global QRDisplay_Created
 	
-	QR_CurrentIndex := index
-	text := Trim(QR_Texts[index])
+	Slide_CurrentIndex := index
+	slide := Slide_Items[index]
 	
-	if (text = "") {
-		DarkMsgBox("QR Code Error", "QR text is empty.", "error", {timeout: 3})
-		return
-	}
-	
-	; Get selected monitor dimensions (Settings_QRCode_Display = monitor number)
+	; Get selected monitor dimensions
 	monNum := Settings_QRCode_Display ? Settings_QRCode_Display : 1
 	SysGet, monCount, MonitorCount
 	if (monNum > monCount)
@@ -3519,101 +3543,199 @@ ShowFullscreenQR(index) {
 	screenX := monLeft
 	screenY := monTop
 	
-	; Get DPI scale factor (96 = 100%, 120 = 125%, 144 = 150%, 192 = 200%)
+	; Get DPI scale factor
 	hDC := DllCall("GetDC", "Ptr", 0, "Ptr")
-	dpi := DllCall("GetDeviceCaps", "Ptr", hDC, "Int", 88)  ; LOGPIXELSX
+	dpi := DllCall("GetDeviceCaps", "Ptr", hDC, "Int", 88)
 	DllCall("ReleaseDC", "Ptr", 0, "Ptr", hDC)
 	dpiScale := dpi / 96
 	
-	; Calculate QR code size (80% of screen, whichever dimension is smaller)
-	; Using real pixels since GUI has -DPIScale
-	qrSize := Round(Min(screenW, screenH) * 0.80)
+	; Use Settings_DisplaySize for content size (default 80%)
+	displaySize := Settings_DisplaySize ? Settings_DisplaySize : 80
+	contentSize := Round(Min(screenW, screenH) * (displaySize / 100))
 	
-	; Use cached QR code file (pre-generated on startup)
-	; Find which slot this text is in (1, 2, or 3)
-	global Settings_QRCode_Text1, Settings_QRCode_Text2, Settings_QRCode_Text3
-	slot := 0
-	if (text = Trim(Settings_QRCode_Text1))
-		slot := 1
-	else if (text = Trim(Settings_QRCode_Text2))
-		slot := 2
-	else if (text = Trim(Settings_QRCode_Text3))
-		slot := 3
-	
-	; Get cached file or generate on-the-fly as fallback
-	tempFile := ""
-	if (slot > 0 && QR_CachedFiles.HasKey(slot) && FileExist(QR_CachedFiles[slot])) {
-		tempFile := QR_CachedFiles[slot]
-	} else {
-		; Fallback: generate on-the-fly
-		tempFile := A_Temp . "\sidekick_qrcode_" . index . ".png"
-		SaveQRFile(text, tempFile, 1000)
-	}
-	
-	if (!FileExist(tempFile)) {
-		DarkMsgBox("QR Code Error", "Failed to load QR code.", "error", {timeout: 5})
-		return
-	}
-	
-	; Build display label - extract domain from URLs, parse WiFi QR codes
-	displayText := text
-	if (RegExMatch(text, "i)^WIFI:T:([^;]*);S:([^;]*);P:([^;]*);", wifiMatch)) {
-		; Parse WiFi QR code: WIFI:T:WPA;S:ssid;P:password;;
-		wifiType := wifiMatch1
-		wifiSSID := wifiMatch2
-		wifiPass := wifiMatch3
-		displayText := "WiFi: " . wifiSSID . "  |  Password: " . wifiPass
-	} else if (RegExMatch(text, "i)^https?://([^/]+)", match)) {
-		displayText := match1  ; Just the domain
-	}
-	if (StrLen(displayText) > 60)
-		displayText := SubStr(displayText, 1, 60) . "..."
-	counterText := index . " / " . QR_Count . "    ↑↓ cycle QR  •  ←→ move display  •  Esc to close"
-	
-	; Check if GUI already exists - just update controls instead of recreating
-	if (QRDisplay_Created && WinExist("SideKick QR Code")) {
-		; Update existing controls without destroying GUI (prevents flash)
-		; Note: Picture control keeps same size, just update the image
-		GuiControl, QRDisplay:, QRImage, %tempFile%
-		GuiControl, QRDisplay:, QRLabel, %displayText%
-		GuiControl, QRDisplay:, QRCounter, %counterText%
-		return
-	}
-	
-	; Calculate positions - center QR on screen (accounting for label space below)
-	labelHeight := Round(50 * dpiScale)  ; space for label text only
-	qrX := Round((screenW - qrSize) / 2)
-	qrY := Round((screenH - qrSize - labelHeight) / 2)
-	
-	; Label position below QR
-	labelY := qrY + qrSize + Round(20 * dpiScale)
-	
-	; Counter text position - bottom of screen
+	; Counter text
+	counterText := index . " / " . Slide_Count . "    ↑↓ cycle slides  •  ←→ move display  •  Esc to close"
 	counterY := screenH - Round(40 * dpiScale)
+	counterFontSize := Round(11 * dpiScale)
 	
-	; Create fullscreen GUI
+	; Always recreate GUI for different slide types
 	Gui, QRDisplay:Destroy
+	QRDisplay_Created := false
+	
 	Gui, QRDisplay:New, +AlwaysOnTop -Caption -DPIScale +HwndQRDisplayHwnd
 	Gui, QRDisplay:Color, 000000
 	
-	; QR code image centered
-	Gui, QRDisplay:Add, Picture, x%qrX% y%qrY% w%qrSize% h%qrSize% vQRImage, %tempFile%
+	if (slide.type = "qr") {
+		; QR CODE SLIDE
+		text := slide.data
+		
+		; Get cached file or generate
+		global Settings_QRCode_Text1, Settings_QRCode_Text2, Settings_QRCode_Text3
+		slot := 0
+		if (text = Trim(Settings_QRCode_Text1))
+			slot := 1
+		else if (text = Trim(Settings_QRCode_Text2))
+			slot := 2
+		else if (text = Trim(Settings_QRCode_Text3))
+			slot := 3
+		
+		tempFile := ""
+		if (slot > 0 && QR_CachedFiles.HasKey(slot) && FileExist(QR_CachedFiles[slot])) {
+			tempFile := QR_CachedFiles[slot]
+		} else {
+			tempFile := A_Temp . "\sidekick_qrcode_" . index . ".png"
+			SaveQRFile(text, tempFile, 1000)
+		}
+		
+		if (!FileExist(tempFile)) {
+			DarkMsgBox("QR Code Error", "Failed to load QR code.", "error", {timeout: 5})
+			return
+		}
+		
+		; Build display label
+		displayText := text
+		if (RegExMatch(text, "i)^WIFI:T:([^;]*);S:([^;]*);P:([^;]*);", wifiMatch)) {
+			displayText := "WiFi: " . wifiMatch2 . "  |  Password: " . wifiMatch3
+		} else if (RegExMatch(text, "i)^https?://([^/]+)", match)) {
+			displayText := match1
+		}
+		if (StrLen(displayText) > 60)
+			displayText := SubStr(displayText, 1, 60) . "..."
+		
+		; Calculate positions
+		qrX := Round((screenW - contentSize) / 2)
+		qrY := Round((screenH - contentSize - 70) / 2)
+		labelY := qrY + contentSize + Round(20 * dpiScale)
+		
+		Gui, QRDisplay:Add, Picture, x%qrX% y%qrY% w%contentSize% h%contentSize% vQRImage, %tempFile%
+		
+		labelFontSize := Round(18 * dpiScale)
+		Gui, QRDisplay:Font, s%labelFontSize% cCCCCCC, Segoe UI
+		Gui, QRDisplay:Add, Text, x0 y%labelY% w%screenW% Center BackgroundTrans vQRLabel, %displayText%
+		
+	} else if (slide.type = "bank") {
+		; BANK DETAILS SLIDE
+		bankData := slide.data
+		
+		; Extract to local variables (required for AHK v1 GUI commands)
+		bankInst := bankData.inst
+		bankName := bankData.name
+		bankSort := bankData.sort
+		bankAcc := bankData.acc
+		
+		; Format sort code as ##-##-##
+		sortCode := bankSort
+		sortCode := RegExReplace(sortCode, "[^0-9]", "")  ; Remove non-digits
+		if (StrLen(sortCode) = 6)
+			sortCode := SubStr(sortCode, 1, 2) . "-" . SubStr(sortCode, 3, 2) . "-" . SubStr(sortCode, 5, 2)
+		
+		; Scale fonts based on display size (same as QR sizing)
+		sizeScale := displaySize / 80  ; 80% is baseline
+		
+		; Calculate box dimensions based on content size
+		boxW := Round(contentSize * 1.2)
+		boxH := Round(contentSize)
+		boxX := Round((screenW - boxW) / 2)
+		boxY := Round((screenH - boxH) / 2)
+		
+		; Add white border/background box
+		Gui, QRDisplay:Add, Text, x%boxX% y%boxY% w%boxW% h%boxH% Background1A1A1A Border
+		
+		; Calculate total content height to center vertically
+		iconH := Round(110 * dpiScale * sizeScale)
+		iconPad := Round(25 * dpiScale * sizeScale)
+		titleH := Round(100 * dpiScale * sizeScale)
+		detailH := Round(85 * dpiScale * sizeScale)
+		labelH := Round(55 * dpiScale * sizeScale)
+		valueH := Round(95 * dpiScale * sizeScale)
+		spacing := Round(50 * dpiScale * sizeScale)
+		titleExtra := Round(60 * dpiScale * sizeScale)
+		
+		totalH := iconH + iconPad + titleH + titleExtra
+		if (bankInst != "")
+			totalH += detailH
+		if (bankName != "")
+			totalH += detailH + spacing
+		if (sortCode != "")
+			totalH += labelH + valueH + spacing
+		if (bankAcc != "")
+			totalH += labelH + valueH
+		
+		; Start Y centered in box
+		lineY := boxY + Round((boxH - totalH) / 2)
+		
+		; Icon on its own line (not bold)
+		iconFontSize := Round(90 * dpiScale * sizeScale)
+		Gui, QRDisplay:Font, s%iconFontSize% cFFFFFF, Segoe UI
+		Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, 🏦
+		lineY += iconH + iconPad
+		
+		; Title text (bold, gray)
+		titleFontSize := Round(80 * dpiScale * sizeScale)
+		Gui, QRDisplay:Font, s%titleFontSize% cCCCCCC Bold, Segoe UI
+		Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, Bank Transfer
+		lineY += titleH + titleExtra
+		
+		; Bank details (white)
+		detailFontSize := Round(56 * dpiScale * sizeScale)
+		Gui, QRDisplay:Font, s%detailFontSize% cFFFFFF, Segoe UI
+		
+		if (bankInst != "") {
+			Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, %bankInst%
+			lineY += detailH
+		}
+		if (bankName != "") {
+			Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, %bankName%
+			lineY += detailH + spacing
+		}
+		
+		; Sort code and account number with labels
+		labelFontSize := Round(40 * dpiScale * sizeScale)
+		valueFontSize := Round(72 * dpiScale * sizeScale)
+		
+		if (sortCode != "") {
+			Gui, QRDisplay:Font, s%labelFontSize% c888888, Segoe UI
+			Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, Sort Code
+			lineY += labelH
+			Gui, QRDisplay:Font, s%valueFontSize% cFFFFFF Bold, Consolas
+			Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, %sortCode%
+			lineY += valueH + spacing
+		}
+		if (bankAcc != "") {
+			Gui, QRDisplay:Font, s%labelFontSize% c888888, Segoe UI
+			Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, Account Number
+			lineY += labelH
+			Gui, QRDisplay:Font, s%valueFontSize% cFFFFFF Bold, Consolas
+			Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, %bankAcc%
+		}
+		
+	} else if (slide.type = "image") {
+		; IMAGE SLIDE
+		imagePath := slide.data
+		
+		; Center image (it will auto-scale with w and h)
+		imgX := Round((screenW - contentSize) / 2)
+		imgY := Round((screenH - contentSize - 50) / 2)
+		
+		Gui, QRDisplay:Add, Picture, x%imgX% y%imgY% w%contentSize% h-1 vQRImage, %imagePath%
+		
+		; Show filename as label
+		SplitPath, imagePath, fileName
+		labelFontSize := Round(14 * dpiScale)
+		labelY := imgY + contentSize + Round(20 * dpiScale)
+		Gui, QRDisplay:Font, s%labelFontSize% c666666, Segoe UI
+		Gui, QRDisplay:Add, Text, x0 y%labelY% w%screenW% Center BackgroundTrans vQRLabel, %fileName%
+	}
 	
-	; Label below QR
-	labelFontSize := Round(18 * dpiScale)
-	counterFontSize := Round(11 * dpiScale)
-	Gui, QRDisplay:Font, s%labelFontSize% cCCCCCC, Segoe UI
-	Gui, QRDisplay:Add, Text, x0 y%labelY% w%screenW% Center BackgroundTrans vQRLabel, %displayText%
-	
-	; Counter / instructions
+	; Counter / instructions at bottom
 	Gui, QRDisplay:Font, s%counterFontSize% c666666, Segoe UI
 	Gui, QRDisplay:Add, Text, x0 y%counterY% w%screenW% Center BackgroundTrans vQRCounter, %counterText%
 	
-	; Show fullscreen on selected monitor
+	; Show fullscreen
 	Gui, QRDisplay:Show, x%screenX% y%screenY% w%screenW% h%screenH%, SideKick QR Code
 	QRDisplay_Created := true
 	
-	; Bind hotkeys for this window
+	; Bind hotkeys
 	Hotkey, IfWinActive, SideKick QR Code
 	Hotkey, WheelUp, QRCode_Prev, On
 	Hotkey, WheelDown, QRCode_Next, On
@@ -3627,59 +3749,56 @@ ShowFullscreenQR(index) {
 
 QRCode_Next:
 {
-	global QR_CurrentIndex, QR_Count
-	newIndex := QR_CurrentIndex + 1
-	if (newIndex > QR_Count)
+	global Slide_CurrentIndex, Slide_Count
+	newIndex := Slide_CurrentIndex + 1
+	if (newIndex > Slide_Count)
 		newIndex := 1
-	ShowFullscreenQR(newIndex)
+	ShowFullscreenSlide(newIndex)
 }
 Return
 
 QRCode_Prev:
 {
-	global QR_CurrentIndex, QR_Count
-	newIndex := QR_CurrentIndex - 1
+	global Slide_CurrentIndex, Slide_Count
+	newIndex := Slide_CurrentIndex - 1
 	if (newIndex < 1)
-		newIndex := QR_Count
-	ShowFullscreenQR(newIndex)
+		newIndex := Slide_Count
+	ShowFullscreenSlide(newIndex)
 }
 Return
 
 QRCode_MonitorNext:
 {
-	global Settings_QRCode_Display, QRDisplay_Created, QR_CurrentIndex
+	global Settings_QRCode_Display, QRDisplay_Created, Slide_CurrentIndex
 	SysGet, monCount, MonitorCount
 	if (monCount <= 1)
 		return
 	Settings_QRCode_Display := Settings_QRCode_Display + 1
 	if (Settings_QRCode_Display > monCount)
 		Settings_QRCode_Display := 1
-	; Force GUI recreation on new monitor
 	Gui, QRDisplay:Destroy
 	QRDisplay_Created := false
-	ShowFullscreenQR(QR_CurrentIndex)
+	ShowFullscreenSlide(Slide_CurrentIndex)
 }
 Return
 
 QRCode_MonitorPrev:
 {
-	global Settings_QRCode_Display, QRDisplay_Created, QR_CurrentIndex
+	global Settings_QRCode_Display, QRDisplay_Created, Slide_CurrentIndex
 	SysGet, monCount, MonitorCount
 	if (monCount <= 1)
 		return
 	Settings_QRCode_Display := Settings_QRCode_Display - 1
 	if (Settings_QRCode_Display < 1)
 		Settings_QRCode_Display := monCount
-	; Force GUI recreation on new monitor
 	Gui, QRDisplay:Destroy
 	QRDisplay_Created := false
-	ShowFullscreenQR(QR_CurrentIndex)
+	ShowFullscreenSlide(Slide_CurrentIndex)
 }
 Return
 
 QRDisplayGuiClose:
 QRDisplayGuiEscape:
-; Clean up hotkeys and reset state
 global QRDisplay_Created
 QRDisplay_Created := false
 Hotkey, IfWinActive, SideKick QR Code
@@ -4765,8 +4884,8 @@ Gui, Settings:Add, Text, x15 y20 w150 BackgroundTrans Center, SideKick Hub
 Gui, Settings:Font, s11 c%textColor%, Segoe UI
 
 ; Tab buttons with highlight indicator
-global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts, TabPrint, TabGoCardless
-global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg, TabPrintBg, TabGoCardlessBg
+global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts, TabPrint, TabGoCardless, TabDisplay
+global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg, TabPrintBg, TabGoCardlessBg, TabDisplayBg
 
 ; General tab
 Gui, Settings:Add, Progress, x0 y60 w4 h35 Background0078D4 vTabGeneralBg Hidden
@@ -4800,13 +4919,17 @@ Gui, Settings:Add, Text, x15 y305 w160 h25 BackgroundTrans gSettingsTabShortcuts
 Gui, Settings:Add, Progress, x0 y340 w4 h35 Background0078D4 vTabPrintBg Hidden
 Gui, Settings:Add, Text, x15 y345 w160 h25 BackgroundTrans gSettingsTabPrint vTabPrint, 🖨  Print
 
+; Display tab
+Gui, Settings:Add, Progress, x0 y380 w4 h35 Background0078D4 vTabDisplayBg Hidden
+Gui, Settings:Add, Text, x15 y385 w160 h25 BackgroundTrans gSettingsTabDisplay vTabDisplay, 🖥  Display
+
 ; GoCardless tab
-Gui, Settings:Add, Progress, x0 y380 w4 h35 Background0078D4 vTabGoCardlessBg Hidden
-Gui, Settings:Add, Text, x15 y385 w160 h25 BackgroundTrans gSettingsTabGoCardless vTabGoCardless, 💳  GoCardless
+Gui, Settings:Add, Progress, x0 y420 w4 h35 Background0078D4 vTabGoCardlessBg Hidden
+Gui, Settings:Add, Text, x15 y425 w160 h25 BackgroundTrans gSettingsTabGoCardless vTabGoCardless, 💳  GoCardless
 
 ; Developer tab (only for dev location)
-Gui, Settings:Add, Progress, x0 y420 w4 h35 Background0078D4 vTabDeveloperBg Hidden
-Gui, Settings:Add, Text, x15 y425 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
+Gui, Settings:Add, Progress, x0 y460 w4 h35 Background0078D4 vTabDeveloperBg Hidden
+Gui, Settings:Add, Text, x15 y465 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
 
 ; SideKick Logo at bottom of sidebar - transparent PNG, use appropriate version for theme
 logoPathDark := A_ScriptDir . "\SideKick_Logo_2025_Dark.png"
@@ -4815,13 +4938,13 @@ logoPath := Settings_DarkMode ? logoPathDark : logoPathLight
 
 if FileExist(logoPath) {
 	; Add background patch to match sidebar color for logo area
-	Gui, Settings:Add, Progress, x20 y480 w140 h140 Background%sidebarBg% Disabled
+	Gui, Settings:Add, Progress, x20 y545 w140 h140 Background%sidebarBg% Disabled
 	; Add logo on top
-	Gui, Settings:Add, Picture, x20 y480 w140 h140 vSettingsLogo BackgroundTrans, %logoPath%
+	Gui, Settings:Add, Picture, x20 y545 w140 h140 vSettingsLogo BackgroundTrans, %logoPath%
 } else {
 	; Fallback text if logo not found
 	Gui, Settings:Font, s14 cFF8C00, Segoe UI
-	Gui, Settings:Add, Text, x15 y520 w150 h40 BackgroundTrans Center, 🚀 SIDEKICK
+	Gui, Settings:Add, Text, x15 y580 w150 h40 BackgroundTrans Center, 🚀 SIDEKICK
 }
 
 ; Version at bottom of sidebar
@@ -4841,6 +4964,7 @@ CreateAboutPanel()
 CreateShortcutsPanel()
 CreatePrintPanel()
 CreateGoCardlessPanel()
+CreateDisplayPanel()
 CreateDeveloperPanel()
 
 ; Show Developer tab only for dev location
@@ -6790,7 +6914,7 @@ CreateFilesPanel()
 	Gui, Settings:Add, Text, x210 y225 w100 BackgroundTrans vFilesArchiveLabel Hidden HwndHwndFilesArchive, Archive Path:
 	RegisterSettingsTooltip(HwndFilesArchive, "ARCHIVE PATH`n`nLocation where completed shoots are archived.`nUsed for long-term storage and backup.`n`nOrganize by year/month for easy retrieval.")
 	Gui, Settings:Add, Edit, x315 y222 w240 h25 cBlack vFilesArchiveEdit Hidden, %Settings_ShootArchivePath%
-	Gui, Settings:Add, Button, x560 y221 w100 h27 gFilesArchiveBrowseBtn vFilesArchiveBrowse Hidden, Browse
+	Gui, Settings:Add, Button, x560 y221 w100 h27 gShowArchiveFolderPicker vFilesArchiveBrowse Hidden, Select
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y255 w100 BackgroundTrans vFilesFolderTemplateLabel Hidden HwndHwndFolderTemplate, Folder Template:
@@ -6850,17 +6974,6 @@ CreateFilesPanel()
 	RegisterSettingsTooltip(HwndFilesAutoDrive, "AUTO-DETECT SD CARDS`n`nAutomatically detect when an SD card is inserted.`nShows a notification or prompt when detected.`n`nConvenient for streamlined download workflow.")
 	CreateToggleSlider("Settings", "AutoDriveDetect", 630, 538, Settings_AutoDriveDetect)
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
-	
-	; ═══════════════════════════════════════════════════════════════════════════
-	; PSA SEARCH PATHS GROUP BOX
-	; ═══════════════════════════════════════════════════════════════════════════
-	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y590 w480 h70 vFilesPSAGroup Hidden, Album Search Paths
-	
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y615 w300 BackgroundTrans vFilesPSALabel Hidden HwndHwndFilesPSA, Alternative folders to search for .psa files:
-	RegisterSettingsTooltip(HwndFilesPSA, "ALTERNATIVE SEARCH PATHS`n`nList of additional folders to search when looking`nfor ProSelect album (.psa) files.`n`nSearched in order after Archive Path.`nEdit via psa_search_paths.txt in Archive folder.")
-	Gui, Settings:Add, Button, x560 y611 w100 h27 gFilesPSAEditBtn vFilesPSAEdit Hidden, Edit Paths
 }
 
 CreateLicensePanel()
@@ -7197,6 +7310,11 @@ AsyncMonthlyCheck:
 	CheckMonthlyValidationAndUpdate()
 Return
 
+; Check for updates on every launch (non-blocking)
+CheckForUpdatesOnLaunch:
+	CheckForUpdatesStartup()
+Return
+
 CheckMonthlyValidationAndUpdate() {
 	; Check if a month has passed since last validation
 	; If so, validate license AND check for updates
@@ -7282,6 +7400,11 @@ ValidateLicenseOnline() {
 	return false
 }
 
+; Check for updates on every app launch - always runs regardless of weekly schedule
+CheckForUpdatesStartup() {
+	CheckForUpdates()
+}
+
 CheckForUpdates() {
 	; Check GitHub releases for new version
 	global ScriptVersion, Update_SkippedVersion, Update_AvailableVersion, Update_DownloadURL, Update_GitHubReleaseURL
@@ -7314,10 +7437,6 @@ CheckForUpdates() {
 	if (CompareVersions(latestVersion, ScriptVersion) > 0) {
 		Update_AvailableVersion := latestVersion
 		Update_DownloadURL := downloadUrl
-		
-		; Check if user skipped this version
-		if (latestVersion = Update_SkippedVersion)
-			return
 		
 		; If auto-update enabled, download in background then prompt
 		if (Settings_AutoUpdate) {
@@ -8021,34 +8140,6 @@ CreateShortcutsPanel()
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y475 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
-	
-	; ═══════════════════════════════════════════════════════════════════════════
-	; QR CODE TEXT FIELDS GROUP BOX
-	; ═══════════════════════════════════════════════════════════════════════════
-	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y495 w480 h175 vSCQRCodeGroup, QR Code Text
-	
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y520 w65 h22 BackgroundTrans vSCQRLabel1, QR Text 1:
-	Gui, Settings:Add, Edit, x280 y518 w375 h22 cBlack vSCQREdit1, %Settings_QRCode_Text1%
-	
-	Gui, Settings:Add, Text, x210 y550 w65 h22 BackgroundTrans vSCQRLabel2, QR Text 2:
-	Gui, Settings:Add, Edit, x280 y548 w375 h22 cBlack vSCQREdit2, %Settings_QRCode_Text2%
-	
-	Gui, Settings:Add, Text, x210 y580 w65 h22 BackgroundTrans vSCQRLabel3, QR Text 3:
-	Gui, Settings:Add, Edit, x280 y578 w375 h22 cBlack vSCQREdit3, %Settings_QRCode_Text3%
-	
-	; Display monitor dropdown
-	Gui, Settings:Add, Text, x210 y610 w65 h22 BackgroundTrans vSCQRLabelDisp, Display:
-	SysGet, monCount, MonitorCount
-	monList := ""
-	Loop, %monCount%
-		monList .= (A_Index > 1 ? "|" : "") . A_Index
-	Gui, Settings:Add, DropDownList, x280 y608 w60 cBlack vSCQRDisplay Choose%Settings_QRCode_Display%, %monList%
-	Gui, Settings:Add, Text, x350 y610 w200 h22 BackgroundTrans c%mutedColor% vSCQRDispHint, (which monitor to show QR)
-	
-	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y638 w440 BackgroundTrans vSCQRCodeHint, Tip: Use URLs, Wi-Fi info, contact details, or any text you want as a QR code.
 	
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -9510,7 +9601,7 @@ FindPSAInFolder(folderPath) {
 	return result
 }
 
-; Search for album folder in alternative locations from psa_search_paths.txt
+; Search for album folder in alternative locations from _Additional_Archives.txt
 ; Returns full path to matching folder if found, empty string if not
 SearchAlternativePaths(searchTerm) {
 	global Settings_ShootArchivePath
@@ -9520,14 +9611,14 @@ SearchAlternativePaths(searchTerm) {
 	if (archivePath = "")
 		archivePath := "D:\Shoot_Archive"
 	
-	pathsFile := archivePath . "\psa_search_paths.txt"
+	pathsFile := archivePath . "\_Additional_Archives.txt"
 	
 	; Silently return if file doesn't exist
 	if (!FileExist(pathsFile))
 		return ""
 	
 	; Read paths file
-	FileRead, pathsContent, %pathsFile%
+	FileRead, pathsContent, *P1252 %pathsFile%
 	if (ErrorLevel)
 		return ""
 	
@@ -9637,12 +9728,12 @@ GetPSASearchPaths() {
 	if (archivePath = "")
 		archivePath := "D:\Shoot_Archive"
 	
-	pathsFile := archivePath . "\psa_search_paths.txt"
+	pathsFile := archivePath . "\_Additional_Archives.txt"
 	
 	if (!FileExist(pathsFile))
 		return ""
 	
-	FileRead, pathsContent, %pathsFile%
+	FileRead, pathsContent, *P1252 %pathsFile%
 	return pathsContent
 }
 
@@ -9658,7 +9749,7 @@ SavePSASearchPaths(pathsContent) {
 	if (!FileExist(archivePath))
 		FileCreateDir, %archivePath%
 	
-	pathsFile := archivePath . "\psa_search_paths.txt"
+	pathsFile := archivePath . "\_Additional_Archives.txt"
 	
 	; Delete existing file
 	if (FileExist(pathsFile))
@@ -11273,6 +11364,115 @@ RefreshGCEmailTemplates:
 	DarkMsgBox("Templates Loaded", "Loaded " . templateCount . " email templates from GHL.", "success", {timeout: 2})
 return
 
+CreateDisplayPanel()
+{
+	global
+	
+	; Theme-aware colors
+	if (Settings_DarkMode) {
+		headerColor := "4FC3F7"
+		textColor := "FFFFFF"
+		labelColor := "CCCCCC"
+		mutedColor := "888888"
+		groupColor := "666666"
+	} else {
+		headerColor := "0078D4"
+		textColor := "1E1E1E"
+		labelColor := "444444"
+		mutedColor := "666666"
+		groupColor := "999999"
+	}
+	
+	; Display panel container
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelDisplay
+	
+	; Section header
+	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
+	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vDisplayHeader, 🖥 Display Settings
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; TOOLBAR GROUP BOX - Display and Size settings
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y60 w480 h55 vDisplayToolbarGroup, Toolbar
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	; Display monitor dropdown
+	Gui, Settings:Add, Text, x210 y82 w50 h22 BackgroundTrans vDisplayMonitorLabel, Display:
+	SysGet, monCount, MonitorCount
+	monList := ""
+	Loop, %monCount%
+		monList .= (A_Index > 1 ? "|" : "") . A_Index
+	Gui, Settings:Add, DropDownList, x265 y80 w50 cBlack vDisplayQRDisplay Choose%Settings_QRCode_Display%, %monList%
+	
+	; Size slider (25% to 85%)
+	Gui, Settings:Add, Text, x330 y82 w30 h22 BackgroundTrans vDisplaySizeLabel, Size:
+	Gui, Settings:Add, Slider, x365 y78 w150 h24 Range25-85 TickInterval10 vDisplaySizeSlider AltSubmit gDisplaySizeChanged, %Settings_DisplaySize%
+	Gui, Settings:Add, Text, x520 y82 w40 h22 BackgroundTrans vDisplaySizeValue, %Settings_DisplaySize%`%
+	
+	; Identify displays button
+	Gui, Settings:Add, Button, x570 y78 w85 h24 gDisplayIdentifyBtn vDisplayIdentifyBtn, Identify
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; QR CODE TEXT FIELDS GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y125 w480 h130 vDisplayQRCodeGroup, QR Code Text
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y150 w65 h22 BackgroundTrans vDisplayQRLabel1, QR Text 1:
+	Gui, Settings:Add, Edit, x280 y148 w375 h22 cBlack vDisplayQREdit1, %Settings_QRCode_Text1%
+	
+	Gui, Settings:Add, Text, x210 y178 w65 h22 BackgroundTrans vDisplayQRLabel2, QR Text 2:
+	Gui, Settings:Add, Edit, x280 y176 w375 h22 cBlack vDisplayQREdit2, %Settings_QRCode_Text2%
+	
+	Gui, Settings:Add, Text, x210 y206 w65 h22 BackgroundTrans vDisplayQRLabel3, QR Text 3:
+	Gui, Settings:Add, Edit, x280 y204 w375 h22 cBlack vDisplayQREdit3, %Settings_QRCode_Text3%
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; BANK TRANSFER GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y265 w480 h155 vDisplayBankGroup, Bank Transfer Details
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y292 w75 h22 BackgroundTrans vDisplayBankInstLabel, Bank:
+	Gui, Settings:Add, Edit, x290 y290 w365 h22 cBlack vDisplayBankInstEdit, %Settings_BankInstitution%
+	
+	Gui, Settings:Add, Text, x210 y320 w75 h22 BackgroundTrans vDisplayBankNameLabel, Acc Name:
+	Gui, Settings:Add, Edit, x290 y318 w365 h22 cBlack vDisplayBankNameEdit, %Settings_BankName%
+	
+	Gui, Settings:Add, Text, x210 y348 w75 h22 BackgroundTrans vDisplayBankSortLabel, Sort Code:
+	Gui, Settings:Add, Edit, x290 y346 w120 h22 cBlack vDisplayBankSortEdit, %Settings_BankSortCode%
+	
+	Gui, Settings:Add, Text, x210 y376 w75 h22 BackgroundTrans vDisplayBankAccLabel, Acc No:
+	Gui, Settings:Add, Edit, x290 y374 w150 h22 cBlack vDisplayBankAccEdit, %Settings_BankAccNo%
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; CUSTOM IMAGES GROUP BOX
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y430 w480 h120 vDisplayImagesGroup, Custom Images
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y453 w60 h22 BackgroundTrans vDisplayImg1Label, Image 1:
+	Gui, Settings:Add, Edit, x275 y451 w310 h22 cBlack vDisplayImg1Edit, %Settings_DisplayImage1%
+	Gui, Settings:Add, Button, x590 y450 w65 h24 gDisplayImg1Browse vDisplayImg1Btn, Browse
+	
+	Gui, Settings:Add, Text, x210 y479 w60 h22 BackgroundTrans vDisplayImg2Label, Image 2:
+	Gui, Settings:Add, Edit, x275 y477 w310 h22 cBlack vDisplayImg2Edit, %Settings_DisplayImage2%
+	Gui, Settings:Add, Button, x590 y476 w65 h24 gDisplayImg2Browse vDisplayImg2Btn, Browse
+	
+	Gui, Settings:Add, Text, x210 y505 w60 h22 BackgroundTrans vDisplayImg3Label, Image 3:
+	Gui, Settings:Add, Edit, x275 y503 w310 h22 cBlack vDisplayImg3Edit, %Settings_DisplayImage3%
+	Gui, Settings:Add, Button, x590 y502 w65 h24 gDisplayImg3Browse vDisplayImg3Btn, Browse
+	
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y560 w440 BackgroundTrans vDisplayImagesHint, All displays cycle with arrow keys. Use toolbar to configure monitor and size.
+	
+	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
+}
+
 CreateDeveloperPanel()
 {
 	global
@@ -11386,6 +11586,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, TabShortcutsBg
 	GuiControl, Settings:Hide, TabPrintBg
 	GuiControl, Settings:Hide, TabGoCardlessBg
+	GuiControl, Settings:Hide, TabDisplayBg
 	GuiControl, Settings:Hide, TabDeveloperBg
 	
 	; Hide all panels - General
@@ -11633,17 +11834,6 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, SCIcon_QRCode
 	GuiControl, Settings:Hide, SCLabel_QRCode
 	GuiControl, Settings:Hide, Toggle_ShowBtn_QRCode
-	GuiControl, Settings:Hide, SCQRCodeGroup
-	GuiControl, Settings:Hide, SCQRLabel1
-	GuiControl, Settings:Hide, SCQREdit1
-	GuiControl, Settings:Hide, SCQRLabel2
-	GuiControl, Settings:Hide, SCQREdit2
-	GuiControl, Settings:Hide, SCQRLabel3
-	GuiControl, Settings:Hide, SCQREdit3
-	GuiControl, Settings:Hide, SCQRLabelDisp
-	GuiControl, Settings:Hide, SCQRDisplay
-	GuiControl, Settings:Hide, SCQRDispHint
-	GuiControl, Settings:Hide, SCQRCodeHint
 	GuiControl, Settings:Hide, SCInfoNote
 	
 	; Hide all panels - Print
@@ -11747,6 +11937,45 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GCNamePart3DDL
 	GuiControl, Settings:Hide, GCNameExLabel
 	GuiControl, Settings:Hide, GCNameExample
+	
+	; Hide all panels - Display
+	GuiControl, Settings:Hide, TabDisplayBg
+	GuiControl, Settings:Hide, PanelDisplay
+	GuiControl, Settings:Hide, DisplayHeader
+	GuiControl, Settings:Hide, DisplayToolbarGroup
+	GuiControl, Settings:Hide, DisplayMonitorLabel
+	GuiControl, Settings:Hide, DisplayQRDisplay
+	GuiControl, Settings:Hide, DisplaySizeLabel
+	GuiControl, Settings:Hide, DisplaySizeSlider
+	GuiControl, Settings:Hide, DisplaySizeValue
+	GuiControl, Settings:Hide, DisplayIdentifyBtn
+	GuiControl, Settings:Hide, DisplayQRCodeGroup
+	GuiControl, Settings:Hide, DisplayQRLabel1
+	GuiControl, Settings:Hide, DisplayQREdit1
+	GuiControl, Settings:Hide, DisplayQRLabel2
+	GuiControl, Settings:Hide, DisplayQREdit2
+	GuiControl, Settings:Hide, DisplayQRLabel3
+	GuiControl, Settings:Hide, DisplayQREdit3
+	GuiControl, Settings:Hide, DisplayBankGroup
+	GuiControl, Settings:Hide, DisplayBankInstLabel
+	GuiControl, Settings:Hide, DisplayBankInstEdit
+	GuiControl, Settings:Hide, DisplayBankNameLabel
+	GuiControl, Settings:Hide, DisplayBankNameEdit
+	GuiControl, Settings:Hide, DisplayBankSortLabel
+	GuiControl, Settings:Hide, DisplayBankSortEdit
+	GuiControl, Settings:Hide, DisplayBankAccLabel
+	GuiControl, Settings:Hide, DisplayBankAccEdit
+	GuiControl, Settings:Hide, DisplayImagesGroup
+	GuiControl, Settings:Hide, DisplayImg1Label
+	GuiControl, Settings:Hide, DisplayImg1Edit
+	GuiControl, Settings:Hide, DisplayImg1Btn
+	GuiControl, Settings:Hide, DisplayImg2Label
+	GuiControl, Settings:Hide, DisplayImg2Edit
+	GuiControl, Settings:Hide, DisplayImg2Btn
+	GuiControl, Settings:Hide, DisplayImg3Label
+	GuiControl, Settings:Hide, DisplayImg3Edit
+	GuiControl, Settings:Hide, DisplayImg3Btn
+	GuiControl, Settings:Hide, DisplayImagesHint
 	
 	; Show selected tab
 	if (tabName = "General")
@@ -11956,7 +12185,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_BrowsDown
 		GuiControl, Settings:Show, FilesAutoDrive
 		GuiControl, Settings:Show, Toggle_AutoDriveDetect
-		; PSA Search Paths GroupBox
+		; Additional Archives - SideKick GroupBox
 		GuiControl, Settings:Show, FilesPSAGroup
 		GuiControl, Settings:Show, FilesPSALabel
 		GuiControl, Settings:Show, FilesPSAEdit
@@ -12043,17 +12272,6 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, SCIcon_QRCode
 		GuiControl, Settings:Show, SCLabel_QRCode
 		GuiControl, Settings:Show, Toggle_ShowBtn_QRCode
-		GuiControl, Settings:Show, SCQRCodeGroup
-		GuiControl, Settings:Show, SCQRLabel1
-		GuiControl, Settings:Show, SCQREdit1
-		GuiControl, Settings:Show, SCQRLabel2
-		GuiControl, Settings:Show, SCQREdit2
-		GuiControl, Settings:Show, SCQRLabel3
-		GuiControl, Settings:Show, SCQREdit3
-		GuiControl, Settings:Show, SCQRLabelDisp
-		GuiControl, Settings:Show, SCQRDisplay
-		GuiControl, Settings:Show, SCQRDispHint
-		GuiControl, Settings:Show, SCQRCodeHint
 		GuiControl, Settings:Show, SCInfoNote
 	}
 	else if (tabName = "Print")
@@ -12165,6 +12383,46 @@ ShowSettingsTab(tabName)
 			GuiControl, Settings:Disable, GCNamePart3DDL
 		}
 	}
+	else if (tabName = "Display")
+	{
+		GuiControl, Settings:Show, TabDisplayBg
+		GuiControl, Settings:Show, PanelDisplay
+		GuiControl, Settings:Show, DisplayHeader
+		GuiControl, Settings:Show, DisplayToolbarGroup
+		GuiControl, Settings:Show, DisplayMonitorLabel
+		GuiControl, Settings:Show, DisplayQRDisplay
+		GuiControl, Settings:Show, DisplaySizeLabel
+		GuiControl, Settings:Show, DisplaySizeSlider
+		GuiControl, Settings:Show, DisplaySizeValue
+		GuiControl, Settings:Show, DisplayIdentifyBtn
+		GuiControl, Settings:Show, DisplayQRCodeGroup
+		GuiControl, Settings:Show, DisplayQRLabel1
+		GuiControl, Settings:Show, DisplayQREdit1
+		GuiControl, Settings:Show, DisplayQRLabel2
+		GuiControl, Settings:Show, DisplayQREdit2
+		GuiControl, Settings:Show, DisplayQRLabel3
+		GuiControl, Settings:Show, DisplayQREdit3
+		GuiControl, Settings:Show, DisplayBankGroup
+		GuiControl, Settings:Show, DisplayBankInstLabel
+		GuiControl, Settings:Show, DisplayBankInstEdit
+		GuiControl, Settings:Show, DisplayBankNameLabel
+		GuiControl, Settings:Show, DisplayBankNameEdit
+		GuiControl, Settings:Show, DisplayBankSortLabel
+		GuiControl, Settings:Show, DisplayBankSortEdit
+		GuiControl, Settings:Show, DisplayBankAccLabel
+		GuiControl, Settings:Show, DisplayBankAccEdit
+		GuiControl, Settings:Show, DisplayImagesGroup
+		GuiControl, Settings:Show, DisplayImg1Label
+		GuiControl, Settings:Show, DisplayImg1Edit
+		GuiControl, Settings:Show, DisplayImg1Btn
+		GuiControl, Settings:Show, DisplayImg2Label
+		GuiControl, Settings:Show, DisplayImg2Edit
+		GuiControl, Settings:Show, DisplayImg2Btn
+		GuiControl, Settings:Show, DisplayImg3Label
+		GuiControl, Settings:Show, DisplayImg3Edit
+		GuiControl, Settings:Show, DisplayImg3Btn
+		GuiControl, Settings:Show, DisplayImagesHint
+	}
 	else if (tabName = "Developer")
 	{
 		GuiControl, Settings:Show, TabDeveloperBg
@@ -12233,6 +12491,10 @@ Return
 
 SettingsTabGoCardless:
 ShowSettingsTab("GoCardless")
+Return
+
+SettingsTabDisplay:
+ShowSettingsTab("Display")
 Return
 
 SettingsTabDeveloper:
@@ -13296,11 +13558,17 @@ Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
 Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
 Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
 Settings_ShowBtn_QRCode := Toggle_ShowBtn_QRCode_State
-; QR Code text fields from Shortcuts tab
-Settings_QRCode_Text1 := SCQREdit1
-Settings_QRCode_Text2 := SCQREdit2
-Settings_QRCode_Text3 := SCQREdit3
-Settings_QRCode_Display := SCQRDisplay
+; QR Code text fields from Display tab
+Settings_QRCode_Text1 := DisplayQREdit1
+Settings_QRCode_Text2 := DisplayQREdit2
+Settings_QRCode_Text3 := DisplayQREdit3
+Settings_QRCode_Display := DisplayQRDisplay
+Settings_DisplaySize := DisplaySizeSlider
+; Bank transfer fields from Display tab
+Settings_BankInstitution := DisplayBankInstEdit
+Settings_BankName := DisplayBankNameEdit
+Settings_BankSortCode := DisplayBankSortEdit
+Settings_BankAccNo := DisplayBankAccEdit
 ; Quick Print printer from Print tab dropdown
 if (PrintPrinterCombo != "" && PrintPrinterCombo != "System Default")
 	Settings_QuickPrintPrinter := PrintPrinterCombo
@@ -13397,11 +13665,17 @@ Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
 Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
 Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
 Settings_ShowBtn_QRCode := Toggle_ShowBtn_QRCode_State
-; QR Code text fields from Shortcuts tab
-Settings_QRCode_Text1 := SCQREdit1
-Settings_QRCode_Text2 := SCQREdit2
-Settings_QRCode_Text3 := SCQREdit3
-Settings_QRCode_Display := SCQRDisplay
+; QR Code text fields from Display tab
+Settings_QRCode_Text1 := DisplayQREdit1
+Settings_QRCode_Text2 := DisplayQREdit2
+Settings_QRCode_Text3 := DisplayQREdit3
+Settings_QRCode_Display := DisplayQRDisplay
+Settings_DisplaySize := DisplaySizeSlider
+; Bank transfer fields from Display tab
+Settings_BankInstitution := DisplayBankInstEdit
+Settings_BankName := DisplayBankNameEdit
+Settings_BankSortCode := DisplayBankSortEdit
+Settings_BankAccNo := DisplayBankAccEdit
 ; Quick Print printer from Print tab dropdown
 if (PrintPrinterCombo != "" && PrintPrinterCombo != "System Default")
 	Settings_QuickPrintPrinter := PrintPrinterCombo
@@ -13606,13 +13880,224 @@ if (selectedFolder != "")
 }
 Return
 
-FilesArchiveBrowseBtn:
-FileSelectFolder, selectedFolder, , 3, Select Archive Folder
-if (selectedFolder != "")
-{
-	Settings_ShootArchivePath := selectedFolder
-	GuiControl, Settings:, FilesArchiveEdit, %selectedFolder%
+; ============================================
+; Archive Folders TreeView Picker
+; ============================================
+ShowArchiveFolderPicker:
+global Settings_ShootArchivePath, FolderPicker_SelectedPaths, FolderPicker_TreeView
+
+; Destroy any existing picker
+Gui, FolderPicker:Destroy
+
+; Dark theme colors
+FP_BgColor := "1a1a2e"
+FP_TreeBg := "252542"
+FP_TextColor := "ffffff"
+FP_AccentColor := "e94560"
+
+; Create GUI
+Gui, FolderPicker:New, +LabelFolderPicker +OwnDialogs -MaximizeBox +AlwaysOnTop
+Gui, FolderPicker:Color, %FP_BgColor%
+Gui, FolderPicker:+hwndFolderPickerHwnd
+
+; Title
+Gui, FolderPicker:Font, s12 Bold c%FP_TextColor%, Segoe UI
+Gui, FolderPicker:Add, Text, x15 y10 w400, Select Archive Folders
+
+Gui, FolderPicker:Font, s9 c888888, Segoe UI
+Gui, FolderPicker:Add, Text, x15 y32 w450, Check folders to search for shoot archives:
+
+; TreeView with checkboxes
+Gui, FolderPicker:Font, s9 c%FP_TextColor%, Segoe UI
+Gui, FolderPicker:Add, TreeView, x15 y60 w450 h350 vFolderPicker_TreeView gFolderPickerTV +Checked +HwndFP_TV Background%FP_TreeBg%
+
+; Load existing selections from file
+AdditionalArchivesFile := Settings_ShootArchivePath . "\_Additional_Archives.txt"
+FolderPicker_SelectedPaths := {}
+if FileExist(AdditionalArchivesFile) {
+	FileRead, existingPaths, *P1252 %AdditionalArchivesFile%
+	Loop, Parse, existingPaths, `n, `r
+	{
+		path := Trim(A_LoopField)
+		if (path != "" && SubStr(path, 1, 1) != "#" && SubStr(path, 1, 1) != ";")
+			FolderPicker_SelectedPaths[path] := true
+	}
 }
+
+; Populate TreeView with drives
+DriveGet, driveList, List, FIXED
+Loop, Parse, driveList
+{
+	driveLetter := A_LoopField . ":"
+	DriveGet, driveLabel, Label, %driveLetter%\
+	if (driveLabel = "")
+		driveLabel := "Local Disk"
+	displayName := driveLetter . " [" . driveLabel . "]"
+	
+	; Add drive as root node
+	driveNode := TV_Add(displayName, 0, "Expand")
+	FP_SetItemData(driveNode, driveLetter . "\")
+	
+	; Check if this drive is in selected paths
+	if (FolderPicker_SelectedPaths.HasKey(driveLetter . "\"))
+		TV_Modify(driveNode, "Check")
+	
+	; Add first level folders
+	Loop, Files, %driveLetter%\*, D
+	{
+		if (SubStr(A_LoopFileName, 1, 1) = "$" || A_LoopFileName = "System Volume Information" || A_LoopFileName = "Recovery" || A_LoopFileName = "Windows")
+			continue
+		
+		folderPath := A_LoopFileFullPath
+		folderNode := TV_Add(A_LoopFileName, driveNode)
+		FP_SetItemData(folderNode, folderPath)
+		
+		; Check if this folder is in selected paths
+		if (FolderPicker_SelectedPaths.HasKey(folderPath))
+			TV_Modify(folderNode, "Check")
+		
+		; Add placeholder for subfolders (lazy loading)
+		Loop, Files, %folderPath%\*, D
+		{
+			if (SubStr(A_LoopFileName, 1, 1) != "$") {
+				TV_Add("", folderNode)  ; Placeholder
+				break
+			}
+		}
+	}
+}
+
+; Buttons
+Gui, FolderPicker:Font, s10 Bold c%FP_TextColor%, Segoe UI
+Gui, FolderPicker:Add, Button, x15 y420 w100 h30 gFolderPickerAddCustom, Add Folder...
+Gui, FolderPicker:Add, Button, x280 y420 w90 h30 gFolderPickerSave Default, Save
+Gui, FolderPicker:Add, Button, x375 y420 w90 h30 gFolderPickerCancel, Cancel
+
+; Show with dark title bar
+Gui, FolderPicker:Show, w480 h460, Archive Folders
+Gui, FolderPicker:+LastFound
+WinGet, hWnd, ID
+DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", hWnd, "Int", 20, "Int*", 1, "Int", 4)
+Return
+
+; TreeView expand event - lazy load subfolders
+FolderPickerTV:
+if (A_GuiEvent = "E") {  ; Expand
+	; Get the expanded item
+	itemID := A_EventInfo
+	
+	; Check if first child is placeholder (empty text)
+	childID := TV_GetChild(itemID)
+	if (childID) {
+		TV_GetText(childText, childID)
+		if (childText = "") {
+			; Remove placeholder
+			TV_Delete(childID)
+			
+			; Get folder path from item data
+			parentPath := FP_GetItemData(itemID)
+			if (parentPath != "") {
+				; Load actual subfolders
+				Loop, Files, %parentPath%\*, D
+				{
+					if (SubStr(A_LoopFileName, 1, 1) = "$" || A_LoopFileName = "System Volume Information")
+						continue
+					
+					folderPath := A_LoopFileFullPath
+					folderNode := TV_Add(A_LoopFileName, itemID)
+					FP_SetItemData(folderNode, folderPath)
+					
+					; Check if selected
+					if (FolderPicker_SelectedPaths.HasKey(folderPath))
+						TV_Modify(folderNode, "Check")
+					
+					; Add placeholder if has subfolders
+					Loop, Files, %folderPath%\*, D
+					{
+						if (SubStr(A_LoopFileName, 1, 1) != "$") {
+							TV_Add("", folderNode)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+}
+Return
+
+; Store item data (path) in a global associative array
+FP_SetItemData(itemID, data) {
+	global FolderPicker_ItemData
+	if !IsObject(FolderPicker_ItemData)
+		FolderPicker_ItemData := {}
+	FolderPicker_ItemData[itemID] := data
+}
+
+FP_GetItemData(itemID) {
+	global FolderPicker_ItemData
+	return FolderPicker_ItemData.HasKey(itemID) ? FolderPicker_ItemData[itemID] : ""
+}
+
+FolderPickerAddCustom:
+Gui, FolderPicker:+OwnDialogs
+FileSelectFolder, customPath, , 3, Select folder to add:
+if (customPath != "") {
+	; Find or create the node
+	rootNode := TV_Add(customPath, 0, "Check")
+	FP_SetItemData(rootNode, customPath)
+}
+Return
+
+FolderPickerSave:
+global Settings_ShootArchivePath, FolderPicker_ItemData
+
+; Collect all checked items
+checkedPaths := ""
+itemID := 0
+Loop {
+	itemID := TV_GetNext(itemID, "Checked")
+	if (!itemID)
+		break
+	
+	path := FP_GetItemData(itemID)
+	if (path != "")
+		checkedPaths .= path . "`n"
+}
+
+; Save to file
+AdditionalArchivesFile := Settings_ShootArchivePath . "\_Additional_Archives.txt"
+
+; Create archive folder if needed
+if (!FileExist(Settings_ShootArchivePath))
+	FileCreateDir, %Settings_ShootArchivePath%
+
+; Write file
+if (FileExist(AdditionalArchivesFile))
+	FileDelete, %AdditionalArchivesFile%
+
+if (checkedPaths != "") {
+	checkedPaths := RTrim(checkedPaths, "`n")
+	FileAppend, %checkedPaths%, %AdditionalArchivesFile%
+}
+
+; Update the edit field with first path (or keep existing)
+if (checkedPaths != "") {
+	firstPath := StrSplit(checkedPaths, "`n")[1]
+	Settings_ShootArchivePath := firstPath
+	GuiControl, Settings:, FilesArchiveEdit, %firstPath%
+}
+
+; Clean up and close
+FolderPicker_ItemData := {}
+Gui, FolderPicker:Destroy
+Return
+
+FolderPickerCancel:
+FolderPickerGuiClose:
+FolderPickerGuiEscape:
+FolderPicker_ItemData := {}
+Gui, FolderPicker:Destroy
 Return
 
 FilesFolderTemplateBrowseBtn:
@@ -13633,37 +14118,74 @@ if (selectedFile != "")
 }
 Return
 
-FilesPSAEditBtn:
-	; Edit PSA search paths file
-	global Settings_ShootArchivePath
-	
-	archivePath := Settings_ShootArchivePath
-	if (archivePath = "")
-		archivePath := "D:\Shoot_Archive"
-	
-	pathsFile := archivePath . "\psa_search_paths.txt"
-	
-	; Create default file if doesn't exist
-	if (!FileExist(pathsFile)) {
-		; Create archive folder if needed
-		if (!FileExist(archivePath))
-			FileCreateDir, %archivePath%
-		
-		; Create template file with instructions
-		semicolon := ";"
-		defaultContent := "; PSA Search Paths`n"
-		defaultContent .= "; Add one folder path per line to search for .psa files`n"
-		defaultContent .= "; Lines starting with # or " . semicolon . " are comments`n"
-		defaultContent .= "; Paths are searched in order - first match wins`n"
-		defaultContent .= "; Example:`n"
-		defaultContent .= "; D:\Old_Archive\2024`n"
-		defaultContent .= "; E:\Backup\ProSelect`n"
-		defaultContent .= "; \\NAS\Photography\Albums`n"
-		FileAppend, %defaultContent%, %pathsFile%
+DisplayImg1Browse:
+FileSelectFile, selectedFile, 3, , Select Image 1, Images (*.jpg; *.jpeg; *.png; *.bmp; *.gif)
+if (selectedFile != "")
+{
+	Settings_DisplayImage1 := selectedFile
+	GuiControl, Settings:, DisplayImg1Edit, %selectedFile%
+}
+Return
+
+DisplayImg2Browse:
+FileSelectFile, selectedFile, 3, , Select Image 2, Images (*.jpg; *.jpeg; *.png; *.bmp; *.gif)
+if (selectedFile != "")
+{
+	Settings_DisplayImage2 := selectedFile
+	GuiControl, Settings:, DisplayImg2Edit, %selectedFile%
+}
+Return
+
+DisplayImg3Browse:
+FileSelectFile, selectedFile, 3, , Select Image 3, Images (*.jpg; *.jpeg; *.png; *.bmp; *.gif)
+if (selectedFile != "")
+{
+	Settings_DisplayImage3 := selectedFile
+	GuiControl, Settings:, DisplayImg3Edit, %selectedFile%
+}
+Return
+
+DisplaySizeChanged:
+	Gui, Settings:Submit, NoHide
+	GuiControl, Settings:, DisplaySizeValue, %DisplaySizeSlider%`%
+	Settings_DisplaySize := DisplaySizeSlider
+Return
+
+DisplayIdentifyBtn:
+	; Show display number overlay on each monitor for 5 seconds
+	SysGet, monCount, MonitorCount
+	Loop, %monCount%
+	{
+		monNum := A_Index
+		SysGet, mon, Monitor, %monNum%
+		monW := monRight - monLeft
+		monH := monBottom - monTop
+		; Calculate center position and size for overlay
+		overlayW := 300
+		overlayH := 300
+		overlayX := monLeft + (monW - overlayW) // 2
+		overlayY := monTop + (monH - overlayH) // 2
+		; Create overlay GUI for this monitor
+		Gui, DisplayID%monNum%:New, +AlwaysOnTop -Caption +ToolWindow -DPIScale +HwndDisplayIDHwnd%monNum%
+		Gui, DisplayID%monNum%:Color, 000000
+		Gui, DisplayID%monNum%:Font, s150 cFFFFFF Bold, Segoe UI
+		Gui, DisplayID%monNum%:Add, Text, x0 y20 w%overlayW% h250 Center BackgroundTrans, %monNum%
+		Gui, DisplayID%monNum%:Show, x%overlayX% y%overlayY% w%overlayW% h%overlayH% NoActivate, Display ID %monNum%
+		; Make it semi-transparent
+		hwnd := DisplayIDHwnd%monNum%
+		WinSet, Transparent, 220, ahk_id %hwnd%
 	}
-	
-	; Open in default text editor
-	Run, "%pathsFile%"
+	; Set timer to close all overlays after 5 seconds
+	SetTimer, DisplayIdentifyClose, -5000
+Return
+
+DisplayIdentifyClose:
+	SysGet, monCount, MonitorCount
+	Loop, %monCount%
+	{
+		monNum := A_Index
+		Gui, DisplayID%monNum%:Destroy
+	}
 Return
 
 FilesSyncFromLB:
@@ -14013,12 +14535,6 @@ ShowGHLFolderPicker()
 		
 		Gui, FolderPicker:Destroy
 		DarkMsgBox("Folder Selected", "Contact sheets will be uploaded to:`n" . Settings_MediaFolderName, "success")
-		return
-	
-	FolderPickerCancel:
-	FolderPickerGuiClose:
-	FolderPickerGuiEscape:
-		Gui, FolderPicker:Destroy
 		return
 }
 
@@ -16657,6 +17173,14 @@ LoadSettings()
 	IniRead, Settings_QRCode_Text2, %IniFilename%, QRCode, Text2, %A_Space%
 	IniRead, Settings_QRCode_Text3, %IniFilename%, QRCode, Text3, %A_Space%
 	IniRead, Settings_QRCode_Display, %IniFilename%, QRCode, Display, 1
+	IniRead, Settings_DisplaySize, %IniFilename%, Display, Size, 80
+	IniRead, Settings_BankInstitution, %IniFilename%, Display, BankInstitution, %A_Space%
+	IniRead, Settings_BankName, %IniFilename%, Display, BankName, %A_Space%
+	IniRead, Settings_BankSortCode, %IniFilename%, Display, BankSortCode, %A_Space%
+	IniRead, Settings_BankAccNo, %IniFilename%, Display, BankAccNo, %A_Space%
+	IniRead, Settings_DisplayImage1, %IniFilename%, Display, Image1, %A_Space%
+	IniRead, Settings_DisplayImage2, %IniFilename%, Display, Image2, %A_Space%
+	IniRead, Settings_DisplayImage3, %IniFilename%, Display, Image3, %A_Space%
 	IniRead, Settings_PrintTemplate_PayPlan, %IniFilename%, Toolbar, PrintTemplate_PayPlan, PayPlan
 	IniRead, Settings_PrintTemplate_Standard, %IniFilename%, Toolbar, PrintTemplate_Standard, Terms of Sale
 	IniRead, Settings_PrintTemplateOptions, %IniFilename%, Toolbar, PrintTemplateOptions, %A_Space%
@@ -16814,6 +17338,15 @@ SaveSettings()
 	IniWrite, %Settings_QRCode_Display%, %IniFilename%, QRCode, Display
 	; Regenerate QR cache if text fields changed
 	GenerateQRCache()
+	; Display settings
+	IniWrite, %Settings_DisplaySize%, %IniFilename%, Display, Size
+	IniWrite, %Settings_BankInstitution%, %IniFilename%, Display, BankInstitution
+	IniWrite, %Settings_BankName%, %IniFilename%, Display, BankName
+	IniWrite, %Settings_BankSortCode%, %IniFilename%, Display, BankSortCode
+	IniWrite, %Settings_BankAccNo%, %IniFilename%, Display, BankAccNo
+	IniWrite, %Settings_DisplayImage1%, %IniFilename%, Display, Image1
+	IniWrite, %Settings_DisplayImage2%, %IniFilename%, Display, Image2
+	IniWrite, %Settings_DisplayImage3%, %IniFilename%, Display, Image3
 	IniWrite, %Settings_PrintTemplate_PayPlan%, %IniFilename%, Toolbar, PrintTemplate_PayPlan
 	IniWrite, %Settings_PrintTemplate_Standard%, %IniFilename%, Toolbar, PrintTemplate_Standard
 	IniWrite, %Settings_PrintTemplateOptions%, %IniFilename%, Toolbar, PrintTemplateOptions

@@ -1,9 +1,13 @@
 {
-  "version": "2.5.32",
-  "build_date": "2026-02-20",
+  "version": "2.5.33",
+  "build_date": "2026-02-22",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Enhanced legal documentation, GoCardless international support",
+  "release_notes": "Bank transfer display with slide cycling system",
   "changelog": [
+    "NEW: Bank Transfer Display - show bank details on fullscreen display for client payments",
+    "NEW: Slide Cycling - display cycles through QR codes, bank details, and images (↑↓ keys)",
+    "NEW: Scalable Bank Display - bank text scales with Size slider same as QR codes",
+    "IMPROVED: Sort code auto-formatted as ##-##-## on display",
     "NEW: Terms of Service pages - comprehensive terms.html for docs and website",
     "IMPROVED: EULA - added Third-Party Services, Indemnification, expanded liability sections",
     "IMPROVED: Privacy Policy - detailed warranty disclaimers, third-party notices, indemnification",

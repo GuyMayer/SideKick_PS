@@ -12,6 +12,16 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.33 (2026-02-22)
+
+### New Features
+- **Bank Transfer Display**: Added Bank Transfer Details section to Display tab with Bank Institution, Account Name, Sort Code, and Account Number fields
+- **Slide Cycling System**: Display now cycles through QR codes, bank transfer details, and custom images as slides (↑↓ to navigate)
+- **Scalable Bank Display**: Bank transfer slide text scales with Size slider (25-85%) same as QR codes
+- **Sort Code Formatting**: Sort codes automatically formatted as ##-##-## on display
+
+---
+
 ## v2.5.32 (2026-02-20)
 
 ### Documentation & Legal
