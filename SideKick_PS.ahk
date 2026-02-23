@@ -382,6 +382,7 @@ global Settings_QRCode_Text3 := ""
 global Settings_QRCode_Display := 1  ; Which monitor to show QR on (1 = primary)
 global QRDisplay_Created := false  ; Track if QR fullscreen GUI exists
 global Settings_DisplaySize := 80  ; Fullscreen display size (25-85%)
+global Settings_BankScale := 100  ; Bank Transfer font scale (50-150%)
 ; Bank Transfer display settings
 global Settings_BankInstitution := ""  ; Bank name (e.g., HSBC, Barclays)
 global Settings_BankName := ""  ; Account holder name
@@ -3526,7 +3527,7 @@ ShowFullscreenSlide(index) {
 	global Slide_Items, Slide_Count, Slide_CurrentIndex
 	global QRImage, QRLabel, QRCounter, QRDisplayHwnd
 	global QR_CacheFolder, QR_CachedFiles
-	global Settings_QRCode_Display, Settings_DisplaySize
+	global Settings_QRCode_Display, Settings_DisplaySize, Settings_BankScale
 	global QRDisplay_Created
 	
 	Slide_CurrentIndex := index
@@ -3631,6 +3632,8 @@ ShowFullscreenSlide(index) {
 		
 		; Scale fonts based on display size (same as QR sizing)
 		sizeScale := displaySize / 80  ; 80% is baseline
+		; Bank scale adjusts font and spacing relative to DPI
+		bankScale := Settings_BankScale / 100  ; 100% is baseline
 		
 		; Calculate box dimensions based on content size
 		boxW := Round(contentSize * 1.2)
@@ -3641,15 +3644,15 @@ ShowFullscreenSlide(index) {
 		; Add white border/background box
 		Gui, QRDisplay:Add, Text, x%boxX% y%boxY% w%boxW% h%boxH% Background1A1A1A Border
 		
-		; Calculate total content height to center vertically
-		iconH := Round(110 * dpiScale * sizeScale)
-		iconPad := Round(25 * dpiScale * sizeScale)
-		titleH := Round(100 * dpiScale * sizeScale)
-		detailH := Round(85 * dpiScale * sizeScale)
-		labelH := Round(55 * dpiScale * sizeScale)
-		valueH := Round(95 * dpiScale * sizeScale)
-		spacing := Round(50 * dpiScale * sizeScale)
-		titleExtra := Round(60 * dpiScale * sizeScale)
+		; Calculate total content height to center vertically (using bank scale for spacing)
+		iconH := Round(110 * dpiScale * sizeScale * bankScale)
+		iconPad := Round(25 * dpiScale * sizeScale * bankScale)
+		titleH := Round(100 * dpiScale * sizeScale * bankScale)
+		detailH := Round(85 * dpiScale * sizeScale * bankScale)
+		labelH := Round(55 * dpiScale * sizeScale * bankScale)
+		valueH := Round(95 * dpiScale * sizeScale * bankScale)
+		spacing := Round(50 * dpiScale * sizeScale * bankScale)
+		titleExtra := Round(60 * dpiScale * sizeScale * bankScale)
 		
 		totalH := iconH + iconPad + titleH + titleExtra
 		if (bankInst != "")
@@ -3665,19 +3668,19 @@ ShowFullscreenSlide(index) {
 		lineY := boxY + Round((boxH - totalH) / 2)
 		
 		; Icon on its own line (not bold)
-		iconFontSize := Round(90 * dpiScale * sizeScale)
+		iconFontSize := Round(90 * dpiScale * sizeScale * bankScale)
 		Gui, QRDisplay:Font, s%iconFontSize% cFFFFFF, Segoe UI
 		Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, 🏦
 		lineY += iconH + iconPad
 		
 		; Title text (bold, gray)
-		titleFontSize := Round(80 * dpiScale * sizeScale)
+		titleFontSize := Round(80 * dpiScale * sizeScale * bankScale)
 		Gui, QRDisplay:Font, s%titleFontSize% cCCCCCC Bold, Segoe UI
 		Gui, QRDisplay:Add, Text, x%boxX% y%lineY% w%boxW% Center BackgroundTrans, Bank Transfer
 		lineY += titleH + titleExtra
 		
 		; Bank details (white)
-		detailFontSize := Round(56 * dpiScale * sizeScale)
+		detailFontSize := Round(56 * dpiScale * sizeScale * bankScale)
 		Gui, QRDisplay:Font, s%detailFontSize% cFFFFFF, Segoe UI
 		
 		if (bankInst != "") {
@@ -3690,8 +3693,8 @@ ShowFullscreenSlide(index) {
 		}
 		
 		; Sort code and account number with labels
-		labelFontSize := Round(40 * dpiScale * sizeScale)
-		valueFontSize := Round(72 * dpiScale * sizeScale)
+		labelFontSize := Round(40 * dpiScale * sizeScale * bankScale)
+		valueFontSize := Round(72 * dpiScale * sizeScale * bankScale)
 		
 		if (sortCode != "") {
 			Gui, QRDisplay:Font, s%labelFontSize% c888888, Segoe UI
@@ -11416,10 +11419,18 @@ CreateDisplayPanel()
 	Gui, Settings:Add, Edit, x290 y318 w365 h22 cBlack vDisplayBankNameEdit, %Settings_BankName%
 	
 	Gui, Settings:Add, Text, x210 y348 w75 h22 BackgroundTrans vDisplayBankSortLabel, Sort Code:
-	Gui, Settings:Add, Edit, x290 y346 w120 h22 cBlack vDisplayBankSortEdit, %Settings_BankSortCode%
+	; Format sort code with dashes for display
+	displaySortCode := Settings_BankSortCode
+	if (StrLen(RegExReplace(displaySortCode, "[^0-9]")) = 6 && !InStr(displaySortCode, "-"))
+		displaySortCode := SubStr(displaySortCode, 1, 2) . "-" . SubStr(displaySortCode, 3, 2) . "-" . SubStr(displaySortCode, 5, 2)
+	Gui, Settings:Add, Edit, x290 y346 w120 h22 cBlack vDisplayBankSortEdit, %displaySortCode%
+	; Scale slider next to sort code
+	Gui, Settings:Add, Text, x425 y348 w35 h22 BackgroundTrans vDisplayBankScaleLabel, Scale:
+	Gui, Settings:Add, Slider, x465 y344 w130 h24 Range50-150 TickInterval25 vDisplayBankScaleSlider AltSubmit gDisplayBankScaleChanged, %Settings_BankScale%
+	Gui, Settings:Add, Text, x600 y348 w50 h22 BackgroundTrans vDisplayBankScaleValue, %Settings_BankScale%`%
 	
 	Gui, Settings:Add, Text, x210 y376 w75 h22 BackgroundTrans vDisplayBankAccLabel, Acc No:
-	Gui, Settings:Add, Edit, x290 y374 w150 h22 cBlack vDisplayBankAccEdit, %Settings_BankAccNo%
+	Gui, Settings:Add, Edit, x290 y374 w120 h22 cBlack vDisplayBankAccEdit, %Settings_BankAccNo%
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; CUSTOM IMAGES GROUP BOX
@@ -11936,6 +11947,9 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, DisplayBankNameEdit
 	GuiControl, Settings:Hide, DisplayBankSortLabel
 	GuiControl, Settings:Hide, DisplayBankSortEdit
+	GuiControl, Settings:Hide, DisplayBankScaleLabel
+	GuiControl, Settings:Hide, DisplayBankScaleSlider
+	GuiControl, Settings:Hide, DisplayBankScaleValue
 	GuiControl, Settings:Hide, DisplayBankAccLabel
 	GuiControl, Settings:Hide, DisplayBankAccEdit
 	GuiControl, Settings:Hide, DisplayImagesGroup
@@ -12382,6 +12396,9 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, DisplayBankNameEdit
 		GuiControl, Settings:Show, DisplayBankSortLabel
 		GuiControl, Settings:Show, DisplayBankSortEdit
+		GuiControl, Settings:Show, DisplayBankScaleLabel
+		GuiControl, Settings:Show, DisplayBankScaleSlider
+		GuiControl, Settings:Show, DisplayBankScaleValue
 		GuiControl, Settings:Show, DisplayBankAccLabel
 		GuiControl, Settings:Show, DisplayBankAccEdit
 		GuiControl, Settings:Show, DisplayImagesGroup
@@ -13718,10 +13735,12 @@ Settings_QRCode_Text2 := DisplayQREdit2
 Settings_QRCode_Text3 := DisplayQREdit3
 Settings_QRCode_Display := DisplayQRDisplay
 Settings_DisplaySize := DisplaySizeSlider
+Settings_BankScale := DisplayBankScaleSlider
 ; Bank transfer fields from Display tab
 Settings_BankInstitution := DisplayBankInstEdit
 Settings_BankName := DisplayBankNameEdit
-Settings_BankSortCode := DisplayBankSortEdit
+; Strip any non-digits from sort code (user may enter 123456, 12-34-56, or 12 34 56)
+Settings_BankSortCode := RegExReplace(DisplayBankSortEdit, "[^0-9]")
 Settings_BankAccNo := DisplayBankAccEdit
 ; Quick Print printer from Print tab dropdown
 if (PrintPrinterCombo != "" && PrintPrinterCombo != "System Default")
@@ -13816,10 +13835,12 @@ Settings_QRCode_Text2 := DisplayQREdit2
 Settings_QRCode_Text3 := DisplayQREdit3
 Settings_QRCode_Display := DisplayQRDisplay
 Settings_DisplaySize := DisplaySizeSlider
+Settings_BankScale := DisplayBankScaleSlider
 ; Bank transfer fields from Display tab
 Settings_BankInstitution := DisplayBankInstEdit
 Settings_BankName := DisplayBankNameEdit
-Settings_BankSortCode := DisplayBankSortEdit
+; Strip any non-digits from sort code (user may enter 123456, 12-34-56, or 12 34 56)
+Settings_BankSortCode := RegExReplace(DisplayBankSortEdit, "[^0-9]")
 Settings_BankAccNo := DisplayBankAccEdit
 ; Quick Print printer from Print tab dropdown
 if (PrintPrinterCombo != "" && PrintPrinterCombo != "System Default")
@@ -14294,6 +14315,12 @@ DisplaySizeChanged:
 	Gui, Settings:Submit, NoHide
 	GuiControl, Settings:, DisplaySizeValue, %DisplaySizeSlider%`%
 	Settings_DisplaySize := DisplaySizeSlider
+Return
+
+DisplayBankScaleChanged:
+	Gui, Settings:Submit, NoHide
+	GuiControl, Settings:, DisplayBankScaleValue, %DisplayBankScaleSlider%`%
+	Settings_BankScale := DisplayBankScaleSlider
 Return
 
 DisplayIdentifyBtn:
@@ -17319,6 +17346,7 @@ LoadSettings()
 	IniRead, Settings_QRCode_Text3, %IniFilename%, QRCode, Text3, %A_Space%
 	IniRead, Settings_QRCode_Display, %IniFilename%, QRCode, Display, 1
 	IniRead, Settings_DisplaySize, %IniFilename%, Display, Size, 80
+	IniRead, Settings_BankScale, %IniFilename%, Display, BankScale, 100
 	IniRead, Settings_BankInstitution, %IniFilename%, Display, BankInstitution, %A_Space%
 	IniRead, Settings_BankName, %IniFilename%, Display, BankName, %A_Space%
 	IniRead, Settings_BankSortCode, %IniFilename%, Display, BankSortCode, %A_Space%
@@ -17485,6 +17513,7 @@ SaveSettings()
 	GenerateQRCache()
 	; Display settings
 	IniWrite, %Settings_DisplaySize%, %IniFilename%, Display, Size
+	IniWrite, %Settings_BankScale%, %IniFilename%, Display, BankScale
 	IniWrite, %Settings_BankInstitution%, %IniFilename%, Display, BankInstitution
 	IniWrite, %Settings_BankName%, %IniFilename%, Display, BankName
 	IniWrite, %Settings_BankSortCode%, %IniFilename%, Display, BankSortCode
