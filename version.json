@@ -1,9 +1,12 @@
 {
-  "version": "2.5.33",
-  "build_date": "2026-02-22",
+  "version": "2.5.34",
+  "build_date": "2026-02-23",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Bank transfer display with slide cycling system",
+  "release_notes": "Graphical toolbar button settings with clickable icons",
   "changelog": [
+    "NEW: Graphical Toolbar Button Settings - clickable icons instead of toggle sliders",
+    "NEW: Visual Toggle Feedback - icons and labels change color when disabled",
+    "IMPROVED: Direct toggle updates - button visibility changes immediately on click",
     "NEW: Bank Transfer Display - show bank details on fullscreen display for client payments",
     "NEW: Slide Cycling - display cycles through QR codes, bank details, and images (↑↓ keys)",
     "NEW: Scalable Bank Display - bank text scales with Size slider same as QR codes",

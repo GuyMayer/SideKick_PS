@@ -1685,9 +1685,9 @@ CreateFloatingToolbar()
 	; Add grab handle on the left (vertical dots for drag indicator)
 	; Ctrl+Click to drag and reposition toolbar
 	grabX := 0
-	grabY := 0  ; Top edge
-	grabH := btnH  ; Match button height
-	Gui, Toolbar:Font, s20 w700, Segoe UI
+	grabY := Round(4 * DPI_Scale)  ; Slightly lower to align with icons
+	grabH := btnH - grabY  ; Match button height minus offset
+	Gui, Toolbar:Font, s18 w700, Segoe UI
 	Gui, Toolbar:Add, Text, x%grabX% y%grabY% w%grabHandleWidth% h%grabH% Center 0x200 Background%initialBgColor% c%iconColor% gToolbar_GrabHandle vTB_GrabHandle +HwndTB_GrabHandle_Hwnd, ⣿
 	ToolbarTooltips[TB_GrabHandle_Hwnd] := "Drag to move toolbar"
 	
@@ -4911,9 +4911,9 @@ Gui, Settings:Add, Text, x15 y225 w160 h25 BackgroundTrans gSettingsTabLicense v
 Gui, Settings:Add, Progress, x0 y260 w4 h35 Background0078D4 vTabAboutBg Hidden
 Gui, Settings:Add, Text, x15 y265 w160 h25 BackgroundTrans gSettingsTabAbout vTabAbout, ℹ  About
 
-; Shortcuts tab
+; Toolbar tab
 Gui, Settings:Add, Progress, x0 y300 w4 h35 Background0078D4 vTabShortcutsBg Hidden
-Gui, Settings:Add, Text, x15 y305 w160 h25 BackgroundTrans gSettingsTabShortcuts vTabShortcuts, 🎛  Shortcuts
+Gui, Settings:Add, Text, x15 y305 w160 h25 BackgroundTrans gSettingsTabShortcuts vTabShortcuts, 🎛  Toolbar
 
 ; Print tab
 Gui, Settings:Add, Progress, x0 y340 w4 h35 Background0078D4 vTabPrintBg Hidden
@@ -5278,50 +5278,7 @@ Gui, Toolbar:Destroy
 CreateFloatingToolbar()
 Return
 
-ToggleClick_ShowBtn_Client:
-Toggle_ShowBtn_Client_State := !Toggle_ShowBtn_Client_State
-UpdateToggleSlider("Settings", "ShowBtn_Client", Toggle_ShowBtn_Client_State, 590)
-Return
-
-ToggleClick_ShowBtn_Invoice:
-Toggle_ShowBtn_Invoice_State := !Toggle_ShowBtn_Invoice_State
-UpdateToggleSlider("Settings", "ShowBtn_Invoice", Toggle_ShowBtn_Invoice_State, 590)
-Return
-
-ToggleClick_ShowBtn_OpenGHL:
-Toggle_ShowBtn_OpenGHL_State := !Toggle_ShowBtn_OpenGHL_State
-UpdateToggleSlider("Settings", "ShowBtn_OpenGHL", Toggle_ShowBtn_OpenGHL_State, 590)
-Return
-
-ToggleClick_ShowBtn_Camera:
-Toggle_ShowBtn_Camera_State := !Toggle_ShowBtn_Camera_State
-UpdateToggleSlider("Settings", "ShowBtn_Camera", Toggle_ShowBtn_Camera_State, 590)
-Return
-
-ToggleClick_ShowBtn_Sort:
-Toggle_ShowBtn_Sort_State := !Toggle_ShowBtn_Sort_State
-UpdateToggleSlider("Settings", "ShowBtn_Sort", Toggle_ShowBtn_Sort_State, 590)
-Return
-
-ToggleClick_ShowBtn_Photoshop:
-Toggle_ShowBtn_Photoshop_State := !Toggle_ShowBtn_Photoshop_State
-UpdateToggleSlider("Settings", "ShowBtn_Photoshop", Toggle_ShowBtn_Photoshop_State, 590)
-Return
-
-ToggleClick_ShowBtn_Refresh:
-Toggle_ShowBtn_Refresh_State := !Toggle_ShowBtn_Refresh_State
-UpdateToggleSlider("Settings", "ShowBtn_Refresh", Toggle_ShowBtn_Refresh_State, 590)
-Return
-
-ToggleClick_ShowBtn_Print:
-Toggle_ShowBtn_Print_State := !Toggle_ShowBtn_Print_State
-UpdateToggleSlider("Settings", "ShowBtn_Print", Toggle_ShowBtn_Print_State, 590)
-Return
-
-ToggleClick_ShowBtn_QRCode:
-Toggle_ShowBtn_QRCode_State := !Toggle_ShowBtn_QRCode_State
-UpdateToggleSlider("Settings", "ShowBtn_QRCode", Toggle_ShowBtn_QRCode_State, 590)
-Return
+; Old toggle slider handlers removed - toolbar buttons now use ToggleTB_* handlers with graphical icons
 
 ToggleClick_EnablePDF:
 Toggle_EnablePDF_State := !Toggle_EnablePDF_State
@@ -8053,81 +8010,97 @@ CreateShortcutsPanel()
 	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vSCHeader, 🎛 Toolbar Shortcuts
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; TOOLBAR BUTTONS GROUP BOX
+	; TOOLBAR BUTTONS GROUP BOX - Click icons to toggle on/off
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y55 w480 h415 vSCButtonsGroup, Toolbar Buttons
 	
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y78 w350 BackgroundTrans vSCDescription, Enable or disable individual toolbar buttons.
+	Gui, Settings:Add, Text, x210 y78 w450 BackgroundTrans vSCDescription, Click buttons to toggle on/off. Grayed buttons are disabled.
 	
 	; Row spacing: 35px per row, starting at y105
-	; Each row: Icon preview + Label + Toggle
+	; Each row: Clickable Icon + Clickable Label (both toggle)
 	
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	
-	; Client button (👤)
+	; Client button (👤) - Blue background
+	iconBgClient := Settings_ShowBtn_Client ? "0000FF" : "444444"
+	iconFgClient := Settings_ShowBtn_Client ? "FFFFFF" : "888888"
+	lblColorClient := Settings_ShowBtn_Client ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y105 w30 h28 Center Background0000FF cWhite vSCIcon_Client, 👤
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y109 w280 BackgroundTrans vSCLabel_Client, Client Lookup  —  GHL contact search
-	CreateToggleSlider("Settings", "ShowBtn_Client", 630, 107, Settings_ShowBtn_Client)
+	Gui, Settings:Add, Text, x215 y105 w30 h28 Center Background%iconBgClient% c%iconFgClient% vSCIcon_Client gToggleTB_Client, 👤
+	Gui, Settings:Font, s10 Norm c%lblColorClient%, Segoe UI
+	Gui, Settings:Add, Text, x255 y109 w380 BackgroundTrans vSCLabel_Client gToggleTB_Client, Client Lookup  —  GHL contact search
 	
-	; Invoice button (📋)
+	; Invoice button (📋) - Green background
+	iconBgInvoice := Settings_ShowBtn_Invoice ? "008000" : "444444"
+	iconFgInvoice := Settings_ShowBtn_Invoice ? "FFFFFF" : "888888"
+	lblColorInvoice := Settings_ShowBtn_Invoice ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y140 w30 h28 Center Background008000 cWhite vSCIcon_Invoice, 📋
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y144 w280 BackgroundTrans vSCLabel_Invoice, Invoice  —  Sync / Ctrl+Click to delete
-	CreateToggleSlider("Settings", "ShowBtn_Invoice", 630, 142, Settings_ShowBtn_Invoice)
+	Gui, Settings:Add, Text, x215 y140 w30 h28 Center Background%iconBgInvoice% c%iconFgInvoice% vSCIcon_Invoice gToggleTB_Invoice, 📋
+	Gui, Settings:Font, s10 Norm c%lblColorInvoice%, Segoe UI
+	Gui, Settings:Add, Text, x255 y144 w380 BackgroundTrans vSCLabel_Invoice gToggleTB_Invoice, Invoice  —  Sync / Ctrl+Click to delete
 	
-	; Open GHL button (🌐)
+	; Open GHL button (🌐) - Teal background
+	iconBgOpenGHL := Settings_ShowBtn_OpenGHL ? "008080" : "444444"
+	iconFgOpenGHL := Settings_ShowBtn_OpenGHL ? "FFFFFF" : "888888"
+	lblColorOpenGHL := Settings_ShowBtn_OpenGHL ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y175 w30 h28 Center Background008080 cWhite vSCIcon_OpenGHL, 🌐
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y179 w280 BackgroundTrans vSCLabel_OpenGHL, Open GHL  —  Open client in browser
-	CreateToggleSlider("Settings", "ShowBtn_OpenGHL", 630, 177, Settings_ShowBtn_OpenGHL)
+	Gui, Settings:Add, Text, x215 y175 w30 h28 Center Background%iconBgOpenGHL% c%iconFgOpenGHL% vSCIcon_OpenGHL gToggleTB_OpenGHL, 🌐
+	Gui, Settings:Font, s10 Norm c%lblColorOpenGHL%, Segoe UI
+	Gui, Settings:Add, Text, x255 y179 w380 BackgroundTrans vSCLabel_OpenGHL gToggleTB_OpenGHL, Open GHL  —  Open client in browser
 	
-	; Camera button (📷)
+	; Camera button (📷) - Maroon background
+	iconBgCamera := Settings_ShowBtn_Camera ? "800000" : "444444"
+	iconFgCamera := Settings_ShowBtn_Camera ? "FFFFFF" : "888888"
+	lblColorCamera := Settings_ShowBtn_Camera ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y210 w30 h28 Center Background800000 cWhite vSCIcon_Camera, 📷
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y214 w280 BackgroundTrans vSCLabel_Camera, Camera  —  Room capture
-	CreateToggleSlider("Settings", "ShowBtn_Camera", 630, 212, Settings_ShowBtn_Camera)
+	Gui, Settings:Add, Text, x215 y210 w30 h28 Center Background%iconBgCamera% c%iconFgCamera% vSCIcon_Camera gToggleTB_Camera, 📷
+	Gui, Settings:Font, s10 Norm c%lblColorCamera%, Segoe UI
+	Gui, Settings:Add, Text, x255 y214 w380 BackgroundTrans vSCLabel_Camera gToggleTB_Camera, Camera  —  Room capture
 	
-	; Sort button (🔀)
+	; Sort button (🔀) - Gray background
+	iconBgSort := Settings_ShowBtn_Sort ? "808080" : "444444"
+	iconFgSort := Settings_ShowBtn_Sort ? "FFFFFF" : "888888"
+	lblColorSort := Settings_ShowBtn_Sort ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y245 w30 h28 Center Background808080 cWhite vSCIcon_Sort, 🔀
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y249 w280 BackgroundTrans vSCLabel_Sort, Sort Order  —  Random / filename toggle
-	CreateToggleSlider("Settings", "ShowBtn_Sort", 630, 247, Settings_ShowBtn_Sort)
+	Gui, Settings:Add, Text, x215 y245 w30 h28 Center Background%iconBgSort% c%iconFgSort% vSCIcon_Sort gToggleTB_Sort, 🔀
+	Gui, Settings:Font, s10 Norm c%lblColorSort%, Segoe UI
+	Gui, Settings:Add, Text, x255 y249 w380 BackgroundTrans vSCLabel_Sort gToggleTB_Sort, Sort Order  —  Random / filename toggle
 	
-	; Photoshop button (Ps)
+	; Photoshop button (Ps) - Dark blue with lighter blue text
+	iconBgPhotoshop := Settings_ShowBtn_Photoshop ? "001E36" : "444444"
+	iconFgPhotoshop := Settings_ShowBtn_Photoshop ? "33A1FD" : "888888"
+	lblColorPhotoshop := Settings_ShowBtn_Photoshop ? labelColor : "666666"
 	Gui, Settings:Font, s10 Bold, Segoe UI
-	Gui, Settings:Add, Text, x215 y280 w30 h28 Center Background001E36 c33A1FD vSCIcon_Photoshop, Ps
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y284 w280 BackgroundTrans vSCLabel_Photoshop, Photoshop  —  Send to Photoshop (Ctrl+T)
-	CreateToggleSlider("Settings", "ShowBtn_Photoshop", 630, 282, Settings_ShowBtn_Photoshop)
+	Gui, Settings:Add, Text, x215 y280 w30 h28 Center Background%iconBgPhotoshop% c%iconFgPhotoshop% vSCIcon_Photoshop gToggleTB_Photoshop, Ps
+	Gui, Settings:Font, s10 Norm c%lblColorPhotoshop%, Segoe UI
+	Gui, Settings:Add, Text, x255 y284 w380 BackgroundTrans vSCLabel_Photoshop gToggleTB_Photoshop, Photoshop  —  Send to Photoshop (Ctrl+T)
 	
-	; Refresh button (🔄)
+	; Refresh button (🔄) - Navy background
+	iconBgRefresh := Settings_ShowBtn_Refresh ? "000080" : "444444"
+	iconFgRefresh := Settings_ShowBtn_Refresh ? "FFFFFF" : "888888"
+	lblColorRefresh := Settings_ShowBtn_Refresh ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y315 w30 h28 Center Background000080 cWhite vSCIcon_Refresh, 🔄
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y319 w280 BackgroundTrans vSCLabel_Refresh, Refresh  —  Update album (Ctrl+U)
-	CreateToggleSlider("Settings", "ShowBtn_Refresh", 630, 317, Settings_ShowBtn_Refresh)
+	Gui, Settings:Add, Text, x215 y315 w30 h28 Center Background%iconBgRefresh% c%iconFgRefresh% vSCIcon_Refresh gToggleTB_Refresh, 🔄
+	Gui, Settings:Font, s10 Norm c%lblColorRefresh%, Segoe UI
+	Gui, Settings:Add, Text, x255 y319 w380 BackgroundTrans vSCLabel_Refresh gToggleTB_Refresh, Refresh  —  Update album (Ctrl+U)
 	
-	; Print button (🖨)
+	; Print button (🖨) - Dark gray background
+	iconBgPrint := Settings_ShowBtn_Print ? "444444" : "333333"
+	iconFgPrint := Settings_ShowBtn_Print ? "FFFFFF" : "888888"
+	lblColorPrint := Settings_ShowBtn_Print ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y350 w30 h28 Center Background444444 cWhite vSCIcon_Print, 🖨
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y354 w280 BackgroundTrans vSCLabel_Print, Quick Print  —  Auto-print with template
-	CreateToggleSlider("Settings", "ShowBtn_Print", 630, 352, Settings_ShowBtn_Print)
+	Gui, Settings:Add, Text, x215 y350 w30 h28 Center Background%iconBgPrint% c%iconFgPrint% vSCIcon_Print gToggleTB_Print, 🖨
+	Gui, Settings:Font, s10 Norm c%lblColorPrint%, Segoe UI
+	Gui, Settings:Add, Text, x255 y354 w380 BackgroundTrans vSCLabel_Print gToggleTB_Print, Quick Print  —  Auto-print with template
 	
-	; QR Code button (▣)
+	; QR Code button (▣) - Teal background
+	iconBgQRCode := Settings_ShowBtn_QRCode ? "006666" : "444444"
+	iconFgQRCode := Settings_ShowBtn_QRCode ? "FFFFFF" : "888888"
+	lblColorQRCode := Settings_ShowBtn_QRCode ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y385 w30 h28 Center Background006666 cWhite vSCIcon_QRCode, ▣
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y389 w280 BackgroundTrans vSCLabel_QRCode, QR Code  —  Display QR code from text
-	CreateToggleSlider("Settings", "ShowBtn_QRCode", 630, 387, Settings_ShowBtn_QRCode)
+	Gui, Settings:Add, Text, x215 y385 w30 h28 Center Background%iconBgQRCode% c%iconFgQRCode% vSCIcon_QRCode gToggleTB_QRCode, ▣
+	Gui, Settings:Font, s10 Norm c%lblColorQRCode%, Segoe UI
+	Gui, Settings:Add, Text, x255 y389 w380 BackgroundTrans vSCLabel_QRCode gToggleTB_QRCode, QR Code  —  Display QR code from text
 	
 	; SD Download button (📥) — note: managed separately in File Management
 	Gui, Settings:Font, s14, Segoe UI
@@ -13522,6 +13495,196 @@ if (result = "Yes")
 }
 Return
 
+; ═══════════════════════════════════════════════════════════════════════════
+; TOOLBAR BUTTON TOGGLE HANDLERS - Click to toggle enabled/disabled
+; ═══════════════════════════════════════════════════════════════════════════
+
+ToggleTB_Client:
+Settings_ShowBtn_Client := !Settings_ShowBtn_Client
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_Invoice:
+Settings_ShowBtn_Invoice := !Settings_ShowBtn_Invoice
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_OpenGHL:
+Settings_ShowBtn_OpenGHL := !Settings_ShowBtn_OpenGHL
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_Camera:
+Settings_ShowBtn_Camera := !Settings_ShowBtn_Camera
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_Sort:
+Settings_ShowBtn_Sort := !Settings_ShowBtn_Sort
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_Photoshop:
+Settings_ShowBtn_Photoshop := !Settings_ShowBtn_Photoshop
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_Refresh:
+Settings_ShowBtn_Refresh := !Settings_ShowBtn_Refresh
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_Print:
+Settings_ShowBtn_Print := !Settings_ShowBtn_Print
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_QRCode:
+Settings_ShowBtn_QRCode := !Settings_ShowBtn_QRCode
+GoSub, UpdateTBButtonStates
+Return
+
+UpdateTBButtonStates:
+; Update visual appearance of toolbar button icons and labels based on enabled state
+; Theme colors
+if (Settings_DarkMode) {
+	labelColor := "CCCCCC"
+	disabledLabelColor := "666666"
+	disabledIconColor := "888888"
+} else {
+	labelColor := "444444"
+	disabledLabelColor := "999999"
+	disabledIconColor := "666666"
+}
+
+; Client button
+if (Settings_ShowBtn_Client) {
+	GuiControl, Settings:+Background0000FF, SCIcon_Client
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_Client
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_Client
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_Client)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_Client
+
+; Invoice button
+if (Settings_ShowBtn_Invoice) {
+	GuiControl, Settings:+Background008000, SCIcon_Invoice
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_Invoice
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_Invoice
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_Invoice)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_Invoice
+
+; OpenGHL button
+if (Settings_ShowBtn_OpenGHL) {
+	GuiControl, Settings:+Background008080, SCIcon_OpenGHL
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_OpenGHL
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_OpenGHL
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_OpenGHL)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_OpenGHL
+
+; Camera button
+if (Settings_ShowBtn_Camera) {
+	GuiControl, Settings:+Background800000, SCIcon_Camera
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_Camera
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_Camera
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_Camera)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_Camera
+
+; Sort button
+if (Settings_ShowBtn_Sort) {
+	GuiControl, Settings:+Background808080, SCIcon_Sort
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI Emoji
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_Sort
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI Emoji
+}
+GuiControl, Settings:Font, SCIcon_Sort
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_Sort)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_Sort
+
+; Photoshop button
+if (Settings_ShowBtn_Photoshop) {
+	GuiControl, Settings:+Background001E36, SCIcon_Photoshop
+	Gui, Settings:Font, s10 Bold c33A1FD, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_Photoshop
+	Gui, Settings:Font, s10 Bold c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_Photoshop
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_Photoshop)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_Photoshop
+
+; Refresh button
+if (Settings_ShowBtn_Refresh) {
+	GuiControl, Settings:+Background000080, SCIcon_Refresh
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_Refresh
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_Refresh
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_Refresh)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_Refresh
+
+; Print button
+if (Settings_ShowBtn_Print) {
+	GuiControl, Settings:+Background444444, SCIcon_Print
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background333333, SCIcon_Print
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_Print
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_Print)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_Print
+
+; QRCode button
+if (Settings_ShowBtn_QRCode) {
+	GuiControl, Settings:+Background006666, SCIcon_QRCode
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_QRCode
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_QRCode
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_QRCode)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_QRCode
+
+Return
+
 ; Button handlers
 SettingsApply:
 Gui, Settings:Submit, NoHide
@@ -13548,16 +13711,7 @@ Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 Settings_SDCardEnabled := Toggle_SDCardEnabled_State
-; Toolbar button visibility toggles
-Settings_ShowBtn_Client := Toggle_ShowBtn_Client_State
-Settings_ShowBtn_Invoice := Toggle_ShowBtn_Invoice_State
-Settings_ShowBtn_OpenGHL := Toggle_ShowBtn_OpenGHL_State
-Settings_ShowBtn_Camera := Toggle_ShowBtn_Camera_State
-Settings_ShowBtn_Sort := Toggle_ShowBtn_Sort_State
-Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
-Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
-Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
-Settings_ShowBtn_QRCode := Toggle_ShowBtn_QRCode_State
+; Toolbar button visibility - already updated directly by ToggleTB_* handlers
 ; QR Code text fields from Display tab
 Settings_QRCode_Text1 := DisplayQREdit1
 Settings_QRCode_Text2 := DisplayQREdit2
@@ -13655,16 +13809,7 @@ Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 Settings_SDCardEnabled := Toggle_SDCardEnabled_State
-; Toolbar button visibility toggles
-Settings_ShowBtn_Client := Toggle_ShowBtn_Client_State
-Settings_ShowBtn_Invoice := Toggle_ShowBtn_Invoice_State
-Settings_ShowBtn_OpenGHL := Toggle_ShowBtn_OpenGHL_State
-Settings_ShowBtn_Camera := Toggle_ShowBtn_Camera_State
-Settings_ShowBtn_Sort := Toggle_ShowBtn_Sort_State
-Settings_ShowBtn_Photoshop := Toggle_ShowBtn_Photoshop_State
-Settings_ShowBtn_Refresh := Toggle_ShowBtn_Refresh_State
-Settings_ShowBtn_Print := Toggle_ShowBtn_Print_State
-Settings_ShowBtn_QRCode := Toggle_ShowBtn_QRCode_State
+; Toolbar button visibility - already updated directly by ToggleTB_* handlers
 ; QR Code text fields from Display tab
 Settings_QRCode_Text1 := DisplayQREdit1
 Settings_QRCode_Text2 := DisplayQREdit2

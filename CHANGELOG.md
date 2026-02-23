@@ -12,6 +12,19 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.34 (2026-02-23)
+
+### New Features
+- **Graphical Toolbar Button Settings**: Toolbar Shortcuts panel now shows clickable icons instead of toggle sliders
+- **Visual Toggle Feedback**: Icons change background color and labels gray out when disabled
+- **Direct Toggle Updates**: Button visibility updates immediately on click (no need to wait for Apply)
+
+### Improvements
+- **Cleaner Settings UI**: Removed toggle slider controls in favor of more intuitive icon-based toggles
+- **Consistent Styling**: Toolbar button icons in settings match actual toolbar appearance
+
+---
+
 ## v2.5.33 (2026-02-22)
 
 ### New Features
