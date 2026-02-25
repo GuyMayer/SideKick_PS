@@ -308,7 +308,7 @@ if (Test-Path $logoLight) {
 }
 
 # Copy toolbar icon source files and generation scripts (for dynamic icon colors)
-$iconFiles = @("Icon_GC_32_White.png", "Icon_PS_32_White.png", "GenerateGCIcon.ps1", "GeneratePSIcon.ps1")
+$iconFiles = @("Icon_GC_32_White.png", "Icon_PS_32_White.png", "Icon_Cardly_32_White.png", "GenerateGCIcon.ps1", "GeneratePSIcon.ps1", "GenerateCardlyIcon.ps1")
 foreach ($iconFile in $iconFiles) {
     $srcPath = "$SourceDir\$iconFile"
     if (Test-Path $srcPath) {
