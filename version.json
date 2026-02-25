@@ -1,9 +1,14 @@
 {
-  "version": "2.5.34",
-  "build_date": "2026-02-23",
+  "version": "2.5.35",
+  "build_date": "2026-02-25",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Graphical toolbar button settings with clickable icons",
+  "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
   "changelog": [
+    "FIX: GHL Photo Link URL - normalise upload URL to public CDN domain (assets.cdn.filesafe.space)",
+    "FIX: GoCardless API token rejected - Base64_Encode now uses NOCRLF flag to prevent broken JSON credentials",
+    "FIX: GoCardless token input now trimmed of whitespace on entry",
+    "DOCS: Cardly Test Mode - documented what test mode validates vs skips, cost implications, and orphaned artwork",
+    "DOCS: User Manual - new Greeting Cards (Cardly) section with workflow, test mode table, image sources, requirements",
     "NEW: Graphical Toolbar Button Settings - clickable icons instead of toggle sliders",
     "NEW: Visual Toggle Feedback - icons and labels change color when disabled",
     "IMPROVED: Direct toggle updates - button visibility changes immediately on click",

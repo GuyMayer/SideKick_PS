@@ -20,12 +20,13 @@
 12. [Open GHL Contact](#open-ghl-contact)
 13. [Quick Print](#quick-print)
 14. [SD Card Download](#sd-card-download)
-15. [Settings](#settings)
-16. [Keyboard Shortcuts](#keyboard-shortcuts)
-17. [System Tray](#system-tray)
-18. [Licensing & Activation](#licensing--activation)
-19. [Troubleshooting](#troubleshooting)
-20. [Support](#support)
+15. [Greeting Cards (Cardly)](#greeting-cards-cardly)
+16. [Settings](#settings)
+17. [Keyboard Shortcuts](#keyboard-shortcuts)
+18. [System Tray](#system-tray)
+19. [Licensing & Activation](#licensing--activation)
+20. [Troubleshooting](#troubleshooting)
+21. [Support](#support)
 
 ---
 
@@ -653,6 +654,65 @@ If a shoot spans multiple memory cards:
 ### Auto-Detect
 
 When **Auto-Detect SD Cards** is enabled, SideKick PS monitors for new drive insertions and prompts you to download automatically.
+
+---
+
+## Greeting Cards (Cardly)
+
+**Toolbar button:** ✉ Cardly (orange) *(must be enabled in Settings → Cardly)*
+
+Send personalised physical greeting cards to clients using photos from their ProSelect album, powered by the [Cardly](https://cardly.net) printing and mailing service.
+
+### How it Works
+
+1. Open a ProSelect album and import the GHL contact (Get Client)
+2. Click the **Cardly** toolbar button
+3. The **Card Preview** window opens showing images from the client's order
+4. Select a photo, adjust the crop and zoom, and optionally add a sticker overlay
+5. Edit the personalised message (pre-filled from the GHL contact's Message field)
+6. Click **Send** — the image is processed, uploaded to Cardly, and a physical postcard is printed and mailed to the client's address
+
+A copy of the postcard photo is also saved locally and uploaded to the client's GHL media folder.
+
+### Test Mode
+
+Test mode lets you verify your Cardly API setup **without sending a card or incurring any cost**.
+
+To enable it, go to **Settings → Cardly** and tick **Test mode (upload artwork; skip order)**.
+
+#### What Test Mode Does
+
+| Step | Normal Mode | Test Mode |
+|---|---|---|
+| Validate recipient address | ✅ | ✅ |
+| Process & upload artwork to Cardly | ✅ | ✅ |
+| Place the order (print & mail) | ✅ | ❌ Skipped |
+| Save postcard JPG locally | ✅ | ✅ |
+| Upload photo to GHL media | ✅ | ✅ |
+
+**Key points:**
+
+- **No card is sent** — the order step is skipped entirely, so no print or postage cost is incurred
+- **API connection is validated** — the artwork upload confirms your API key, image processing, and template configuration are all working correctly
+- **Uploaded artwork is harmless** — test artwork that isn't attached to an order remains in your Cardly account at no cost and does not need to be manually deleted
+- **Cardly's own test API key** does not support artwork uploads, so this test mode is the only way to fully validate your integration end-to-end without placing a real order
+
+Once you're satisfied everything works, uncheck test mode in Settings to start sending real cards.
+
+### Image Sources
+
+The Card Preview window shows images in this priority order:
+
+1. **Order images** — thumbnails from the PSA album filtered by the most recent XML export
+2. **Album folder** — all image files in the album's parent folder
+3. **Browse** — manually select a folder
+
+### Requirements
+
+- A valid **Cardly API key** (live key, not test key)
+- The client must have a **complete postal address** in ProSelect (Client Setup)
+- A **Cardly template/media** must be configured in Settings → Cardly
+- GHL integration is required for message pre-fill and media upload (optional)
 
 ---
 

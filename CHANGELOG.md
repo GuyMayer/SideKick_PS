@@ -12,6 +12,18 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.35 (2026-02-25)
+
+### Bug Fixes
+- **GHL Photo Link URL Mismatch**: Fixed contact Photo Link custom field storing the internal Google Storage URL instead of the public CDN URL (`assets.cdn.filesafe.space`). Upload response URL is now normalised to the correct public domain.
+- **GoCardless API Token Rejected on Re-entry**: Fixed `Base64_Encode()` using `CRYPT_STRING_BASE64` flag which embeds `\r\n` every 76 characters — this broke the JSON credentials file when encoding long tokens (e.g., GoCardless live tokens). Now uses `CRYPT_STRING_NOCRLF` flag to produce single-line base64. Also added `Trim()` to the Edit Token input to strip accidental whitespace from pasted tokens.
+
+### Documentation
+- **Cardly Test Mode Documentation**: Added comprehensive test mode section to user manual and technical documentation explaining what test mode validates, what it skips, cost implications, and orphaned artwork behaviour
+- **User Manual — Greeting Cards (Cardly)**: New full section covering workflow, test mode comparison table, image sources, and requirements
+
+---
+
 ## v2.5.34 (2026-02-23)
 
 ### New Features

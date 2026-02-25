@@ -60,6 +60,7 @@ This script automates payment plan creation for ProSelect photography software b
 ✅ **Flexible Recurring Periods** - Supports Weekly, Bi-Weekly, 4-Weekly, and Monthly payments  
 ✅ **Version Tracking** - Built-in version info, About dialog, and tray menu  
 ✅ **Admin Privilege Check** - Ensures proper permissions on startup  
+✅ **Cardly Postcard Integration** - Send personalised greeting cards with client photos via Cardly API  
 
 ---
 
@@ -486,6 +487,97 @@ Sets current GUI window parent to specified window by title.
 
 ---
 
+## Cardly Postcard Integration
+
+SideKick_PS integrates with the [Cardly](https://cardly.net) API to send personalised greeting/thank-you postcards to clients using images from their ProSelect albums.
+
+### Workflow
+1. Open a ProSelect album and load the GHL contact (Client Info button).
+2. Click the **Cardly** toolbar button (envelope icon, orange).
+3. The **Card Preview GUI** opens showing ordered images extracted from the PSA album file, filtered by the most recent ProSelect order export XML.
+4. Select an image, adjust crop/zoom, optionally add a sticker and edit the message.
+5. Click **Send** — the image is processed to Cardly artwork specs (PNG, sRGB, ≤1 MB, 2913×2125 px default), uploaded to Cardly, and a physical postcard order is placed.
+6. The card photo is also uploaded to the GHL contact's media and linked via a custom field.
+
+### Image Source Priority
+| Priority | Source | Description |
+|----------|--------|-------------|
+| 1 (default) | **Order Images** | PSA thumbnails filtered by XML `<Image_Name>` entries → hi-res `<Original_Image>` TIF fallback |
+| 2 | **Album Folder** | All JPG/PNG/TIF files in the PSA's parent folder |
+| 3 | **Browse** | Manual folder selection via file dialog |
+
+### Files
+| File | Compiled As | Purpose |
+|------|-------------|---------|
+| `cardly_preview_gui.py` | `_cpg.exe` | tkinter GUI — image browser, crop/zoom, sticker overlay, send |
+| `cardly_send_card.py` | `_csc.exe` | API module — artwork processing, Cardly upload, GHL media upload |
+| `stickers/` | (folder) | PNG sticker overlays (Best Wishes, Thank You, etc.) |
+
+### INI Settings (`[Cardly]` section)
+```ini
+[Cardly]
+DashboardURL=https://your-studio.cardly.net/manage
+MessageField=Message           ; GHL custom field name for card message
+AutoSend=1                     ; Auto-send after preview confirmation
+MediaID=                       ; Cardly template media ID
+MediaName=                     ; Cardly template display name
+DefaultMessage=                ; Fallback message if GHL field is empty
+PostcardFolder=                ; Local folder to save postcard copies
+CardWidth=2913                 ; Artwork width in pixels
+CardHeight=2125                ; Artwork height in pixels
+GHLMediaFolderID=              ; GHL media library folder ID
+GHLMediaFolderName=Client Photos
+PhotoLinkField=Contact Photo Link  ; GHL custom field for photo URL
+```
+
+### Toolbar
+The Cardly button appears when **Show Toolbar Btn** is checked in Settings → Cardly. Button: orange background, envelope icon (U+E158).
+
+### Test Mode
+
+Enabled via Settings → Cardly → **"Test mode (upload artwork; skip order)"** checkbox, or the `--test-mode` CLI flag on `cardly_preview_gui.py`.
+
+#### Behaviour
+
+When `test_mode=True`:
+
+1. **Artwork upload (`POST /art`) — EXECUTES** — the processed image is uploaded to Cardly as normal. This validates the full pipeline: image processing, sRGB conversion, ICC stripping, base64 encoding, API key auth, and media/template ID resolution.
+2. **Order placement (`POST /orders`) — SKIPPED** — `place_cardly_order()` is never called. No card is printed or mailed, and no cost is incurred.
+3. **Post-send steps — EXECUTE** — the postcard JPG is saved locally, uploaded to GHL media, and the contact's photo link field is updated.
+
+#### Why This Design
+
+- Cardly's own test API keys (`test_*` prefix) **do not support artwork creation** — `create_cardly_artwork()` explicitly rejects test keys with: *"Artwork creation requires LIVE API key, not test key"*.
+- Therefore the only way to validate the artwork upload pipeline is to use a **live API key** with the order step disabled.
+- Uploaded artwork that is not attached to an order is **not billed** and does **not** need to be deleted. Cardly does not expose a `DELETE /art` endpoint, and orphaned artwork IDs are inert.
+
+#### Code Path
+
+```
+cardly_preview_gui.py → send_card_thread()
+  ├── create_cardly_artwork()          ← always runs
+  ├── if self.test_mode: skip order    ← conditional
+  │   └── "TEST MODE — skipping order..."
+  └── post-send (save JPG, GHL upload) ← always runs
+```
+
+#### INI / Settings
+
+The checkbox state is stored as `Settings_Cardly_TestMode` in the AHK settings GUI and passed to `cardly_preview_gui.py` via the `--test-mode` argument.
+
+#### Success Message
+
+- **Test mode:** `"TEST MODE — artwork uploaded for {name} (order not placed)"`
+- **Normal mode:** `"Card sent successfully to {name}!"`
+
+### Cardly API
+- **Endpoint:** `https://api.card.ly/v2`
+- **Auth:** API key stored in `%AppData%\SideKick_PS\credentials.json` as `cardly_api_key_b64`
+- **Artwork Requirements:** PNG, sRGB colour profile, ≤ 1 MB, default 2913 × 2125 px
+- **Print Locations:** Australia, UK, USA, Canada — ships to 80+ countries
+
+---
+
 ## Configuration
 
 ### INI File: `SideKick_PS.ini`
@@ -809,13 +901,17 @@ All releases contain only compiled executables:
 C:\Stash\SideKick_PS\
 ├── Release\              ← Current build (EXE ONLY)
 │   ├── SideKick_PS.exe
-│   ├── validate_license.exe
-│   ├── fetch_ghl_contact.exe
-│   ├── update_ghl_contact.exe
-│   ├── sync_ps_invoice_v2.exe
-│   ├── upload_ghl_media.exe
+│   ├── _vlk.exe          (validate_license)
+│   ├── _fgc.exe          (fetch_ghl_contact)
+│   ├── _ugc.exe          (update_ghl_contact)
+│   ├── _sps.exe          (sync_ps_invoice)
+│   ├── _upm.exe          (upload_ghl_media)
+│   ├── _gca.exe          (gocardless_api)
+│   ├── _cpg.exe          (cardly_preview_gui)
+│   ├── _csc.exe          (cardly_send_card)
 │   ├── LICENSE.txt
 │   ├── media\
+│   ├── stickers\         ← Cardly sticker PNGs
 │   └── version.json
 ├── Releases\             ← Archive of all versions
 │   ├── v2.4.0\

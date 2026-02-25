@@ -42,7 +42,7 @@ Gui, Settings:Add, Text, x15 y40 w120 h20 +BackgroundTrans, % "v" . Script.Versi
 
 ; Navigation buttons
 Gui, Settings:Font, s10 cWhite, Segoe UI
-NavBtns := ["General", "Shoots", "Paths", "GHL", "ACC", "Hotkeys", "About"]
+NavBtns := ["General", "Shoots", "Paths", "GHL", "Cardly", "ACC", "Hotkeys", "About"]
 NavY := 80
 Loop, % NavBtns.Length()
 {
@@ -268,6 +268,89 @@ Gui, Settings:Add, Button, % "x" ContentX+15 " y" GHLY " w140 h30 gTestGHLBtn vB
 Gui, Settings:Font, s8 c%SetTextDimColor%, Segoe UI
 GHLY += 45
 Gui, Settings:Add, Text, % "x" ContentX+15 " y" GHLY " w460 h50 +BackgroundTrans +Hidden vGHLInfoText", % "API Key: Used for contact operations (v1 API)`nMedia Token: Private Integration Token (pit-) for media uploads`nGet tokens from: GoHighLevel → Settings → Integrations"
+
+; === CARDLY PANEL (initially hidden) ===
+CdY := 60
+Gui, Settings:Font, s10 Bold c%SetAccentColor%, Segoe UI
+Gui, Settings:Add, GroupBox, x%ContentX% y%CdY% w%ContentW% h200 vGrpCardly +Hidden, Cardly Postcard Settings
+
+CdY += 25
+Gui, Settings:Font, s9 cWhite, Segoe UI
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyDash", Dashboard URL:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w340 h24 vSetCardlyDashURL +Hidden", %Settings_Cardly_DashboardURL%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+
+CdY += 32
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyMediaID", Media ID:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w340 h24 vSetCardlyMediaID +Hidden", %Settings_Cardly_MediaID%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+
+CdY += 32
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyMediaNm", Media Name:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w340 h24 vSetCardlyMediaName +Hidden", %Settings_Cardly_MediaName%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+
+CdY += 32
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyMsgFld", Message Field:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w200 h24 vSetCardlyMsgField +Hidden", %Settings_Cardly_MessageField%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+Gui, Settings:Add, CheckBox, % "x" ContentX+360 " y" CdY " w120 vSetCardlyAutoSend gSettingsChanged +BackgroundTrans +Hidden " (Settings_Cardly_AutoSend ? "Checked" : ""), Auto Send
+
+CdY += 32
+Gui, Settings:Add, CheckBox, % "x" ContentX+15 " y" CdY " w250 vSetCardlyTestMode gSettingsChanged +BackgroundTrans +Hidden " (Settings_Cardly_TestMode ? "Checked" : ""), Test mode (upload artwork; skip order)
+
+CdY += 32
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyDefMsg", Default Message:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w340 h24 vSetCardlyDefMsg +Hidden", %Settings_Cardly_DefaultMessage%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+
+; Cardly Folders & Dimensions
+CdY += 50
+Gui, Settings:Font, s10 Bold c%SetAccentColor%, Segoe UI
+Gui, Settings:Add, GroupBox, x%ContentX% y%CdY% w%ContentW% h200 vGrpCardlyFolders +Hidden, Folders && Dimensions
+
+CdY += 25
+Gui, Settings:Font, s9 cWhite, Segoe UI
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyPCFolder", Postcard Folder:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w280 h24 vSetCardlyPCFolder +Hidden", %Settings_Cardly_PostcardFolder%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+Gui, Settings:Add, Button, % "x" ContentX+425 " y" CdY-4 " w60 h26 gBrowseCardlyPC vBtnCardlyPC +Hidden", Browse
+
+CdY += 32
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyWidth", Card Width:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w80 h24 vSetCardlyWidth +Hidden", %Settings_Cardly_CardWidth%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+Gui, Settings:Add, Text, % "x" ContentX+240 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyHeight", Card Height:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+370 " y" CdY-3 " w80 h24 vSetCardlyHeight +Hidden", %Settings_Cardly_CardHeight%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+
+CdY += 32
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyGHLFld", GHL Folder ID:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w340 h24 vSetCardlyGHLFolderID +Hidden", %Settings_Cardly_GHLMediaFolderID%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+
+CdY += 32
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyGHLNm", GHL Folder Name:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w200 h24 vSetCardlyGHLFolderName +Hidden", %Settings_Cardly_GHLMediaFolderName%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+
+CdY += 32
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyPhoto", Photo Link Field:
+Gui, Settings:Font, s9 cBlack, Segoe UI
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w200 h24 vSetCardlyPhotoLink +Hidden", %Settings_Cardly_PhotoLinkField%
+Gui, Settings:Font, s9 cWhite, Segoe UI
+
+Gui, Settings:Add, CheckBox, % "x" ContentX+360 " y" CdY " w120 vSetShowBtnCardly gSettingsChanged +BackgroundTrans +Hidden " (Settings_ShowBtn_Cardly ? "Checked" : ""), Show Toolbar Btn
 
 ; === ACC PANEL (initially hidden) - Simple scroll with mouse wheel ===
 AccY := 60
@@ -585,6 +668,8 @@ PathsControls := "GrpAppPaths,LblEditor,SetEditorPath,BtnEditor,LblEditorType,Se
 
 GHLControls := "GrpGHL,LblApiKey,SetApiKey,LblMediaToken,SetMediaToken,LblLocId,SetLocId,LblPhotoField,SetPhotoField,BtnTestGHL,GHLInfoText"
 
+CardlyControls := "GrpCardly,LblCardlyDash,SetCardlyDashURL,LblCardlyMediaID,SetCardlyMediaID,LblCardlyMediaNm,SetCardlyMediaName,LblCardlyMsgFld,SetCardlyMsgField,SetCardlyAutoSend,SetCardlyTestMode,LblCardlyDefMsg,SetCardlyDefMsg,GrpCardlyFolders,LblCardlyPCFolder,SetCardlyPCFolder,BtnCardlyPC,LblCardlyWidth,SetCardlyWidth,LblCardlyHeight,SetCardlyHeight,LblCardlyGHLFld,SetCardlyGHLFolderID,LblCardlyGHLNm,SetCardlyGHLFolderName,LblCardlyPhoto,SetCardlyPhotoLink,SetShowBtnCardly"
+
 ACCControls := "LblACCTitle,LblACCInstructions,ACCScrollContainer"
 
 HotkeysControls := "LblHKTitle,LblHKInstructions,GrpHotkeys,LblHK_LB2PS,HK_LB2PS_Edit,HK_LB2PS_Btn,LblHK_QR,HK_QR_Edit,HK_QR_Btn,LblHK_Download,HK_Download_Edit,HK_Download_Btn,LblHK_ACC,HK_ACC_Edit,HK_ACC_Btn,LblHK_Notes,HK_Notes_Edit,HK_Notes_Btn,HK_ResetBtn,HK_ClearBtn,GrpHotkeysFixed,LblHK_Wheel,HK_Wheel,LblHK_AltClick,HK_AltClick,HKInfoText"
@@ -599,6 +684,8 @@ Loop, Parse, ShootsControls, `,
 Loop, Parse, PathsControls, `,
 	GuiControl, Settings:Hide, %A_LoopField%
 Loop, Parse, GHLControls, `,
+	GuiControl, Settings:Hide, %A_LoopField%
+Loop, Parse, CardlyControls, `,
 	GuiControl, Settings:Hide, %A_LoopField%
 Loop, Parse, ACCControls, `,
 	GuiControl, Settings:Hide, %A_LoopField%
@@ -623,6 +710,10 @@ else if (CurrentSettingsPanel = "Paths") {
 }
 else if (CurrentSettingsPanel = "GHL") {
 	Loop, Parse, GHLControls, `,
+		GuiControl, Settings:Show, %A_LoopField%
+}
+else if (CurrentSettingsPanel = "Cardly") {
+	Loop, Parse, CardlyControls, `,
 		GuiControl, Settings:Show, %A_LoopField%
 }
 else if (CurrentSettingsPanel = "ACC") {
@@ -680,6 +771,13 @@ Gui, Settings:+OwnDialogs
 FileSelectFolder, newPath, , 3, Select PostCard Folder:
 if (newPath != "")
 	GuiControl, Settings:, SetPostCardPath, %newPath%
+Return
+
+BrowseCardlyPC:
+Gui, Settings:+OwnDialogs
+FileSelectFolder, newPath, , 3, Select Cardly Postcard Folder:
+if (newPath != "")
+	GuiControl, Settings:, SetCardlyPCFolder, %newPath%
 Return
 
 BrowseEditorNew:
@@ -854,6 +952,22 @@ GHL_Media_Token := SetMediaToken
 GHL_LocationID := SetLocId
 GHL_PhotoFieldID := SetPhotoField
 
+; Cardly panel
+Settings_Cardly_DashboardURL := SetCardlyDashURL
+Settings_Cardly_MediaID := SetCardlyMediaID
+Settings_Cardly_MediaName := SetCardlyMediaName
+Settings_Cardly_MessageField := SetCardlyMsgField
+Settings_Cardly_AutoSend := SetCardlyAutoSend
+Settings_Cardly_TestMode := SetCardlyTestMode
+Settings_Cardly_DefaultMessage := SetCardlyDefMsg
+Settings_Cardly_PostcardFolder := SetCardlyPCFolder
+Settings_Cardly_CardWidth := SetCardlyWidth
+Settings_Cardly_CardHeight := SetCardlyHeight
+Settings_Cardly_GHLMediaFolderID := SetCardlyGHLFolderID
+Settings_Cardly_GHLMediaFolderName := SetCardlyGHLFolderName
+Settings_Cardly_PhotoLinkField := SetCardlyPhotoLink
+Settings_ShowBtn_Cardly := SetShowBtnCardly
+
 ; ACC panel - get values from ACCScroll GUI
 Gui, ACCScroll:Submit, NoHide
 LB_ShootNoAcc := SetLB_ShootNoAcc
@@ -989,6 +1103,22 @@ IniWrite, % Notes_Plus(GHL_Media_Token,Client_Notes),   %IniFilename%, GHL, GHL_
 IniWrite, %PostCardFolder%,              %IniFilename%, GHL, PostCardFolder
 IniWrite, %GHL_PhotoFieldID%,            %IniFilename%, GHL, GHL_PhotoFieldID
 IniWrite, %GHL_LocationID%,              %IniFilename%, GHL, GHL_LocationID
+
+; Cardly section
+IniWrite, %Settings_Cardly_DashboardURL%,       %IniFilename%, Cardly, DashboardURL
+IniWrite, %Settings_Cardly_MessageField%,        %IniFilename%, Cardly, MessageField
+IniWrite, %Settings_Cardly_AutoSend%,            %IniFilename%, Cardly, AutoSend
+IniWrite, %Settings_Cardly_TestMode%,            %IniFilename%, Cardly, TestMode
+IniWrite, %Settings_Cardly_MediaID%,             %IniFilename%, Cardly, MediaID
+IniWrite, %Settings_Cardly_MediaName%,           %IniFilename%, Cardly, MediaName
+IniWrite, %Settings_Cardly_DefaultMessage%,      %IniFilename%, Cardly, DefaultMessage
+IniWrite, %Settings_Cardly_PostcardFolder%,      %IniFilename%, Cardly, PostcardFolder
+IniWrite, %Settings_Cardly_CardWidth%,           %IniFilename%, Cardly, CardWidth
+IniWrite, %Settings_Cardly_CardHeight%,          %IniFilename%, Cardly, CardHeight
+IniWrite, %Settings_Cardly_GHLMediaFolderID%,    %IniFilename%, Cardly, GHLMediaFolderID
+IniWrite, %Settings_Cardly_GHLMediaFolderName%,  %IniFilename%, Cardly, GHLMediaFolderName
+IniWrite, %Settings_Cardly_PhotoLinkField%,      %IniFilename%, Cardly, PhotoLinkField
+IniWrite, %Settings_ShowBtn_Cardly%,             %IniFilename%, Toolbar, ShowBtn_Cardly
 
 ; Hotkeys section
 IniWrite, %Hotkey_LB2PS%,                %IniFilename%, Hotkeys, LB2PS

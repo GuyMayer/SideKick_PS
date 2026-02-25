@@ -47,20 +47,22 @@ Base64_Encode(Str) {
     StrPut(Str, &Bin, "CP0")
     Size := StrLen(Str)
     ; Get required buffer size
+    ; Use CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF (0x40000001)
+    ; to produce a single-line base64 string without embedded \r\n
     DllCall("Crypt32.dll\CryptBinaryToStringW"
         , "Ptr", &Bin           ; pbBinary
         , "UInt", Size          ; cbBinary
-        , "UInt", 1             ; dwFlags = CRYPT_STRING_BASE64
+        , "UInt", 0x40000001    ; dwFlags = BASE64 | NOCRLF
         , "Ptr", 0              ; pszString (null to get size)
         , "UIntP", B64Size := 0) ; pcchString
     VarSetCapacity(B64, B64Size * 2)
     DllCall("Crypt32.dll\CryptBinaryToStringW"
         , "Ptr", &Bin
         , "UInt", Size
-        , "UInt", 1
+        , "UInt", 0x40000001
         , "Str", B64
         , "UIntP", B64Size)
-    return RTrim(B64, "`r`n")  ; Remove trailing newlines
+    return RTrim(B64, "`r`n")  ; Belt-and-braces: remove any trailing whitespace
 }
 
 ; Simple XOR decrypt (no +15000 offset)

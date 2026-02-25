@@ -162,6 +162,13 @@ $scriptNameMap = @{
     "sync_ps_invoice" = "_sps"
     "upload_ghl_media" = "_upm"
     "gocardless_api" = "_gca"
+    "cardly_preview_gui" = "_cpg"
+    "cardly_send_card" = "_csc"
+}
+
+# Hidden imports: scripts that import other local modules at runtime
+$hiddenImports = @{
+    "cardly_preview_gui" = @("cardly_send_card")
 }
 
 $pythonFiles = @(
@@ -170,7 +177,9 @@ $pythonFiles = @(
     "update_ghl_contact",
     "sync_ps_invoice",
     "upload_ghl_media",
-    "gocardless_api"
+    "gocardless_api",
+    "cardly_preview_gui",
+    "cardly_send_card"
 )
 
 $compiledCount = 0
@@ -225,8 +234,16 @@ if (!$SkipPythonCompile) {
                 Write-Host "  Compiling: $script.py -> $outputName.exe" -ForegroundColor Gray
                 
                 # PyInstaller - single file, no console (suppress stderr output)
+                $extraArgs = ""
+                if ($hiddenImports.ContainsKey($script)) {
+                    foreach ($hi in $hiddenImports[$script]) {
+                        $hiName = if ($scriptNameMap.ContainsKey($hi)) { $scriptNameMap[$hi] } else { $hi }
+                        $extraArgs += " --hidden-import=$hiName"
+                    }
+                }
                 $ErrorActionPreference = "SilentlyContinue"
-                & $pyinstallerExe --onefile --noconsole --clean --distpath $ReleaseDir --workpath "$env:TEMP\pyinstaller_work" --specpath "$env:TEMP\pyinstaller_spec" --name $outputName $pyFile 2>$null | Out-Null
+                $pyCmd = "& `"$pyinstallerExe`" --onefile --noconsole --clean --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
+                Invoke-Expression $pyCmd
                 $ErrorActionPreference = "Stop"
                 
                 if (Test-Path "$ReleaseDir\$exeName") {
@@ -266,6 +283,14 @@ if (!(Test-Path $iconPath)) { $iconPath = "$SourceDir\SideKick_PS.ico" }
 if (Test-Path $iconPath) {
     Copy-Item $iconPath "$ReleaseDir\SideKick_PS.ico"
     Write-Host "  Copied SideKick_PS.ico" -ForegroundColor Gray
+}
+
+# Copy stickers folder for Cardly postcards
+$stickersDir = "$SourceDir\stickers"
+if (Test-Path $stickersDir) {
+    New-Item -ItemType Directory -Path "$ReleaseDir\stickers" -Force | Out-Null
+    Copy-Item "$stickersDir\*" "$ReleaseDir\stickers\" -Recurse -Force
+    Write-Host "  Copied stickers folder" -ForegroundColor Gray
 }
 
 # Copy logo PNG files for Settings GUI

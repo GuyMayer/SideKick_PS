@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.34"
+#define MyAppVersion "2.5.35"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -91,6 +91,8 @@ Source: "Release\_ccs.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourced
 Source: "Release\_fgc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\_ugc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\_gca.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_cpg.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_csc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; License and version info
 Source: "Release\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -98,6 +100,9 @@ Source: "Release\version.json"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Media files (icons, sounds)
 Source: "Release\media\*"; DestDir: "{app}\media"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+
+; Stickers for Cardly postcards
+Source: "Release\stickers\*"; DestDir: "{app}\stickers"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [InstallDelete]
 ; Remove old script files (now using cryptic names: _sps.exe, _vlk.exe, etc.)
@@ -113,6 +118,10 @@ Type: files; Name: "{app}\fetch_ghl_contact.exe"
 Type: files; Name: "{app}\fetch_ghl_contact.py"
 Type: files; Name: "{app}\update_ghl_contact.exe"
 Type: files; Name: "{app}\update_ghl_contact.py"
+Type: files; Name: "{app}\cardly_preview_gui.exe"
+Type: files; Name: "{app}\cardly_preview_gui.py"
+Type: files; Name: "{app}\cardly_send_card.exe"
+Type: files; Name: "{app}\cardly_send_card.py"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -170,6 +179,7 @@ begin
     end;
   end;
 end;
+
 
 
 
