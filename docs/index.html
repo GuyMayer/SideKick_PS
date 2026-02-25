@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SideKick PS — ProSelect Automation for Photographers</title>
     <meta name="description" content="Automate invoices, payments & client management between ProSelect and GoHighLevel. One-click invoice sync, payment calculator, and CRM integration.">
-    <meta name="keywords" content="ProSelect automation, GoHighLevel integration, GoCardless Direct Debit, photographer workflow, invoice sync, CRM integration, photography business software">
+    <meta name="keywords" content="ProSelect automation, GoHighLevel integration, GoCardless Direct Debit, Cardly greeting cards, photographer workflow, invoice sync, CRM integration, photography business software">
     <meta name="author" content="Zoom Photography">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://ps.ghl-sidekick.com/">
@@ -83,10 +83,11 @@
                     "Automatic invoice sync from ProSelect to GHL",
                     "Smart payment plan calculator with auto-entry",
                     "GoCardless Direct Debit integration (UK, USA, EU, Australia, Canada, NZ)",
+                    "Cardly greeting card integration — send physical postcards to clients",
                     "Session timer and workflow tracking",
                     "Product SKU matching for Xero and QuickBooks integration"
                 ],
-                "keywords": "ProSelect, GoHighLevel, GHL, GoCardless, Direct Debit, photographer automation, invoice sync, CRM integration, photography business"
+                "keywords": "ProSelect, GoHighLevel, GHL, GoCardless, Direct Debit, Cardly, greeting cards, postcards, photographer automation, invoice sync, CRM integration, photography business"
             },
             {
                 "@type": "WebPage",
@@ -187,6 +188,14 @@
                         "acceptedAnswer": {
                             "@type": "Answer",
                             "text": "Tell SideKick the balance and schedule (weekly, bi-weekly, 4-weekly, or monthly), and it automatically enters every payment line into ProSelect. No typing, no mistakes. You can also set up GoCardless Direct Debit payments on the spot so you never forget to collect."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Can I send greeting cards to clients from ProSelect?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Yes, SideKick PS integrates with Cardly International to send physical printed postcards directly from your ProSelect session. Select an image, customise the crop, add a sticker overlay and personal message, and Cardly prints and posts a real greeting card to your client's address. Great for thank-you cards, birthday wishes, or marketing touchpoints."
                         }
                     },
                     {
@@ -561,7 +570,56 @@
                             Low fees — get paid on autopilot without credit card costs
                         </li>
                     </ul>
+                    <div class="mt-6 p-4 bg-teal-500/10 rounded-lg border border-teal-500/20">
+                        <p class="text-sm text-teal-300 mb-2">🎁 <strong>Get £100 when you sign up for GoCardless!</strong></p>
+                        <p class="text-xs text-gray-400 mb-3">Sign up using our referral link and receive a £100 reward from GoCardless. You'll also be supporting SideKick development at no extra cost to you — thank you!</p>
+                        <a href="https://manage.gocardless.com/refer/gb/guy/evxrow-amz" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-400 text-white text-sm font-semibold rounded-lg transition-colors">
+                            Claim your £100 reward →
+                        </a>
+                    </div>
                     <p class="text-xs text-gray-500 mt-4 italic">* GoCardless integration requires a separate GoCardless account. Fees are charged by GoCardless directly. Available in UK, USA, Eurozone, Australia, Canada & New Zealand. SideKick PS is not affiliated with GoCardless and cannot be held responsible for GoCardless service availability or changes.</p>
+                </div>
+            </div>
+
+            <!-- Feature 2c: Cardly Greeting Cards (International) -->
+            <div class="max-w-2xl mb-24">
+                <div>
+                    <div class="feature-icon bg-pink-500/10 text-pink-400 mb-4">💌</div>
+                    <div class="flex items-center gap-3 mb-3">
+                        <h3 class="text-2xl font-bold text-white">Cardly Greeting Cards</h3>
+                        <span class="px-2 py-0.5 text-xs font-semibold bg-pink-500/20 text-pink-400 rounded-full">🌍 International</span>
+                    </div>
+                    <p class="text-gray-300 mb-6">Turn your favourite session image into a real printed postcard — sent directly to your client's doorstep. A personal touch that keeps you top-of-mind long after the shoot. Thank-you cards, birthday wishes, or seasonal marketing — all from one click on the toolbar.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Select any image from the session — pre-selects from ProSelect
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Crop, zoom & reposition — WYSIWYG preview before sending
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Add sticker overlays (Thank You, Happy Birthday, etc.)
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Client address auto-filled from PSA album, XML, or GHL contact
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Real printed card posted by Cardly — arrives in days
+                        </li>
+                    </ul>
+                    <div class="mt-6 p-4 bg-pink-500/10 rounded-lg border border-pink-500/20">
+                        <p class="text-sm text-pink-300 mb-2">💳 <strong>Pay per card — no subscription required</strong></p>
+                        <p class="text-xs text-gray-400 mb-3">Cardly charges per card sent (from ~$3.50 AUD including postage). Create a free Cardly account, add your API key in SideKick settings, and you're ready to go.</p>
+                        <a href="https://www.cardly.com" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-4 py-2 bg-pink-500 hover:bg-pink-400 text-white text-sm font-semibold rounded-lg transition-colors">
+                            Visit Cardly →
+                        </a>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-4 italic">* Cardly integration requires a separate Cardly International account and API key. Card printing and postage fees are charged by Cardly directly. SideKick PS is not affiliated with Cardly International and cannot be held responsible for Cardly service availability, print quality, or delivery times.</p>
                 </div>
             </div>
 
