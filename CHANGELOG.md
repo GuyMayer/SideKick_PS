@@ -34,6 +34,8 @@ AI INSTRUCTIONS - When publishing a new version:
 ### Bug Fixes
 - **GHL Tag Sync**: Fixed INI key mismatch — `Tags` vs `SyncTag` and `OppTags` vs `OpportunityTags` now both supported with fallback
 - **Cardly Address Validation**: State/county field no longer required (UK addresses don't have state)
+- **Build: Missing Python Scripts**: Added `write_psa_payments`, `read_psa_payments`, `read_psa_images`, and `create_ghl_contactsheet` to build pipeline, installer, and AHK script map
+- **Build: write_psa_payments Hardcoded Path**: Now uses `GetScriptPath()` instead of hardcoded `.py` reference — works correctly with compiled `.exe` in production
 
 ---
 

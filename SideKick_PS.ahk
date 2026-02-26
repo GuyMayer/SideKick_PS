@@ -1477,7 +1477,7 @@ GetPythonPath() {
 ; Returns: full path to .exe if exists, otherwise full path to .py
 GetScriptPath(scriptName) {
 	; Script name mapping - internal names to cryptic filenames (for exe distribution)
-	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc", "gocardless_api": "_gca", "cardly_preview_gui": "_cpg", "cardly_send_card": "_csc"}
+	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc", "gocardless_api": "_gca", "cardly_preview_gui": "_cpg", "cardly_send_card": "_csc", "write_psa_payments": "_wpp", "read_psa_payments": "_rpp", "read_psa_images": "_rpi"}
 	
 	; Get the actual filename (use mapped name for production, original for dev)
 	if (A_IsCompiled && scriptMap.HasKey(scriptName)) {

@@ -901,18 +901,23 @@ if (psaPath = "" || !FileExist(psaPath)) {
 
 FileAppend, % A_Now . " - UpdatePS - Album path: " . psaPath . "`n", %DebugLogFile%
 
-; Step 4: Build Python command with all payment lines as arguments
-pythonScript := A_ScriptDir . "\write_psa_payments.py"
+; Step 4: Build command with all payment lines as arguments
+pythonScript := GetScriptPath("write_psa_payments")
 if (!FileExist(pythonScript)) {
-	FileAppend, % A_Now . " - UpdatePS - FAILED: write_psa_payments.py not found`n", %DebugLogFile%
-	DarkMsgBox("Error", "write_psa_payments.py not found in SideKick folder.", "error")
+	FileAppend, % A_Now . " - UpdatePS - FAILED: write_psa_payments not found`n", %DebugLogFile%
+	DarkMsgBox("Error", "write_psa_payments script not found in SideKick folder.", "error")
 	EnteringPaylines := False
 	return
 }
 
 ; Build argument string with quoted payment lines
 ; Use --clear to replace existing payments (Payment Calculator provides the complete plan)
-pyArgs := """" . pythonScript . """ """ . psaPath . """ --clear"
+isExe := (SubStr(pythonScript, -3) = ".exe")
+if (isExe) {
+	pyArgs := """" . pythonScript . """ """ . psaPath . """ --clear"
+} else {
+	pyArgs := """" . pythonScript . """ """ . psaPath . """ --clear"
+}
 
 Loop %TotalPaymentsToEnter%
 {
@@ -922,13 +927,15 @@ Loop %TotalPaymentsToEnter%
 		pyArgs .= " """ . payLine . """"
 }
 
-FileAppend, % A_Now . " - UpdatePS - Running: python " . pyArgs . "`n", %DebugLogFile%
+FileAppend, % A_Now . " - UpdatePS - Running: " . pyArgs . "`n", %DebugLogFile%
 
-; Step 5: Run the Python script
-RunWait, python %pyArgs%, %A_ScriptDir%, Hide, pyPID
-; Read output via a temp file approach
+; Step 5: Run the script (.exe directly, .py via python)
 tempOut := A_Temp . "\sk_psa_write_" . A_TickCount . ".txt"
-RunWait, % "cmd /c python " . pyArgs . " > """ . tempOut . """ 2>&1", %A_ScriptDir%, Hide
+if (isExe) {
+	RunWait, % "cmd /c " . pyArgs . " > """ . tempOut . """ 2>&1", %A_ScriptDir%, Hide
+} else {
+	RunWait, % "cmd /c python " . pyArgs . " > """ . tempOut . """ 2>&1", %A_ScriptDir%, Hide
+}
 FileRead, pyOutput, %tempOut%
 FileDelete, %tempOut%
 pyOutput := Trim(pyOutput)

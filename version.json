@@ -19,6 +19,8 @@
     "IMPROVED: Card Details panel shows orientation label (Landscape/Portrait) next to dimensions",
     "FIX: GHL tag sync - INI key mismatch (Tags vs SyncTag, OppTags vs OpportunityTags)",
     "FIX: Cardly address validation - state/county no longer required (UK addresses)",
+    "FIX: Build - added write_psa_payments, read_psa_payments, read_psa_images, create_ghl_contactsheet to compile pipeline and installer",
+    "FIX: Build - write_psa_payments now uses GetScriptPath() instead of hardcoded .py path",
     "NEW: Graphical Toolbar Button Settings - clickable icons instead of toggle sliders",
     "NEW: Visual Toggle Feedback - icons and labels change color when disabled",
     "IMPROVED: Direct toggle updates - button visibility changes immediately on click",

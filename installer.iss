@@ -95,6 +95,9 @@ Source: "Release\_ugc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourced
 Source: "Release\_gca.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\_cpg.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\_csc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_wpp.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_rpp.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\_rpi.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; License and version info
 Source: "Release\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -124,6 +127,14 @@ Type: files; Name: "{app}\cardly_preview_gui.exe"
 Type: files; Name: "{app}\cardly_preview_gui.py"
 Type: files; Name: "{app}\cardly_send_card.exe"
 Type: files; Name: "{app}\cardly_send_card.py"
+Type: files; Name: "{app}\write_psa_payments.exe"
+Type: files; Name: "{app}\write_psa_payments.py"
+Type: files; Name: "{app}\read_psa_payments.exe"
+Type: files; Name: "{app}\read_psa_payments.py"
+Type: files; Name: "{app}\read_psa_images.exe"
+Type: files; Name: "{app}\read_psa_images.py"
+Type: files; Name: "{app}\create_ghl_contactsheet.exe"
+Type: files; Name: "{app}\create_ghl_contactsheet.py"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -181,6 +192,7 @@ begin
     end;
   end;
 end;
+
 
 
 

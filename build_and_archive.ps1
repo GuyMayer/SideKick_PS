@@ -164,6 +164,10 @@ $scriptNameMap = @{
     "gocardless_api" = "_gca"
     "cardly_preview_gui" = "_cpg"
     "cardly_send_card" = "_csc"
+    "create_ghl_contactsheet" = "_ccs"
+    "write_psa_payments" = "_wpp"
+    "read_psa_payments" = "_rpp"
+    "read_psa_images" = "_rpi"
 }
 
 # Hidden imports: scripts that import other local modules at runtime
@@ -179,7 +183,11 @@ $pythonFiles = @(
     "upload_ghl_media",
     "gocardless_api",
     "cardly_preview_gui",
-    "cardly_send_card"
+    "cardly_send_card",
+    "create_ghl_contactsheet",
+    "write_psa_payments",
+    "read_psa_payments",
+    "read_psa_images"
 )
 
 $compiledCount = 0
