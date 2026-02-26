@@ -169,6 +169,7 @@ LoadSettings()
 	IniRead, Settings_QRCode_Text2, %IniFilename%, QRCode, Text2, %A_Space%
 	IniRead, Settings_QRCode_Text3, %IniFilename%, QRCode, Text3, %A_Space%
 	IniRead, Settings_QRCode_Display, %IniFilename%, QRCode, Display, 1
+	IniRead, Settings_QR_UseLeadConnector, %IniFilename%, QRCode, UseLeadConnector, 0
 	IniRead, Settings_DisplaySize, %IniFilename%, Display, Size, 80
 	IniRead, Settings_BankScale, %IniFilename%, Display, BankScale, 100
 	IniRead, Settings_BankInstitution, %IniFilename%, Display, BankInstitution, %A_Space%
@@ -191,19 +192,21 @@ LoadSettings()
 	IniRead, Settings_PDFPrintBtnOffsetBottom, %IniFilename%, Toolbar, PDFPrintBtnOffsetBottom, 0
 	
 	; Cardly settings
-	IniRead, Settings_Cardly_DashboardURL, %IniFilename%, Cardly, DashboardURL, %A_Space%
+	IniRead, Settings_Cardly_DashboardURL, %IniFilename%, Cardly, DashboardURL, https://zoom-photography-studio.cardly.net/manage
 	IniRead, Settings_Cardly_MessageField, %IniFilename%, Cardly, MessageField, Message
 	IniRead, Settings_Cardly_AutoSend, %IniFilename%, Cardly, AutoSend, 1
 	IniRead, Settings_Cardly_TestMode, %IniFilename%, Cardly, TestMode, 0
 	IniRead, Settings_Cardly_MediaID, %IniFilename%, Cardly, MediaID, %A_Space%
 	IniRead, Settings_Cardly_MediaName, %IniFilename%, Cardly, MediaName, %A_Space%
 	IniRead, Settings_Cardly_DefaultMessage, %IniFilename%, Cardly, DefaultMessage, %A_Space%
+	StringReplace, Settings_Cardly_DefaultMessage, Settings_Cardly_DefaultMessage, ``n, `n, All
 	IniRead, Settings_Cardly_PostcardFolder, %IniFilename%, Cardly, PostcardFolder, %A_Space%
 	IniRead, Settings_Cardly_CardWidth, %IniFilename%, Cardly, CardWidth, 2913
 	IniRead, Settings_Cardly_CardHeight, %IniFilename%, Cardly, CardHeight, 2125
 	IniRead, Settings_Cardly_GHLMediaFolderID, %IniFilename%, Cardly, GHLMediaFolderID, %A_Space%
 	IniRead, Settings_Cardly_GHLMediaFolderName, %IniFilename%, Cardly, GHLMediaFolderName, Client Photos
 	IniRead, Settings_Cardly_PhotoLinkField, %IniFilename%, Cardly, PhotoLinkField, Contact Photo Link
+	IniRead, Settings_Cardly_SaveToAlbum, %IniFilename%, Cardly, SaveToAlbum, 0
 	IniRead, Settings_ShowBtn_Cardly, %IniFilename%, Toolbar, ShowBtn_Cardly, 1
 	
 	; GoCardless settings (token is loaded separately via LoadGHLCredentials)
@@ -349,6 +352,7 @@ SaveSettings()
 	IniWrite, %Settings_QRCode_Text2%, %IniFilename%, QRCode, Text2
 	IniWrite, %Settings_QRCode_Text3%, %IniFilename%, QRCode, Text3
 	IniWrite, %Settings_QRCode_Display%, %IniFilename%, QRCode, Display
+	IniWrite, %Settings_QR_UseLeadConnector%, %IniFilename%, QRCode, UseLeadConnector
 	; Regenerate QR cache if text fields changed
 	GenerateQRCache()
 	; Display settings
@@ -378,7 +382,10 @@ SaveSettings()
 	IniWrite, %Settings_Cardly_TestMode%, %IniFilename%, Cardly, TestMode
 	IniWrite, %Settings_Cardly_MediaID%, %IniFilename%, Cardly, MediaID
 	IniWrite, %Settings_Cardly_MediaName%, %IniFilename%, Cardly, MediaName
-	IniWrite, %Settings_Cardly_DefaultMessage%, %IniFilename%, Cardly, DefaultMessage
+	; Escape newlines for INI storage (IniRead only reads one line)
+	Cardly_DefMsg_Escaped := Settings_Cardly_DefaultMessage
+	StringReplace, Cardly_DefMsg_Escaped, Cardly_DefMsg_Escaped, `n, ``n, All
+	IniWrite, %Cardly_DefMsg_Escaped%, %IniFilename%, Cardly, DefaultMessage
 	IniWrite, %Settings_Cardly_PostcardFolder%, %IniFilename%, Cardly, PostcardFolder
 	IniWrite, %Settings_Cardly_CardWidth%, %IniFilename%, Cardly, CardWidth
 	IniWrite, %Settings_Cardly_CardHeight%, %IniFilename%, Cardly, CardHeight
@@ -834,144 +841,123 @@ UpdatePS:
 EnteringPaylines := True
 PaymentEntryCancelled := false
 
-; Create progress bar GUI
-Gui, PayProgress:New, +AlwaysOnTop +ToolWindow +HwndPayProgressHwnd
-Gui, PayProgress:Color, 1E1E1E
-Gui, PayProgress:Font, s12 cFFFFFF, Segoe UI
-Gui, PayProgress:Add, Text, x20 y15 w300 vPayProgressTitle, 💳 Entering Payments...
-Gui, PayProgress:Font, s10 cCCCCCC, Segoe UI
-Gui, PayProgress:Add, Text, x20 y45 w300 vPayProgressStatus, Preparing...
-Gui, PayProgress:Add, Progress, x20 y80 w300 h25 vPayProgressBar Range0-100 c4FC3F7 Background2D2D2D, 0
-Gui, PayProgress:Font, s9 cFFCC00, Segoe UI
-Gui, PayProgress:Add, Text, x20 y115 w300 Center, ⚠️ HANDS OFF - Do not touch mouse or keyboard
-Gui, PayProgress:Font, s9 cFFFFFF Bold, Segoe UI
-Gui, PayProgress:Add, Button, x120 y145 w100 h30 gPayProgressCancel vPayProgressCancelBtn, Cancel
-Gui, PayProgress:Show, w340 h190, Payment Entry Progress
+; ═══════════════════════════════════════════════════════════════════════════════
+; Direct .psa injection: save album → write payments to SQLite → reload album
+; Replaces fragile keyboard automation with reliable database writes
+; ═══════════════════════════════════════════════════════════════════════════════
 
-; Apply dark title bar
-DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", PayProgressHwnd, "Int", 20, "Int*", 1, "Int", 4)
+FileAppend, % A_Now . " - UpdatePS - Starting direct .psa payment injection`n", %DebugLogFile%
 
-SetTitleMatchMode, 2
-SetTitleMatchMode, Slow
-WinActivate, Add Payment 
-WinWaitActive, Add Payment 
-
-; Detect ProSelect version if not already done
-if (ProSelectVersion = "")
-	DetectProSelectVersion()
-
-sleep, 150
-SetControlDelay -1
-
-; Use version-specific automation
-if (ProSelectVersion = "2025")
+; Step 1a: Close payment windows (Escape x3 covers Payline → Add Payment list → Payment tab)
+FileAppend, % A_Now . " - UpdatePS - Closing payment windows`n", %DebugLogFile%
+Loop, 3
 {
-	; ProSelect 2025 automation
-	; Payline window is already open
+	Send, {Escape}
+	Sleep, 300
+}
+Sleep, 500
 
-	; Read payment types from ComboBox1 on first run and save to INI
-	global PaymentTypes2025
-	if (PaymentTypes2025 = "")
-	{
-		ControlGet, PaymentTypes2025, List, , ComboBox1, Add Payment, Date
-		IniWrite, %PaymentTypes2025%, %IniFilename%, ProSelect2025, PaymentTypes
-	}
+; Step 1b: Determine how many payments to enter (including downpayment if added)
+TotalPaymentsToEnter := PayNo
+StartIndex := 1
+if (DownpaymentLineAdded)
+{
+	TotalPaymentsToEnter := PayNo + 1
+	StartIndex := 0
+}
 
-	; Determine how many payments to enter (including downpayment if added)
-	TotalPaymentsToEnter := PayNo
-	StartIndex := 1
-	if (DownpaymentLineAdded)
-	{
-		TotalPaymentsToEnter := PayNo + 1
-		StartIndex := 0  ; Start from index 0 (downpayment)
-	}
+if (TotalPaymentsToEnter < 1)
+{
+	DarkMsgBox("No Payments", "No payment lines to enter.", "warning", {timeout: 3})
+	EnteringPaylines := False
+	return
+}
 
-	; Enter all payments - click Add button to open Payline window for each payment
-	; EXCEPT the first one - the Payline window is already open from where PayPlan button was clicked
-	CurrentPayment := 0
-	Loop %TotalPaymentsToEnter%
-	{
-		; Check if cancelled
-		if (PaymentEntryCancelled)
-		{
-			Gui, PayProgress:Destroy
-			DarkMsgBox("Cancelled", "Payment entry was cancelled.`n`n" . (A_Index - 1) . " of " . TotalPaymentsToEnter . " payments entered.", "warning", {timeout: 3})
-			EnteringPaylines := False
-			return
-		}
-		
-		; Update progress bar
-		progressPercent := Round((A_Index / TotalPaymentsToEnter) * 100)
-		GuiControl, PayProgress:, PayProgressBar, %progressPercent%
-		GuiControl, PayProgress:, PayProgressStatus, % "Payment " . A_Index . " of " . TotalPaymentsToEnter . " (" . progressPercent . "%)"
-		
-		PaymentIndex := StartIndex + A_Index - 1
-		Data_array := StrSplit(PayPlanLine[PaymentIndex],",")
+; Step 2: Save the album via PSConsole so .psa is up to date
+FileAppend, % A_Now . " - UpdatePS - Saving album via PSConsole`n", %DebugLogFile%
+saveResult := PsConsole("saveAlbum")
+Sleep, 1000  ; Give filesystem time to finish writing
 
-		; For first payment, use the already-open Payline window
-		; For subsequent payments, click Add button to open a new Payline window
-		if (A_Index > 1)
-		{
-			; Click Add button on Add Payments window to open Payline window
-			WinActivate, Add Payment, Payments
-			WinWaitActive, Add Payment, Payments, 2
-			Sleep, 200
-			ControlClick, Button3, Add Payment, Payments
-			Sleep, 2000
-		}
+; Step 3: Get album path from PSConsole
+albumData := PsConsole("getAlbumData")
+if (!albumData || albumData = "false" || albumData = "true") {
+	FileAppend, % A_Now . " - UpdatePS - FAILED: Could not get album data`n", %DebugLogFile%
+	DarkMsgBox("Error", "Could not get album data from ProSelect.`n`nMake sure an album is open.", "error")
+	EnteringPaylines := False
+	return
+}
 
-		; Ensure Payline window is active
-		WinActivate, Add Payment, Date
-		WinWaitActive, Add Payment, Date, 2
-		Sleep, 200
+; Extract .psa file path from album data
+psaPath := ""
+if (RegExMatch(albumData, "path=""([^""]+)""", pathMatch))
+	psaPath := StrReplace(pathMatch1, "\\", "\")
 
-		; Click on date field and enter date
-		ControlClick, SysDateTimePick321, Add Payment
-		Sleep, 200
-		; Enter: YYYY{Right}DD{Right}MM format
-		; Format with leading zeros for day and month
-		FormattedDay := SubStr("0" . Data_array[1], -1)
-		FormattedMonth := SubStr("0" . Data_array[2], -1)
-		ControlSend, SysDateTimePick321, % "20" Data_array[3], Add Payment
-		Sleep, 100
-		ControlSend, SysDateTimePick321, {Right}, Add Payment
-		Sleep, 100
-		ControlSend, SysDateTimePick321, % FormattedDay, Add Payment
-		Sleep, 100
-		ControlSend, SysDateTimePick321, {Right}, Add Payment
-		Sleep, 100
-		ControlSend, SysDateTimePick321, % FormattedMonth, Add Payment
-		Sleep, 100
+if (psaPath = "" || !FileExist(psaPath)) {
+	FileAppend, % A_Now . " - UpdatePS - FAILED: Album path not found: " . psaPath . "`n", %DebugLogFile%
+	DarkMsgBox("Error", "Could not locate album file.`n`n" . psaPath, "error")
+	EnteringPaylines := False
+	return
+}
 
-		; Tab to Amount field and enter value
-		ControlSend, SysDateTimePick321, {Tab}, Add Payment
-		Sleep, 200
-		ControlSend, Edit2, % Data_array[5], Add Payment
-		Sleep, 100
+FileAppend, % A_Now . " - UpdatePS - Album path: " . psaPath . "`n", %DebugLogFile%
 
-		; Tab 3 times to reach payment method dropdown
-		ControlSend, Edit2, {Tab}{Tab}{Tab}, Add Payment
-		Sleep, 200
+; Step 4: Build Python command with all payment lines as arguments
+pythonScript := A_ScriptDir . "\write_psa_payments.py"
+if (!FileExist(pythonScript)) {
+	FileAppend, % A_Now . " - UpdatePS - FAILED: write_psa_payments.py not found`n", %DebugLogFile%
+	DarkMsgBox("Error", "write_psa_payments.py not found in SideKick folder.", "error")
+	EnteringPaylines := False
+	return
+}
 
-		; Enter payment type - use Control, ChooseString to select exact match
-		Control, ChooseString, % Data_array[4], ComboBox1, Add Payment, Date
-		Sleep, 100
+; Build argument string with quoted payment lines
+; Use --clear to replace existing payments (Payment Calculator provides the complete plan)
+pyArgs := """" . pythonScript . """ """ . psaPath . """ --clear"
 
-		; Click "Add" button (Button1) to add payment line - Payline window closes
-		Sleep, 300
-		ControlClick, Button1, Add Payment, Date
-		Sleep, 2000
-	}
+Loop %TotalPaymentsToEnter%
+{
+	PaymentIndex := StartIndex + A_Index - 1
+	payLine := PayPlanLine[PaymentIndex]
+	if (payLine != "")
+		pyArgs .= " """ . payLine . """"
+}
+
+FileAppend, % A_Now . " - UpdatePS - Running: python " . pyArgs . "`n", %DebugLogFile%
+
+; Step 5: Run the Python script
+RunWait, python %pyArgs%, %A_ScriptDir%, Hide, pyPID
+; Read output via a temp file approach
+tempOut := A_Temp . "\sk_psa_write_" . A_TickCount . ".txt"
+RunWait, % "cmd /c python " . pyArgs . " > """ . tempOut . """ 2>&1", %A_ScriptDir%, Hide
+FileRead, pyOutput, %tempOut%
+FileDelete, %tempOut%
+pyOutput := Trim(pyOutput)
+
+FileAppend, % A_Now . " - UpdatePS - Python output: " . pyOutput . "`n", %DebugLogFile%
+
+; Step 6: Check result
+if (InStr(pyOutput, "SUCCESS|")) {
+	countAdded := StrReplace(pyOutput, "SUCCESS|", "")
+	FileAppend, % A_Now . " - UpdatePS - SUCCESS: " . countAdded . " payments written to .psa`n", %DebugLogFile%
 	
-	; Destroy progress bar
-	Gui, PayProgress:Destroy
+	; Step 7: Reload the album in ProSelect so changes appear
+	FileAppend, % A_Now . " - UpdatePS - Reloading album via PSConsole openAlbum`n", %DebugLogFile%
+	reloadResult := PsConsole("openAlbum", psaPath, "true")
+	Sleep, 2000  ; Give ProSelect time to reload
 	
 	; Play ding sound and show confirmation
 	SoundPlay, *48
 	if (DownpaymentLineAdded)
-		DarkMsgBox("Payments Entered", "✅ Downpayment + " . PayNo . " scheduled payment(s) entered!", "info", {timeout: 5})
+		DarkMsgBox("Payments Entered", "✅ Downpayment + " . PayNo . " scheduled payment(s) written to album!", "info", {timeout: 5})
 	else
-		DarkMsgBox("Payments Entered", "✅ " . PayNo . " payment(s) successfully entered!", "info", {timeout: 5})
+		DarkMsgBox("Payments Entered", "✅ " . countAdded . " payment(s) written to album!", "info", {timeout: 5})
+} else {
+	; Failed
+	errorMsg := StrReplace(pyOutput, "ERROR|", "")
+	FileAppend, % A_Now . " - UpdatePS - FAILED: " . errorMsg . "`n", %DebugLogFile%
+	DarkMsgBox("Payment Write Failed", "Failed to write payments to album.`n`n" . errorMsg, "error")
 }
-else
+
+; Legacy ProSelect 2024 and older - keep keyboard automation as fallback
+if (false)
 {

@@ -401,8 +401,10 @@ def resize_image_for_cardly(image_path: str, output_path: str = None,
         debug_print(f"Final size: {img.size}")
 
         # Composite sticker overlay if provided
+        _sticker_applied = False
         if sticker_path and os.path.exists(sticker_path):
-            debug_print(f"Applying sticker: {sticker_path} at ({sticker_x}%, {sticker_y}%)")
+            print(f"[Sticker] Applying: {os.path.basename(sticker_path)} "
+                  f"pos=({sticker_x}%, {sticker_y}%) zoom={sticker_zoom}%")
             try:
                 with Image.open(sticker_path) as sticker:
                     # Ensure sticker has alpha channel for transparency
@@ -429,10 +431,16 @@ def resize_image_for_cardly(image_path: str, output_path: str = None,
                     img = img.convert('RGBA')
                     img.paste(sticker, (pos_x, pos_y), sticker)
                     img = img.convert('RGB')
+                    _sticker_applied = True
 
-                    debug_print(f"Sticker composited: {new_sticker_w}x{new_sticker_h} at ({pos_x}, {pos_y})")
+                    print(f"[Sticker] Composited OK: {new_sticker_w}x{new_sticker_h} "
+                          f"at pixel ({pos_x}, {pos_y})")
             except Exception as e:
-                debug_print(f"[WARN] Failed to apply sticker: {e}")
+                print(f"[Sticker] ** FAILED to apply sticker: {e} **")
+        elif sticker_path:
+            print(f"[Sticker] ** Path not found: {sticker_path} **")
+        else:
+            print("[Sticker] No sticker requested for this image")
 
         # ── Embed sRGB ICC profile for colour-accurate printing ──
         if skip_icc:
@@ -814,13 +822,55 @@ def get_ghl_contact(contact_id: str) -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+def save_to_album_folder(processed_image: str, original_image: str, album_folder: str) -> dict:
+    """
+    Save a copy of the processed postcard image to the album folder.
+
+    Args:
+        processed_image: Path to the processed/resized image
+        original_image: Path to the original image (for extracting filename)
+        album_folder: Destination folder path
+
+    Returns:
+        dict with success status and saved file path
+    """
+    if not album_folder or not os.path.exists(album_folder):
+        return {"success": False, "error": "Album folder not specified or does not exist"}
+
+    try:
+        from datetime import datetime
+        
+        # Get original filename without extension
+        original_name = os.path.splitext(os.path.basename(original_image))[0]
+        
+        # Generate filename: {filename}-Postcard-{date-sent}.jpg
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        output_filename = f"{original_name}-Postcard-{date_str}.jpg"
+        output_path = os.path.join(album_folder, output_filename)
+        
+        # Open processed image and save to album folder at 80% quality
+        with Image.open(processed_image) as img:
+            # Convert to RGB if necessary (in case it's RGBA or other format)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Save with 80% quality
+            img.save(output_path, 'JPEG', quality=80, optimize=True)
+        
+        debug_print(f"Saved postcard copy to: {output_path}")
+        return {"success": True, "path": output_path}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 # =============================================================================
 # Main Workflow
 # =============================================================================
 
 def send_card(image_path: str, contact_id: str, message: str = "",
               crop_x: int = 50, crop_y: int = 50, zoom: int = 100,
-              sticker_path: str = None, sticker_x: int = 75, sticker_y: int = 75) -> dict:
+              sticker_path: str = None, sticker_x: int = 75, sticker_y: int = 75,
+              save_to_album: bool = False, album_folder: str = None) -> dict:
     """
     Complete workflow to send a personalized card.
 
@@ -829,6 +879,7 @@ def send_card(image_path: str, contact_id: str, message: str = "",
     3. Upload to GHL (optional)
     4. Create artwork on Cardly
     5. Place order with recipient from GHL contact
+    6. Save copy to album folder (if enabled)
 
     Crop parameters:
     - crop_x: 0-100, horizontal position (0=left, 50=center, 100=right)
@@ -839,6 +890,10 @@ def send_card(image_path: str, contact_id: str, message: str = "",
     - sticker_path: Path to PNG sticker file (None = no sticker)
     - sticker_x: 0-100, horizontal position (0=left, 100=right)
     - sticker_y: 0-100, vertical position (0=top, 100=bottom)
+
+    Album save parameters:
+    - save_to_album: Whether to save a copy to the album folder
+    - album_folder: Path to album folder for saving copy
 
     Returns dict with success status and details.
     """
@@ -945,6 +1000,16 @@ def send_card(image_path: str, contact_id: str, message: str = "",
     result["success"] = True
     result["order"] = order_result.get("data", {})
 
+    # Step 6: Save to album folder (if enabled)
+    if save_to_album and album_folder:
+        print("[STEP 6] Saving copy to album folder...")
+        save_result = save_to_album_folder(processed_image, image_path, album_folder)
+        result["steps"]["album_save"] = save_result
+        if save_result["success"]:
+            print(f"[OK] Saved to: {save_result['path']}")
+        else:
+            print(f"[WARN] Album save failed: {save_result.get('error')}")
+
     # Cleanup processed image
     try:
         if processed_image != image_path:
@@ -989,21 +1054,26 @@ def print_usage() -> None:
 Cardly Card Sending Tool
 
 Usage:
-  cardly_send_card.py <image_path> <contact_id> [message] [crop_x] [crop_y] [zoom] [--debug]
+  cardly_send_card.py <image_path> <contact_id> [message] [crop_x] [crop_y] [zoom] [sticker] [sticker_x] [sticker_y] [album_folder] [--debug]
   cardly_send_card.py --test                    Test API connection
   cardly_send_card.py --process <image_path>   Process image only
 
 Arguments:
-  image_path  Path to source image
-  contact_id  GHL contact ID
-  message     Card message text (optional)
-  crop_x      Crop X position 0-100 (0=left, 50=center, 100=right)
-  crop_y      Crop Y position 0-100 (0=top, 50=center, 100=bottom)
-  zoom        Zoom level 100-200 (100=fit card, 200=2x zoom)
+  image_path    Path to source image
+  contact_id    GHL contact ID
+  message       Card message text (optional)
+  crop_x        Crop X position 0-100 (0=left, 50=center, 100=right)
+  crop_y        Crop Y position 0-100 (0=top, 50=center, 100=bottom)
+  zoom          Zoom level 100-200 (100=fit card, 200=2x zoom)
+  sticker       Path to sticker PNG file (or "none")
+  sticker_x     Sticker X position 0-100
+  sticker_y     Sticker Y position 0-100
+  album_folder  Album folder path to save copy (or "none")
 
 Examples:
   cardly_send_card.py "C:\\Photos\\hero.jpg" "abc123" "Thank you!"
   cardly_send_card.py "C:\\Photos\\hero.jpg" "abc123" "Thanks!" 50 30 150
+  cardly_send_card.py "C:\\Photos\\hero.jpg" "abc123" "Thanks!" 50 30 150 none 75 75 "C:\\Photos"
   cardly_send_card.py --test
   cardly_send_card.py --process "C:\\Photos\\hero.jpg"
 
@@ -1052,13 +1122,18 @@ def main() -> int:
     crop_y = int(args[4]) if len(args) > 4 else 50
     zoom = int(args[5]) if len(args) > 5 else 100
 
-    # Parse sticker parameters (new)
+    # Parse sticker parameters
     sticker_path = args[6] if len(args) > 6 and args[6].lower() != "none" else None
     sticker_x = int(args[7]) if len(args) > 7 else 75
     sticker_y = int(args[8]) if len(args) > 8 else 75
+    
+    # Parse album save parameters
+    album_folder = args[9] if len(args) > 9 and args[9].lower() != "none" else None
+    save_to_album = bool(album_folder)  # Only save if folder is provided
 
     result = send_card(image_path, contact_id, message, crop_x=crop_x, crop_y=crop_y, zoom=zoom,
-                       sticker_path=sticker_path, sticker_x=sticker_x, sticker_y=sticker_y)
+                       sticker_path=sticker_path, sticker_x=sticker_x, sticker_y=sticker_y,
+                       save_to_album=save_to_album, album_folder=album_folder)
 
     # Write result to file for AHK to read
     output_dir = _get_output_dir()

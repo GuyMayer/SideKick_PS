@@ -306,11 +306,11 @@ Gui, Settings:Add, CheckBox, % "x" ContentX+15 " y" CdY " w250 vSetCardlyTestMod
 CdY += 32
 Gui, Settings:Add, Text, % "x" ContentX+15 " y" CdY " w120 c" SetTextDimColor " +BackgroundTrans +Hidden vLblCardlyDefMsg", Default Message:
 Gui, Settings:Font, s9 cBlack, Segoe UI
-Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w340 h24 vSetCardlyDefMsg +Hidden", %Settings_Cardly_DefaultMessage%
+Gui, Settings:Add, Edit, % "x" ContentX+140 " y" CdY-3 " w340 h60 vSetCardlyDefMsg +Hidden +Multi", %Settings_Cardly_DefaultMessage%
 Gui, Settings:Font, s9 cWhite, Segoe UI
 
 ; Cardly Folders & Dimensions
-CdY += 50
+CdY += 80
 Gui, Settings:Font, s10 Bold c%SetAccentColor%, Segoe UI
 Gui, Settings:Add, GroupBox, x%ContentX% y%CdY% w%ContentW% h200 vGrpCardlyFolders +Hidden, Folders && Dimensions
 
@@ -1121,13 +1121,17 @@ IniWrite, %Settings_Cardly_AutoSend%,            %IniFilename%, Cardly, AutoSend
 IniWrite, %Settings_Cardly_TestMode%,            %IniFilename%, Cardly, TestMode
 IniWrite, %Settings_Cardly_MediaID%,             %IniFilename%, Cardly, MediaID
 IniWrite, %Settings_Cardly_MediaName%,           %IniFilename%, Cardly, MediaName
-IniWrite, %Settings_Cardly_DefaultMessage%,      %IniFilename%, Cardly, DefaultMessage
+; Escape newlines for INI storage
+Cardly_DefMsg_Escaped := Settings_Cardly_DefaultMessage
+StringReplace, Cardly_DefMsg_Escaped, Cardly_DefMsg_Escaped, `n, ``n, All
+IniWrite, %Cardly_DefMsg_Escaped%,      %IniFilename%, Cardly, DefaultMessage
 IniWrite, %Settings_Cardly_PostcardFolder%,      %IniFilename%, Cardly, PostcardFolder
 IniWrite, %Settings_Cardly_CardWidth%,           %IniFilename%, Cardly, CardWidth
 IniWrite, %Settings_Cardly_CardHeight%,          %IniFilename%, Cardly, CardHeight
 IniWrite, %Settings_Cardly_GHLMediaFolderID%,    %IniFilename%, Cardly, GHLMediaFolderID
 IniWrite, %Settings_Cardly_GHLMediaFolderName%,  %IniFilename%, Cardly, GHLMediaFolderName
 IniWrite, %Settings_Cardly_PhotoLinkField%,      %IniFilename%, Cardly, PhotoLinkField
+IniWrite, %Settings_Cardly_SaveToAlbum%,         %IniFilename%, Cardly, SaveToAlbum
 IniWrite, %Settings_ShowBtn_Cardly%,             %IniFilename%, Toolbar, ShowBtn_Cardly
 
 ; Hotkeys section

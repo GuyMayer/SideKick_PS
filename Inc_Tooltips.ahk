@@ -527,6 +527,11 @@ CreateGHLPanel()
 	Gui, Settings:Add, Button, x210 y545 w150 h26 gSetOrderQRUrl vGHLSetOrderQRBtn Hidden HwndHwndSetOrderQR, 📱 Set Order QR URL
 	RegisterSettingsTooltip(HwndSetOrderQR, "SET ORDER QR URL`n`nConfigures ProSelect QR code that works for BOTH:`n`n📱 Phone: Scan with camera → opens GHL contact`n🔫 Scanner: Barcode scanner → SideKick opens URL`n`nThe long URL path provides natural padding for scanner timing.")
 	
+	; Lead Connector app toggle
+	chkLC := Settings_QR_UseLeadConnector ? "Checked" : ""
+	Gui, Settings:Add, CheckBox, x380 y548 w280 vGHLQRLeadConnectorChk BackgroundTrans Hidden %chkLC% HwndHwndQRLC, Open in Lead Connector app
+	RegisterSettingsTooltip(HwndQRLC, "LEAD CONNECTOR APP`n`nWhen enabled, the QR code URL uses the`nLead Connector app domain so scanning`nopens the contact directly in the LC`nmobile app instead of a web browser.`n`nRequires the Lead Connector app to be`ninstalled on your phone.")
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; CONTACT SHEET COLLECTION GROUP BOX (y590 to y685)
 	; ═══════════════════════════════════════════════════════════════════════════

@@ -1,14 +1,24 @@
 {
-  "version": "2.5.35",
-  "build_date": "2026-02-25",
+  "version": "2.5.36",
+  "build_date": "2026-02-26",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
+  "release_notes": "Cardly orientation swap, Lead Connector QR toggle, PSConsole automation, direct PSA payment writing",
   "changelog": [
-    "FIX: GHL Photo Link URL - normalise upload URL to public CDN domain (assets.cdn.filesafe.space)",
-    "FIX: GoCardless API token rejected - Base64_Encode now uses NOCRLF flag to prevent broken JSON credentials",
-    "FIX: GoCardless token input now trimmed of whitespace on entry",
-    "DOCS: Cardly Test Mode - documented what test mode validates vs skips, cost implications, and orphaned artwork",
-    "DOCS: User Manual - new Greeting Cards (Cardly) section with workflow, test mode table, image sources, requirements",
+    "NEW: Cardly template orientation swap - rotate button (⇄) switches crop between Landscape and Portrait using matched template pairs",
+    "NEW: Cardly orientation pair detection - auto-discovers L↔P template pairs by case-insensitive base name matching",
+    "NEW: Lead Connector QR toggle - switch QR code URL between white-label domain and LC app deep link",
+    "NEW: Cardly Sign Up button in settings next to Dashboard",
+    "NEW: Cardly Dashboard URL configurable from Settings (no longer hardcoded)",
+    "NEW: Direct PSA payment writing - write_psa_payments.py injects payments directly into .psa SQLite files",
+    "NEW: UpdatePS flow rewired: save album → write payments to PSA → reload album",
+    "IMPROVED: PSConsole saveAlbum replaces Ctrl+S keyboard automation (no blind 3s sleep)",
+    "IMPROVED: PSConsole openAlbum replaces Ctrl+O with smart single-PSA detection",
+    "IMPROVED: Cardly message box height doubled (4→8 lines) for longer messages",
+    "IMPROVED: Cardly multiline message support - \\n escape chain across INI/AHK/cmdline/Python",
+    "IMPROVED: Cardly spinner animation replaces stalling progress bar (canvas-based spinning dots)",
+    "IMPROVED: Card Details panel shows orientation label (Landscape/Portrait) next to dimensions",
+    "FIX: GHL tag sync - INI key mismatch (Tags vs SyncTag, OppTags vs OpportunityTags)",
+    "FIX: Cardly address validation - state/county no longer required (UK addresses)",
     "NEW: Graphical Toolbar Button Settings - clickable icons instead of toggle sliders",
     "NEW: Visual Toggle Feedback - icons and labels change color when disabled",
     "IMPROVED: Direct toggle updates - button visibility changes immediately on click",
@@ -61,7 +71,19 @@
   ],
   "versions": [
     {
-      "version": "2.5.22",
+      "version": "2.5.35",
+      "build_date": "2026-02-25",
+      "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
+      "changelog": [
+        "FIX: GHL Photo Link URL - normalise upload URL to public CDN domain (assets.cdn.filesafe.space)",
+        "FIX: GoCardless API token rejected - Base64_Encode now uses NOCRLF flag to prevent broken JSON credentials",
+        "FIX: GoCardless token input now trimmed of whitespace on entry",
+        "DOCS: Cardly Test Mode - documented what test mode validates vs skips, cost implications, and orphaned artwork",
+        "DOCS: User Manual - new Greeting Cards (Cardly) section with workflow, test mode table, image sources, requirements"
+      ]
+    },
+    {
+      "version": "2.5.34",
       "build_date": "2026-02-17",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [

@@ -697,8 +697,13 @@ def load_config() -> dict:
             location_id = ghl.get('LocationID', '')
         
         # Tag settings from INI
-        sync_tag = ghl.get('SyncTag', sync_tag)
-        opportunity_tags = ghl.get('OpportunityTags', opportunity_tags)
+        # AHK writes to 'Tags' and 'OppTags'; also check legacy 'SyncTag'/'OpportunityTags'
+        sync_tag = ghl.get('Tags', ghl.get('SyncTag', sync_tag))
+        opportunity_tags = ghl.get('OppTags', ghl.get('OpportunityTags', opportunity_tags))
+        
+        # Auto-add toggle settings (AHK writes 0/1)
+        auto_contact_tags = ghl.get('AutoAddContactTags', '1')
+        auto_opp_tags = ghl.get('AutoAddOppTags', '1')
     except Exception as e:
         debug_log(f"Error loading INI: {e}")
     
@@ -715,6 +720,8 @@ def load_config() -> dict:
         'LOCATION_ID': location_id,
         'SYNC_TAG': sync_tag,
         'OPPORTUNITY_TAGS': [t.strip() for t in opportunity_tags.split(',') if t.strip()],
+        'AUTO_ADD_CONTACT_TAGS': auto_contact_tags != '0',
+        'AUTO_ADD_OPP_TAGS': auto_opp_tags != '0',
     }
 
 # Load config
@@ -4290,17 +4297,24 @@ def _process_sync(
 
     # Step 5: Add tags to contact and opportunities on successful sync
     if result.get('success'):
-        # Add sync tag to contact (configurable via INI: SyncTag)
-        sync_tag = CONFIG.get('SYNC_TAG', 'PS Invoice')
-        if sync_tag:
-            add_tags_to_contact(contact_id, [sync_tag])
+        # Add sync tag to contact (configurable via INI: Tags / legacy SyncTag)
+        if CONFIG.get('AUTO_ADD_CONTACT_TAGS', True):
+            sync_tag = CONFIG.get('SYNC_TAG', 'PS Invoice')
+            if sync_tag:
+                debug_log(f"Adding contact tag: '{sync_tag}' to contact {contact_id}")
+                add_tags_to_contact(contact_id, [sync_tag])
+        else:
+            debug_log("Skipping contact tags (AutoAddContactTags disabled)")
         
-        # Add tags to any opportunities for this contact (configurable via INI: OpportunityTags)
-        opp_tags = CONFIG.get('OPPORTUNITY_TAGS', [])
-        if opp_tags:
-            tagged = tag_contact_opportunities(contact_id, opp_tags)
-            if tagged > 0:
-                result['opportunities_tagged'] = tagged
+        # Add tags to any opportunities for this contact (configurable via INI: OppTags / legacy OpportunityTags)
+        if CONFIG.get('AUTO_ADD_OPP_TAGS', True):
+            opp_tags = CONFIG.get('OPPORTUNITY_TAGS', [])
+            if opp_tags:
+                tagged = tag_contact_opportunities(contact_id, opp_tags)
+                if tagged > 0:
+                    result['opportunities_tagged'] = tagged
+        else:
+            debug_log("Skipping opportunity tags (AutoAddOppTags disabled)")
 
     # Final step: Done
     current_step = total_steps

@@ -311,6 +311,7 @@ global Settings_QRCode_Text1 := ""
 global Settings_QRCode_Text2 := ""
 global Settings_QRCode_Text3 := ""
 global Settings_QRCode_Display := 1  ; Which monitor to show QR on (1 = primary)
+global Settings_QR_UseLeadConnector := 0  ; Use Lead Connector app deep link instead of browser URL
 global QRDisplay_Created := false  ; Track if QR fullscreen GUI exists
 global Settings_DisplaySize := 80  ; Fullscreen display size (25-85%)
 global Settings_BankScale := 100  ; Bank Transfer font scale (50-150%)
@@ -2987,72 +2988,52 @@ Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ; GetAlbumFolder() - Gets the current album's folder path from ProSelect
-; Uses menu File > Save Album as... to open Save dialog, reads the path from
-; the ToolbarWindow324 breadcrumb bar, then cancels.
+; Uses PSConsole getAlbumData command to retrieve the album path directly
 ; ═══════════════════════════════════════════════════════════════════════════════
 GetAlbumFolder() {
-	; Activate ProSelect
-	WinActivate, ahk_exe ProSelect.exe
-	WinWaitActive, ahk_exe ProSelect.exe, , 5
-	if ErrorLevel
+	global PsConsolePath
+	
+	; Check if PSConsole is available
+	if (PsConsolePath = "")
 		return ""
-	Sleep, 500
 	
-	; Use menu to open Save Album As dialog (avoids triggering other hotkeys)
-	WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Save Album as...
-	
-	; Wait for the Save As dialog
-	WinWait, Save, , 10
-	if ErrorLevel
+	; Call PSConsole getAlbumData to get album information
+	albumData := PsConsole("getAlbumData")
+	if (!albumData || albumData = "false" || albumData = "true")
 		return ""
-	Sleep, 2000
 	
-	; Get the actual folder path by focusing the address bar (Alt+D) and copying
-	; This gives us the real path including UNC paths for network locations
+	; Parse XML to extract the album file path
+	; Looking for: <albumFile albumName="..." path="D:\path\to\album.psa" saved="true" />
 	albumPath := ""
+	if (RegExMatch(albumData, "<albumFile[^>]+path=""([^""]+)""", pathMatch))
+		albumPath := pathMatch1
 	
-	; Method 1: Focus address bar with Alt+D, select all, copy (clipboard-safe)
-	savedClip := ""
-	ClipboardSafeGet(savedClip)
-	Send, !d  ; Alt+D focuses address bar in Explorer/Save dialogs
-	Sleep, 500
-	Send, ^c  ; Copy the path
-	ClipWait, 2
-	if (!ErrorLevel)
-		albumPath := Clipboard
-	ClipboardSafeRestore(savedClip)
+	if (albumPath = "")
+		return ""
 	
-	; Fallback: try reading Edit1 and building path from it
-	if (albumPath = "" || InStr(albumPath, ".psa")) {
-		; Edit1 contains the filename - we need the folder
-		; Try the breadcrumb bar as fallback
-		ControlGetText, breadcrumb, ToolbarWindow324, Save
-		if (InStr(breadcrumb, "Address: ") = 1)
-			albumPath := SubStr(breadcrumb, 10)
-	}
+	; Extract the directory from the full .psa file path
+	SplitPath, albumPath, , albumFolder
 	
-	; Cancel the Save dialog without saving
-	; After Alt+D, focus is in address bar - need to click Cancel button
-	Sleep, 300
-	ControlClick, Button2, Save  ; Cancel button
-	Sleep, 200
-	if WinExist("Save") {
-		WinActivate, Save
-		Send, {Escape}
-		Sleep, 200
-	}
-	if WinExist("Save") {
-		; Last resort - click Cancel again
-		ControlClick, Cancel, Save
-		Sleep, 200
-	}
-	WinWaitClose, Save, , 3
-	Sleep, 300
+	return albumFolder
+}
+
+GetAlbumPath() {
+	global PsConsolePath
 	
-	; Clean up trailing backslash
-	albumPath := RTrim(albumPath, "\")
+	; Check if PSConsole is available
+	if (PsConsolePath = "")
+		return ""
 	
-	return albumPath
+	; Call PSConsole getAlbumData to get album file path
+	albumData := PsConsole("getAlbumData")
+	if (!albumData || albumData = "false" || albumData = "true")
+		return ""
+	
+	; Parse XML: <albumFile albumName="..." path="D:\path\to\album.psa" saved="true" />
+	if (RegExMatch(albumData, "<albumFile[^>]+path=""([^""]+)""", pathMatch))
+		return pathMatch1
+	
+	return ""
 }
 
 ; ═══════════════════════════════════════════════════════════════════════════════
@@ -4488,7 +4469,8 @@ if (ExportFolder = "" || !FileExist(ExportFolder))
 }
 
 ; Trigger ProSelect XML export using shared function
-if (!PS_TriggerXMLExport(true)) {
+latestXml := PS_TriggerXMLExport(true)
+if (latestXml = "") {
 	; Export failed - function already showed error message
 	ExportInProgress := false
 	Hotkey, Escape, ExportCancelCheck, Off
@@ -4496,28 +4478,7 @@ if (!PS_TriggerXMLExport(true)) {
 	Return
 }
 
-; Find the most recent XML file in the export folder
-Sleep, 500  ; Give filesystem time to write file
-latestXml := ""
-latestTime := 0
-Loop, Files, %ExportFolder%\*.xml
-{
-	FileGetTime, fileTime, %A_LoopFileFullPath%, M
-	if (fileTime > latestTime)
-	{
-		latestTime := fileTime
-		latestXml := A_LoopFileFullPath
-	}
-}
-
-if (latestXml = "")
-{
-	ExportInProgress := false  ; Re-enable file watcher
-	Gui, InvoiceHandsOff:Destroy
-	ToolTip, No XML files found in: %ExportFolder%
-	SetTimer, RemoveToolTip, -3000
-	Return
-}
+; latestXml now contains the full path to the exported XML file
 
 ; Safety check: Verify XML contains a client ID before syncing
 FileRead, xmlContent, %latestXml%
@@ -4854,7 +4815,8 @@ Toolbar_Cardly:
 	global Settings_Cardly_MediaID, Settings_Cardly_MediaName
 	global Settings_Cardly_PostcardFolder, Settings_Cardly_CardWidth, Settings_Cardly_CardHeight
 	global Settings_Cardly_GHLMediaFolderID, Settings_Cardly_GHLMediaFolderName
-	global Settings_Cardly_PhotoLinkField
+	global Settings_Cardly_PhotoLinkField, Settings_Cardly_SaveToAlbum
+	global CardlyTemplateAltOrientation, CardlyTemplateMap, CardlyTemplateSizes
 	
 	; Kill any existing cardly preview/select windows before launching a new one
 	; Handles both .exe (Release) and pythonw .py (dev) instances
@@ -5086,7 +5048,10 @@ Toolbar_Cardly:
 	
 	; Build command line args using argparse format
 	stickerFolder := A_ScriptDir . "\stickers"
-	cmdArgs := """" . imageFolder . """ """ . contactId . """ """ . firstName . """ """ . CardMessage . """"
+	; Escape newlines for command line transport (Python will unescape)
+	CardMessage_Escaped := CardMessage
+	StringReplace, CardMessage_Escaped, CardMessage_Escaped, `n, \n, All
+	cmdArgs := """" . imageFolder . """ """ . contactId . """ """ . firstName . """ """ . CardMessage_Escaped . """"
 	if (Settings_Cardly_MediaID != "")
 		cmdArgs .= " --template-id """ . Settings_Cardly_MediaID . """"
 	if (FileExist(stickerFolder))
@@ -5097,6 +5062,20 @@ Toolbar_Cardly:
 		cmdArgs .= " --card-height """ . Settings_Cardly_CardHeight . """"
 	if (Settings_Cardly_MediaName != "")
 		cmdArgs .= " --media-name """ . Settings_Cardly_MediaName . """"
+	; Pass alternate orientation template if a pair exists
+	if (CardlyTemplateAltOrientation && CardlyTemplateAltOrientation.HasKey(Settings_Cardly_MediaName)) {
+		altDisplayName := CardlyTemplateAltOrientation[Settings_Cardly_MediaName]
+		if (CardlyTemplateMap.HasKey(altDisplayName)) {
+			cmdArgs .= " --alt-template-id """ . CardlyTemplateMap[altDisplayName] . """"
+			if (CardlyTemplateSizes.HasKey(altDisplayName)) {
+				altSizeStr := CardlyTemplateSizes[altDisplayName]
+				if (RegExMatch(altSizeStr, "(\d+)x(\d+)", altDim)) {
+					cmdArgs .= " --alt-card-width """ . altDim1 . """"
+					cmdArgs .= " --alt-card-height """ . altDim2 . """"
+				}
+			}
+		}
+	}
 	if (Settings_Cardly_PostcardFolder != "")
 		cmdArgs .= " --postcard-folder """ . Settings_Cardly_PostcardFolder . """"
 	if (Settings_Cardly_GHLMediaFolderID != "")
@@ -5116,6 +5095,9 @@ Toolbar_Cardly:
 	}
 	if (Settings_Cardly_TestMode)
 		cmdArgs .= " --test-mode"
+	if (Settings_Cardly_SaveToAlbum && albumDir != "" && FileExist(albumDir)) {
+		cmdArgs .= " --save-to-album --album-folder """ . albumDir . """"
+	}
 	
 	; Launch Card Preview GUI
 	cardPreviewPath := GetScriptPath("cardly_preview_gui")
@@ -7343,6 +7325,8 @@ Settings_GHLTags := GHLTagsEdit
 Settings_GHLOppTags := GHLOppTagsEdit
 Settings_InvoiceWatchFolder := GHLWatchFolderEdit
 Settings_ContactSheetFolder := GHLCSFolderEdit
+; Lead Connector app toggle from GHL tab
+GuiControlGet, Settings_QR_UseLeadConnector, Settings:, GHLQRLeadConnectorChk
 ; Cardly settings from GUI controls
 GuiControlGet, _cardlyApiKey, Settings:, CrdApiKeyEdit
 if (_cardlyApiKey != "")
@@ -7368,6 +7352,7 @@ GuiControlGet, Settings_Cardly_MessageField, Settings:, CrdMsgFieldDDL
 GuiControlGet, Settings_Cardly_DefaultMessage, Settings:, CrdDefMsgEdit
 GuiControlGet, Settings_Cardly_AutoSend, Settings:, CrdAutoSendChk
 GuiControlGet, Settings_Cardly_TestMode, Settings:, CrdTestModeChk
+GuiControlGet, Settings_Cardly_SaveToAlbum, Settings:, CrdSaveToAlbumChk
 ; Save Cardly credentials to JSON
 SaveGHLCredentials()
 ; Save settings
@@ -7470,6 +7455,8 @@ Settings_GHLTags := GHLTagsEdit
 Settings_GHLOppTags := GHLOppTagsEdit
 Settings_InvoiceWatchFolder := GHLWatchFolderEdit
 Settings_ContactSheetFolder := GHLCSFolderEdit
+; Lead Connector app toggle from GHL tab
+GuiControlGet, Settings_QR_UseLeadConnector, Settings:, GHLQRLeadConnectorChk
 ; Cardly settings from GUI controls
 GuiControlGet, _cardlyApiKey, Settings:, CrdApiKeyEdit
 if (_cardlyApiKey != "")
@@ -7493,6 +7480,7 @@ GuiControlGet, Settings_Cardly_MessageField, Settings:, CrdMsgFieldDDL
 GuiControlGet, Settings_Cardly_DefaultMessage, Settings:, CrdDefMsgEdit
 GuiControlGet, Settings_Cardly_AutoSend, Settings:, CrdAutoSendChk
 GuiControlGet, Settings_Cardly_TestMode, Settings:, CrdTestModeChk
+GuiControlGet, Settings_Cardly_SaveToAlbum, Settings:, CrdSaveToAlbumChk
 SaveGHLCredentials()
 ; Save settings
 SaveSettings()
@@ -7569,9 +7557,12 @@ SetOrderQRUrl:
 	
 	; Build combined QR code URL that works for both phone AND scanner
 	; Format: Full URL - the path is long enough to act as padding
-	; - Phones: Scan QR → open URL directly in browser
+	; - Phones: Scan QR → open URL directly in browser or Lead Connector app
 	; - Scanners: Type fast → SideKick detects https:// → opens URL
-	ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+	if (Settings_QR_UseLeadConnector)
+		ghlDomain := "app.leadconnector.app"
+	else
+		ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
 	qrUrl := "https://" . ghlDomain . "/v2/location/" . GHL_LocationID . "/contacts/detail/[ACCOUNTCODE]"
 	qrTitle := "GHL Client QR"
 	

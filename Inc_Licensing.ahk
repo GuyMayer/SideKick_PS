@@ -1289,7 +1289,8 @@ CreateCardlyPanel()
 	
 	; Dashboard button (top-right)
 	Gui, Settings:Font, s9 Norm c%textColor%, Segoe UI
-	Gui, Settings:Add, Button, x585 y20 w85 h28 gOpenCardlyDashboard vCrdDashboardBtn Hidden, Dashboard
+	Gui, Settings:Add, Button, x490 y20 w85 h28 gOpenCardlyDashboard vCrdDashboardBtn Hidden, Dashboard
+	Gui, Settings:Add, Button, x585 y20 w85 h28 gOpenCardlySignup vCrdSignupBtn Hidden, Sign Up
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; API CONFIGURATION GROUP BOX
@@ -1354,7 +1355,7 @@ CreateCardlyPanel()
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y453 w200 BackgroundTrans vCrdDefMsgLabel Hidden, Default Message:
 	Gui, Settings:Font, s10 Norm c000000, Segoe UI
-	Gui, Settings:Add, Edit, x210 y473 w450 h44 vCrdDefMsgEdit Hidden, %Settings_Cardly_DefaultMessage%
+	Gui, Settings:Add, Edit, x210 y473 w450 h60 vCrdDefMsgEdit Hidden +Multi, %Settings_Cardly_DefaultMessage%
 	
 	; Auto Send checkbox
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
@@ -1365,9 +1366,13 @@ CreateCardlyPanel()
 	chkTestMode := Settings_Cardly_TestMode ? "Checked" : ""
 	Gui, Settings:Add, CheckBox, x210 y552 w350 vCrdTestModeChk BackgroundTrans Hidden %chkTestMode%, Test mode (upload artwork; skip order)
 	
+	; Save to Album Folder checkbox
+	chkSaveToAlbum := Settings_Cardly_SaveToAlbum ? "Checked" : ""
+	Gui, Settings:Add, CheckBox, x210 y577 w350 vCrdSaveToAlbumChk BackgroundTrans Hidden %chkSaveToAlbum%, Save to album folder
+	
 	; Info text
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y582 w450 h40 BackgroundTrans vCrdInfoText Hidden, API Key and credentials are stored securely in credentials.json
+	Gui, Settings:Add, Text, x210 y602 w450 h40 BackgroundTrans vCrdInfoText Hidden, API Key and credentials are stored securely in credentials.json
 	
 	; Reset font
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
@@ -1643,7 +1648,14 @@ TestGCConnection:
 return
 
 OpenCardlyDashboard:
-	Run, https://www.cardly.net/account
+	if (Settings_Cardly_DashboardURL != "")
+		Run, %Settings_Cardly_DashboardURL%
+	else
+		Run, https://www.cardly.net/account
+return
+
+OpenCardlySignup:
+	Run, https://www.cardly.net/business/signup
 return
 
 OpenGCDashboard:
@@ -2549,11 +2561,19 @@ OpenPSAFolderInProSelect(folderPath) {
 			WinWait, ahk_exe ProSelect.exe, , 10
 		}
 		
+		; If only one PSA, open it directly via PSConsole
+		if (psaCount = 1) {
+			Loop, Files, %folderPath%\*.psa
+				psaSinglePath := A_LoopFileFullPath
+			PsConsole("openAlbum", psaSinglePath, "true")
+			return true
+		}
+		
+		; Multiple PSAs — open file dialog so user can choose
 		WinActivate, ahk_exe ProSelect.exe
 		WinWaitActive, ahk_exe ProSelect.exe, , 3
 		Sleep, 300
 		
-		; Send Ctrl+O to open file dialog
 		SendInput, ^o
 		Sleep, 500
 		
@@ -2562,7 +2582,6 @@ OpenPSAFolderInProSelect(folderPath) {
 		if (!ErrorLevel) {
 			; Navigate to folder using the filename edit control
 			Sleep, 300
-			; Click into filename field and type full path
 			ControlFocus, Edit1, Select an Album File
 			Sleep, 100
 			ControlSetText, Edit1, %folderPath%, Select an Album File
@@ -2708,186 +2727,110 @@ GC_CheckCustomerMandate(customerEmail) {
 }
 
 ; Shared function to trigger ProSelect XML export
-; Returns true on success, false on failure
+; Returns the full path to the exported XML file on success, empty string on failure
 ; showErrors: if true, shows DarkMsgBox on errors; if false, fails silently
 PS_TriggerXMLExport(showErrors := false) {
-	global DebugLogFile
+	global DebugLogFile, PsConsolePath, Settings_InvoiceWatchFolder
 	
-	FileAppend, % A_Now . " - PS_TriggerXMLExport - Starting export`n", %DebugLogFile%
+	FileAppend, % A_Now . " - PS_TriggerXMLExport - Starting PSConsole export`n", %DebugLogFile%
 	
-	; Activate ProSelect
-	WinActivate, ahk_exe ProSelect.exe
-	Sleep, 300
-	WinWaitActive, ahk_exe ProSelect.exe, , 2
-	
-	; Try multiple methods to open Export Orders dialog
-	exportOpened := false
-	
-	FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 1: WinMenuSelectItem...`n", %DebugLogFile%
-	; Method 1: WinMenuSelectItem - most reliable for standard menus
-	WinMenuSelectItem, ahk_exe ProSelect.exe, , Orders, Export Orders...
-	Sleep, 800
-	if WinExist("Export Orders ahk_exe ProSelect.exe")
-	{
-		exportOpened := true
-		FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 1 SUCCESS`n", %DebugLogFile%
-	}
-	
-	; Method 2: SendInput with longer delays (fallback)
-	if (!exportOpened)
-	{
-		FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 2: SendInput Alt+O, E...`n", %DebugLogFile%
-		WinActivate, ahk_exe ProSelect.exe
-		Sleep, 300
-		SendInput, {Alt down}o{Alt up}
-		Sleep, 500
-		SendInput, e
-		Sleep, 800
-		if WinExist("Export Orders ahk_exe ProSelect.exe")
-		{
-			exportOpened := true
-			FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 2 SUCCESS`n", %DebugLogFile%
-		}
-	}
-	
-	; Method 3: Send with even longer delays (last resort)
-	if (!exportOpened)
-	{
-		FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 3: Send !o, e...`n", %DebugLogFile%
-		WinActivate, ahk_exe ProSelect.exe
-		Sleep, 500
-		Send, !o
-		Sleep, 800
-		Send, e
-		Sleep, 1000
-		if WinExist("Export Orders ahk_exe ProSelect.exe")
-		{
-			exportOpened := true
-			FileAppend, % A_Now . " - PS_TriggerXMLExport - Method 3 SUCCESS`n", %DebugLogFile%
-		}
-	}
-	
-	; Wait for dialog if not already open
-	if (!exportOpened)
-	{
-		FileAppend, % A_Now . " - PS_TriggerXMLExport - Waiting 5s for Export Orders dialog...`n", %DebugLogFile%
-		WinWait, Export Orders ahk_exe ProSelect.exe, , 5
-		if ErrorLevel
-		{
-			FileAppend, % A_Now . " - PS_TriggerXMLExport - FAILED: Export Orders dialog did not open`n", %DebugLogFile%
-			if (showErrors)
-				DarkMsgBox("SideKick PS", "Export Orders dialog did not open.`n`nTry opening it manually: Orders menu → Export Orders...", "warning")
-			return false
-		}
-	}
-	FileAppend, % A_Now . " - PS_TriggerXMLExport - Export Orders dialog opened`n", %DebugLogFile%
-	Sleep, 300
-	
-	; Get the window handle for more reliable control interaction
-	exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
-	
-	; Ensure Export To is set to "Standard XML" (ComboBox1)
-	ControlFocus, ComboBox1, ahk_id %exportWin%
-	Sleep, 100
-	Control, ChooseString, Standard XML, ComboBox1, ahk_id %exportWin%
-	Sleep, 300
-	
-	; Click "Check All" button (Button4) - try multiple methods for reliability
-	; Method 1: ControlClick with window handle
-	ControlClick, Button4, ahk_id %exportWin%, , , , NA
-	Sleep, 500
-	
-	; Check if it worked by verifying window is still responsive
-	if !WinExist("ahk_id " . exportWin)
-	{
-		FileAppend, % A_Now . " - PS_TriggerXMLExport - Export Orders dialog closed unexpectedly`n", %DebugLogFile%
+	; Check if PSConsole is available
+	if (PsConsolePath = "") {
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - FAILED: PSConsole not found`n", %DebugLogFile%
 		if (showErrors)
-			DarkMsgBox("SideKick PS", "Export Orders dialog closed unexpectedly", "warning")
-		return false
+			DarkMsgBox("PSConsole Not Found", "PSConsole.exe was not found.`n`nPlease ensure ProSelect is properly installed.", "warning")
+		return ""
 	}
 	
-	; Method 2: If first click didn't work, try sending BM_CLICK message directly
-	ControlGet, checkAllHwnd, Hwnd, , Button4, ahk_id %exportWin%
-	if (checkAllHwnd)
-	{
-		SendMessage, 0x00F5, 0, 0, , ahk_id %checkAllHwnd%  ; BM_CLICK = 0x00F5
-	}
-	Sleep, 1500
+	; Get export folder (watch folder)
+	exportFolder := Settings_InvoiceWatchFolder
+	if (exportFolder = "" || !FileExist(exportFolder))
+		exportFolder := A_MyDocuments . "\Proselect Order Exports"
 	
-	; Click Export Now (Button2)
-	Sleep, 300
-	ControlClick, Button2, ahk_id %exportWin%, , , , NA
+	; Ensure export folder exists
+	if (!FileExist(exportFolder))
+		FileCreateDir, %exportFolder%
 	
-	; Wait for "Export in Standard XML format completed" confirmation dialog
-	WinWait, Export Orders, completed, 15
-	if !ErrorLevel
-	{
-		Sleep, 500
-		; Get the completion dialog window handle (the one with "completed" text)
-		completedWin := WinExist("Export Orders")
-		
-		; Click OK on the completion dialog - try multiple methods
-		; Method 1: ControlClick
-		ControlClick, OK, ahk_id %completedWin%, , , , NA
-		Sleep, 300
-		
-		; Method 2: Try Button1 with ControlClick
-		ControlClick, Button1, ahk_id %completedWin%, , , , NA
-		Sleep, 300
-		
-		; Method 3: Send Enter key to the window
-		ControlSend, , {Enter}, ahk_id %completedWin%
-		Sleep, 500
-		
-		; Wait for the completion dialog to close
-		WinWaitClose, ahk_id %completedWin%, , 3
-		
-		; Now find and close the main Export Orders window
-		Sleep, 300
-		exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
-		
-		; Click Cancel to close the Export Orders window
-		if (exportWin) {
-			; Try Cancel button
-			ControlClick, Cancel, ahk_id %exportWin%, , , , NA
-			Sleep, 300
-			
-			; Try Button3 (Cancel is often Button3)
-			ControlClick, Button3, ahk_id %exportWin%, , , , NA
-			Sleep, 300
-			
-			; Send Escape key as fallback
-			ControlSend, , {Escape}, ahk_id %exportWin%
-			Sleep, 500
-			
-			; Wait for window to close
-			WinWaitClose, ahk_id %exportWin%, , 3
-		}
-		
-		FileAppend, % A_Now . " - PS_TriggerXMLExport - Export complete`n", %DebugLogFile%
-		return true
+	; Get album data to build filename
+	albumData := PsConsole("getAlbumData")
+	if (!albumData || albumData = "false" || albumData = "true") {
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - FAILED: Could not get album data`n", %DebugLogFile%
+		if (showErrors)
+			DarkMsgBox("Export Failed", "Could not get album data from ProSelect.`n`nMake sure an album is open.", "warning")
+		return ""
 	}
+	
+	; Extract album name from XML
+	albumName := ""
+	if (RegExMatch(albumData, "<albumFile[^>]+albumName=""([^""]+)""", nameMatch))
+		albumName := nameMatch1
+	
+	; Remove .psa extension if present
+	albumName := RegExReplace(albumName, "\.psa$", "")
+	
+	; Extract shoot number from album name (e.g., P26010P from "P26010P_Smith_abc123")
+	shootNo := ""
+	if (RegExMatch(albumName, "^(P\d+[A-Z]?)", shootMatch))
+		shootNo := shootMatch1
+	
+	; Build filename in ProSelect format: YYYY-MM-DD_HHMMSS_ShootNo_1.xml
+	FormatTime, timestamp, , yyyy-MM-dd_HHmmss
+	if (shootNo != "")
+		baseFilename := timestamp . "_" . shootNo
+	else if (albumName != "")
+		baseFilename := timestamp . "_" . albumName
 	else
-	{
-		FileAppend, % A_Now . " - PS_TriggerXMLExport - Completion dialog did not appear`n", %DebugLogFile%
-		; Close export dialog anyway
-		exportWin := WinExist("Export Orders ahk_exe ProSelect.exe")
-		if (exportWin) {
-			ControlClick, Cancel, ahk_id %exportWin%, , , , NA
-			Sleep, 300
-			ControlSend, , {Escape}, ahk_id %exportWin%
-		}
-		if (showErrors)
-			DarkMsgBox("SideKick PS", "Export did not complete.`n`nPlease try exporting manually.", "warning")
-		return false
+		baseFilename := timestamp . "_export"
+	
+	; Find next available suffix (_1, _2, _3, etc.)
+	suffix := 1
+	Loop {
+		xmlFilename := baseFilename . "_" . suffix . ".xml"
+		xmlPath := exportFolder . "\" . xmlFilename
+		if (!FileExist(xmlPath))
+			break
+		suffix++
+		if (suffix > 999)  ; Safety limit
+			break
 	}
+	
+	FileAppend, % A_Now . " - PS_TriggerXMLExport - Export path: " . xmlPath . "`n", %DebugLogFile%
+	
+	; Call PSConsole exportOrderData
+	; format: 1 = PhotoOne XML (Standard XML)
+	; group: 0 = all groups
+	; includeSampleImages: false
+	; sampleimagesfolder: temp folder (required parameter even if not used)
+	tempFolder := A_Temp
+	result := PsConsole("exportOrderData", xmlPath, "1", "0", "false", tempFolder)
+	
+	if (!result || result = "false" || result = "true") {
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - FAILED: PSConsole exportOrderData failed`n", %DebugLogFile%
+		if (showErrors)
+			DarkMsgBox("Export Failed", "PSConsole exportOrderData command failed.`n`nMake sure the album has orders.", "warning")
+		return ""
+	}
+	
+	; Check if file was created
+	Sleep, 500  ; Give filesystem time to write
+	if (!FileExist(xmlPath)) {
+		FileAppend, % A_Now . " - PS_TriggerXMLExport - FAILED: XML file not created`n", %DebugLogFile%
+		if (showErrors)
+			DarkMsgBox("Export Failed", "XML file was not created.`n`nPath: " . xmlPath, "warning")
+		return ""
+	}
+	
+	FileAppend, % A_Now . " - PS_TriggerXMLExport - SUCCESS: " . xmlPath . "`n", %DebugLogFile%
+	return xmlPath
 }
 
 ; Trigger ProSelect Export Orders and click Export (wrapper for GoCardless flow)
 GC_TriggerExport() {
 	global DebugLogFile
 	FileAppend, % A_Now . " - GC_TriggerExport - Calling shared PS_TriggerXMLExport`n", %DebugLogFile%
-	PS_TriggerXMLExport(false)  ; Silent mode - no error dialogs
+	xmlPath := PS_TriggerXMLExport(false)  ; Silent mode - no error dialogs
+	FileAppend, % A_Now . " - GC_TriggerExport - Export result: " . (xmlPath ? xmlPath : "(failed)") . "`n", %DebugLogFile%
+	return xmlPath
 }
 
 GC_SendMandateRequest(contactData, sendEmail, sendSMS) {
@@ -3183,11 +3126,10 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		if (result = "Cancel")
 			return
 		
-		; Save the album for the user (Ctrl+S in ProSelect)
-		Send, ^s
-		Sleep, 3000  ; Wait for save to complete (slow ProSelect)
+		; Save the album via PSConsole (no blind sleep needed)
+		PsConsole("saveAlbum")
 		
-		; NOW get the album folder using Save As dialog trick
+		; NOW get the album folder using PSConsole getAlbumData
 		albumFolder := GetAlbumFolder()
 		if (albumFolder = "" || !FileExist(albumFolder)) {
 			DarkMsgBox("Album Not Found", "Could not determine album location.`n`nFolder: " . (albumFolder ? albumFolder : "(empty)") . "`n`nMake sure an album is open in ProSelect.", "error")
@@ -4525,6 +4467,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, AutoTagOppLabel
 	GuiControl, Settings:Hide, Toggle_AutoAddOppTags
 	GuiControl, Settings:Hide, GHLSetOrderQRBtn
+	GuiControl, Settings:Hide, GHLQRLeadConnectorChk
 	GuiControl, Settings:Hide, GHLCollectCS
 	GuiControl, Settings:Hide, Toggle_CollectContactSheets
 	GuiControl, Settings:Hide, GHLCSFolderLabel
@@ -4814,6 +4757,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, PanelCardly
 	GuiControl, Settings:Hide, CrdHeader
 	GuiControl, Settings:Hide, CrdDashboardBtn
+	GuiControl, Settings:Hide, CrdSignupBtn
 	GuiControl, Settings:Hide, CrdAPIGroup
 	GuiControl, Settings:Hide, CrdApiKeyLabel
 	GuiControl, Settings:Hide, CrdApiKeyEdit
@@ -4837,6 +4781,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, CrdDefMsgEdit
 	GuiControl, Settings:Hide, CrdAutoSendChk
 	GuiControl, Settings:Hide, CrdTestModeChk
+	GuiControl, Settings:Hide, CrdSaveToAlbumChk
 	GuiControl, Settings:Hide, CrdInfoText
 	
 	; Hide all panels - Display
@@ -4954,6 +4899,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, AutoTagOppLabel
 		GuiControl, Settings:Show, Toggle_AutoAddOppTags
 		GuiControl, Settings:Show, GHLSetOrderQRBtn
+		GuiControl, Settings:Show, GHLQRLeadConnectorChk
 		GuiControl, Settings:Show, GHLCollectCS
 		GuiControl, Settings:Show, Toggle_CollectContactSheets
 		GuiControl, Settings:Show, GHLCSFolderLabel
@@ -5339,6 +5285,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, PanelCardly
 		GuiControl, Settings:Show, CrdHeader
 		GuiControl, Settings:Show, CrdDashboardBtn
+		GuiControl, Settings:Show, CrdSignupBtn
 		GuiControl, Settings:Show, CrdAPIGroup
 		GuiControl, Settings:Show, CrdApiKeyLabel
 		GuiControl, Settings:Show, CrdApiKeyEdit
@@ -5362,6 +5309,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, CrdDefMsgEdit
 		GuiControl, Settings:Show, CrdAutoSendChk
 		GuiControl, Settings:Show, CrdTestModeChk
+		GuiControl, Settings:Show, CrdSaveToAlbumChk
 		GuiControl, Settings:Show, CrdInfoText
 		; Re-select saved dropdown values
 		if (Settings_Cardly_MediaName != "")
@@ -5478,9 +5426,10 @@ RefreshCardlyTemplates:
 		Return
 	}
 	
-	global CardlyTemplateMap, CardlyTemplateSizes
+	global CardlyTemplateMap, CardlyTemplateSizes, CardlyTemplateAltOrientation
 	CardlyTemplateMap := {}
 	CardlyTemplateSizes := {}
+	CardlyTemplateAltOrientation := {}
 	templateList := ""
 	mediaList := ""
 	templateCount := 0
@@ -5609,6 +5558,32 @@ RefreshCardlyTemplates:
 			combinedList .= "|── Media (Artwork) ──|" . mediaList
 		else
 			combinedList := "── Media (Artwork) ──|" . mediaList
+	}
+	
+	; --- Build orientation pair map (L↔P / Landscape↔Portrait) ---
+	; For each template, strip orientation suffix to get a base name, then find its partner
+	CardlyTemplateAltOrientation := {}
+	for dName, tId in CardlyTemplateMap {
+		; Strip the " (WxHpx)" dimension suffix to get the raw name
+		rawName := RegExReplace(dName, "\s*\([^)]*px\)$")
+		; Strip orientation suffix (case-insensitive): " L", " P", " -L", "-P", " Landscape", " Portrait"
+		baseName := RegExReplace(rawName, "i)[\s_-]+(landscape|portrait|l|p)$")
+		; Search all other templates for a match with opposite orientation
+		for dName2, tId2 in CardlyTemplateMap {
+			if (dName2 = dName)
+				continue
+			rawName2 := RegExReplace(dName2, "\s*\([^)]*px\)$")
+			baseName2 := RegExReplace(rawName2, "i)[\s_-]+(landscape|portrait|l|p)$")
+			; Case-insensitive base name comparison
+			if (baseName != "" && baseName2 != "") {
+				StringLower, baseNameLower, baseName
+				StringLower, baseName2Lower, baseName2
+				if (baseNameLower = baseName2Lower && rawName != rawName2) {
+					CardlyTemplateAltOrientation[dName] := dName2
+					break
+				}
+			}
+		}
 	}
 	
 	; Update template dropdown

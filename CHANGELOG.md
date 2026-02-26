@@ -12,6 +12,31 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.36 (2026-02-26)
+
+### New Features
+- **Cardly Template Orientation Swap**: Rotate button (⇄) in the card preview GUI switches crop between Landscape and Portrait, automatically using the matched template pair
+- **Cardly Orientation Pair Detection**: RefreshCardlyTemplates auto-discovers L↔P template pairs by stripping orientation suffixes and performing case-insensitive base name matching
+- **Lead Connector QR Toggle**: New checkbox in GHL settings switches QR code URL between white-label domain (opens browser) and `app.leadconnector.app` (opens LC mobile app)
+- **Cardly Sign Up Button**: Added "Sign Up" button in Cardly settings next to Dashboard
+- **Cardly Dashboard URL Configurable**: Dashboard URL now editable in Settings instead of hardcoded
+- **Direct PSA Payment Writing**: New `write_psa_payments.py` script injects payments directly into .psa SQLite files
+- **UpdatePS Payment Flow**: Save album → write payments to PSA → reload album (no XML export needed)
+
+### Improvements
+- **PSConsole saveAlbum**: Replaces Ctrl+S keyboard automation with direct API call (no blind 3-second sleep)
+- **PSConsole openAlbum**: Replaces Ctrl+O with direct API call and smart single-PSA file detection
+- **Cardly Message Box Height**: Doubled from 4 to 8 lines for longer personalised messages
+- **Cardly Multiline Messages**: Full `\n` escape chain across INI → AHK → command line → Python preserves line breaks
+- **Cardly Spinner Animation**: Replaced stalling ttk.Progressbar with canvas-based spinning dots animation
+- **Card Details Orientation Label**: Size display now shows "Landscape" or "Portrait" next to dimensions
+
+### Bug Fixes
+- **GHL Tag Sync**: Fixed INI key mismatch — `Tags` vs `SyncTag` and `OppTags` vs `OpportunityTags` now both supported with fallback
+- **Cardly Address Validation**: State/county field no longer required (UK addresses don't have state)
+
+---
+
 ## v2.5.35 (2026-02-25)
 
 ### Bug Fixes

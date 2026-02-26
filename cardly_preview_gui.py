@@ -6,7 +6,7 @@ A tkinter-based GUI for previewing and sending Cardly greeting cards.
 Replaces the AHK-based CardPreview GUI for better image handling.
 
 Usage:
-  python cardly_preview_gui.py <image_folder> <contact_id> <first_name> <message> [template_id] [sticker_folder] [card_width] [card_height] [media_name] [postcard_folder] [ghl_media_folder_id] [photo_link_field] [--psa <psa_path>] [--xml <xml_path>]
+  python cardly_preview_gui.py <image_folder> <contact_id> <first_name> <message> [--template-id ID] [--sticker-folder PATH] [--card-width W] [--card-height H] [--media-name NAME] [--postcard-folder PATH] [--ghl-media-folder-id ID] [--photo-link-field FIELD] [--psa PATH] [--xml PATH] [--alt-template-id ID] [--alt-card-width W] [--alt-card-height H]
 
 Image source modes:
   Default: Scans <image_folder> for JPG/PNG/TIF files
@@ -219,7 +219,7 @@ try:
     from cardly_send_card import (
         resize_image_for_cardly, create_cardly_artwork, place_cardly_order,
         get_ghl_contact, upload_to_ghl_photos, update_ghl_contact_field,
-        _enrich_contact_address,
+        _enrich_contact_address, save_to_album_folder,
         CARDLY_API_KEY, CARDLY_MEDIA_ID, GHL_API_KEY,
         CARDLY_WIDTH, CARDLY_HEIGHT, debug_print, DEBUG
     )
@@ -231,11 +231,11 @@ except ImportError as e:
 CARD_RATIO = CARDLY_WIDTH / CARDLY_HEIGHT  # ~1.371
 
 class CardPreviewGUI:
-    def __init__(self, image_folder, contact_id, first_name, message, template_id=None, sticker_folder=None, card_width=None, card_height=None, media_name=None, postcard_folder=None, ghl_media_folder_id=None, photo_link_field=None, psa_path=None, xml_path=None, album_name=None, test_mode=False, preselect_image=None):
+    def __init__(self, image_folder, contact_id, first_name, message, template_id=None, sticker_folder=None, card_width=None, card_height=None, media_name=None, postcard_folder=None, ghl_media_folder_id=None, photo_link_field=None, psa_path=None, xml_path=None, album_name=None, test_mode=False, preselect_image=None, save_to_album=False, album_folder=None, alt_template_id=None, alt_card_width=None, alt_card_height=None):
         self.image_folder = image_folder
         self.contact_id = contact_id
         self.first_name = first_name
-        self.message = message
+        self.message = message.replace('\\n', '\n') if message else ''
         self.template_id = template_id or CARDLY_MEDIA_ID
         self.sticker_folder = sticker_folder
         self.postcard_folder = postcard_folder
@@ -246,12 +246,22 @@ class CardPreviewGUI:
         self.album_name = album_name
         self.test_mode = test_mode
         self.preselect_image = preselect_image  # Filename to pre-select in filmstrip
+        self.save_to_album = save_to_album  # Whether to save copy to album folder
+        self.album_folder = album_folder  # Album folder path
 
         # Card dimensions from template selection (override module defaults)
         self.card_width = int(card_width) if card_width else CARDLY_WIDTH
         self.card_height = int(card_height) if card_height else CARDLY_HEIGHT
         self.card_ratio = self.card_width / self.card_height
         self.media_name = media_name or "Landscape Card"
+
+        # Alternate orientation template (for rotate/swap button)
+        self.alt_template_id = alt_template_id
+        self.alt_card_width = int(alt_card_width) if alt_card_width else None
+        self.alt_card_height = int(alt_card_height) if alt_card_height else None
+        self.has_alt_orientation = (self.alt_template_id is not None
+                                    and self.alt_card_width is not None
+                                    and self.alt_card_height is not None)
 
         # Image list
         self.images = []
@@ -1010,9 +1020,27 @@ class CardPreviewGUI:
         ctrl_frame = tk.Frame(parent, bg='#1a1a1a', width=280)
         ctrl_frame.pack(side='left', fill='both', padx=(20, 0))
 
-        # Crop Controls
-        tk.Label(ctrl_frame, text="Crop Controls", font=('Segoe UI', 10, 'bold'),
-                fg='#FFB347', bg='#1a1a1a').pack(anchor='w')
+        # Crop Controls header with rotate button
+        crop_header_frame = tk.Frame(ctrl_frame, bg='#1a1a1a')
+        crop_header_frame.pack(fill='x')
+
+        tk.Label(crop_header_frame, text="Crop Controls", font=('Segoe UI', 10, 'bold'),
+                fg='#FFB347', bg='#1a1a1a').pack(side='left')
+
+        # Rotate / swap orientation button (only active when alt template exists)
+        self.rotate_btn = tk.Button(crop_header_frame, text="\u21C4",
+                                    font=('Segoe UI', 12, 'bold'), width=3,
+                                    command=self.swap_orientation,
+                                    relief='flat', cursor='hand2',
+                                    bg='#333333', fg='#FFB347',
+                                    activebackground='#444444', activeforeground='#FFB347')
+        self.rotate_btn.pack(side='right', padx=(5, 0))
+
+        if self.has_alt_orientation:
+            ToolTip(self.rotate_btn, "Swap between Landscape and Portrait crop.\nSwitches to the matching template orientation.")
+        else:
+            self.rotate_btn.configure(state='disabled', fg='#555555', cursor='arrow')
+            ToolTip(self.rotate_btn, "No alternate orientation template available.\nUpload both Landscape and Portrait versions\nwith the same base name to enable this.")
 
         # Zoom slider
         zoom_frame = tk.Frame(ctrl_frame, bg='#1a1a1a')
@@ -1061,7 +1089,7 @@ class CardPreviewGUI:
         tk.Label(ctrl_frame, text=f"Dear {self.first_name},", font=('Segoe UI', 10, 'bold'),
                 fg='#FFB347', bg='#1a1a1a').pack(anchor='w', pady=(15, 0))
 
-        self.message_text = tk.Text(ctrl_frame, height=4, width=30,
+        self.message_text = tk.Text(ctrl_frame, height=8, width=30,
                                     font=('Segoe UI', 9), wrap='word',
                                     bg='#2a2a2a', fg='white',
                                     insertbackground='white',
@@ -1143,8 +1171,10 @@ class CardPreviewGUI:
 
         tk.Label(recip_frame, text=f"Template: {self.media_name}",
                 font=('Segoe UI', 9), fg='silver', bg='#2a2a2a').pack(anchor='w', pady=(5, 0))
-        tk.Label(recip_frame, text=f"Size: {self.card_width}x{self.card_height}px",
-                font=('Segoe UI', 9), fg='silver', bg='#2a2a2a').pack(anchor='w')
+        orient = "Landscape" if self.card_width > self.card_height else "Portrait"
+        self.card_size_label = tk.Label(recip_frame, text=f"Size: {self.card_width}x{self.card_height}px ({orient})",
+                font=('Segoe UI', 9), fg='silver', bg='#2a2a2a')
+        self.card_size_label.pack(anchor='w')
 
         # Missing address warning
         if self.recipient:
@@ -1330,6 +1360,27 @@ class CardPreviewGUI:
     def on_zoom_change(self, value):
         """Handle zoom slider change."""
         self.zoom = int(float(value))
+        self.update_preview()
+
+    def swap_orientation(self):
+        """Swap between landscape and portrait crop orientation using the alternate template."""
+        if not self.has_alt_orientation:
+            return
+
+        # Swap primary and alternate template/dimensions
+        self.template_id, self.alt_template_id = self.alt_template_id, self.template_id
+        self.card_width, self.alt_card_width = self.alt_card_width, self.card_width
+        self.card_height, self.alt_card_height = self.alt_card_height, self.card_height
+        self.card_ratio = self.card_width / self.card_height
+
+        # Update the Card Details labels in the recipient panel
+        orient = "Landscape" if self.card_width > self.card_height else "Portrait"
+        if hasattr(self, 'card_size_label'):
+            self.card_size_label.configure(text=f"Size: {self.card_width}x{self.card_height}px ({orient})")
+
+        # Reset crop position on orientation change for a clean view
+        self.crop_x = 50
+        self.crop_y = 50
         self.update_preview()
 
     def on_sticker_change(self, event):
@@ -1532,7 +1583,9 @@ class CardPreviewGUI:
             return None
 
     def show_progress(self, title: str = "Processing...", message: str = "Please wait...") -> tk.Toplevel:
-        """Show a progress dialog with indeterminate progress bar."""
+        """Show a progress dialog with a spinning animation."""
+        import math
+
         progress_win = tk.Toplevel(self.root)
         progress_win.title(title)
         progress_win.configure(bg='#1a1a1a')
@@ -1545,10 +1598,46 @@ class CardPreviewGUI:
         tk.Label(progress_win, text=message, font=('Segoe UI', 11),
                 fg='white', bg='#1a1a1a').pack(padx=30, pady=(20, 10))
 
-        # Progress bar
-        progress_bar = ttk.Progressbar(progress_win, mode='indeterminate', length=300)
-        progress_bar.pack(padx=30, pady=(0, 10))
-        progress_bar.start(10)
+        # Spinning dots animation on canvas
+        canvas_size = 40
+        spinner = tk.Canvas(progress_win, width=canvas_size, height=canvas_size,
+                           bg='#1a1a1a', highlightthickness=0)
+        spinner.pack(pady=(0, 5))
+
+        num_dots = 8
+        radius = 14
+        dot_radius_max = 4
+        cx, cy = canvas_size // 2, canvas_size // 2
+        spinner._dots = []
+        spinner._step = 0
+        spinner._running = True
+
+        for i in range(num_dots):
+            angle = 2 * math.pi * i / num_dots - math.pi / 2
+            x = cx + radius * math.cos(angle)
+            y = cy + radius * math.sin(angle)
+            dot = spinner.create_oval(x - 2, y - 2, x + 2, y + 2, fill='#555555', outline='')
+            spinner._dots.append((dot, x, y))
+
+        def animate():
+            if not spinner._running:
+                return
+            step = spinner._step % num_dots
+            for i, (dot, x, y) in enumerate(spinner._dots):
+                offset = (step - i) % num_dots
+                if offset < 3:
+                    brightness = max(80, 255 - offset * 80)
+                    r = dot_radius_max - offset * 0.5
+                else:
+                    brightness = 80
+                    r = 2
+                color = f'#{brightness:02x}{brightness:02x}{brightness:02x}'
+                spinner.coords(dot, x - r, y - r, x + r, y + r)
+                spinner.itemconfig(dot, fill=color)
+            spinner._step += 1
+            spinner.after(100, animate)
+
+        animate()
 
         self.progress_label = tk.Label(progress_win, text="", font=('Segoe UI', 9),
                                        fg='silver', bg='#1a1a1a')
@@ -1563,6 +1652,7 @@ class CardPreviewGUI:
         progress_win.geometry(f"+{x}+{y}")
 
         progress_win.update()
+        progress_win._spinner = spinner  # keep reference
         return progress_win
 
     def update_progress(self, progress_win, message):
@@ -1570,6 +1660,15 @@ class CardPreviewGUI:
         if hasattr(self, 'progress_label'):
             self.progress_label.config(text=message)
         progress_win.update()
+
+    def close_progress(self, progress_win):
+        """Stop spinner animation and destroy progress window."""
+        if hasattr(progress_win, '_spinner') and hasattr(progress_win._spinner, '_running'):
+            progress_win._spinner._running = False
+        try:
+            progress_win.destroy()
+        except Exception:
+            pass
 
     def post_card(self):
         """Send the card via Cardly API."""
@@ -1615,7 +1714,7 @@ class CardPreviewGUI:
                         f"Continue anyway?"
                     )
                     if not messagebox.askyesno("Low Resolution", warn_msg, icon='warning'):
-                        progress_win.destroy()
+                        self.close_progress(progress_win)
                         self.post_btn.config(state='normal', text="Send Card")
                         return
             except Exception as e:
@@ -1624,6 +1723,12 @@ class CardPreviewGUI:
 
             # Process image (with ICC conversion for accurate colours)
             self.update_progress(progress_win, "Processing image...")
+
+            # Log sticker parameters (always visible – aids diagnosis)
+            print(f"[Cardly Send] sticker_path = {self.sticker_path}")
+            print(f"[Cardly Send] sticker_x={self.sticker_x}  sticker_y={self.sticker_y}  "
+                  f"sticker_zoom={self.sticker_zoom}")
+
             processed_path = resize_image_for_cardly(
                 hires_path,
                 crop_x=int(self.crop_x),
@@ -1636,6 +1741,20 @@ class CardPreviewGUI:
                 card_width=self.card_width,
                 card_height=self.card_height
             )
+
+            # Save a proof copy so the user can verify the sticker was composited
+            if processed_path and os.path.exists(processed_path) and self.postcard_folder:
+                try:
+                    proof_dir = os.path.join(self.postcard_folder, "_proof")
+                    os.makedirs(proof_dir, exist_ok=True)
+                    proof_name = os.path.splitext(os.path.basename(
+                        self.images[self.current_index]))[0]
+                    proof_path = os.path.join(proof_dir, f"{proof_name}_cardly_artwork.png")
+                    import shutil
+                    shutil.copy2(processed_path, proof_path)
+                    print(f"[Cardly Send] Proof saved: {proof_path}")
+                except Exception as e:
+                    print(f"[Cardly Send] Could not save proof copy: {e}")
 
             # Send to Cardly - use recipient resolved at init
             progress_win = self.show_progress("Sending Card...", "Preparing to send...")
@@ -1658,8 +1777,8 @@ class CardPreviewGUI:
             recipient.pop('email', None)
             recipient.pop('phone', None)
 
-            # Validate required address fields
-            missing = [k for k in ('name', 'address1', 'city', 'state', 'postcode')
+            # Validate required address fields (state/county is optional for UK)
+            missing = [k for k in ('name', 'address1', 'city', 'postcode')
                        if not recipient.get(k, '').strip()]
             if missing:
                 raise Exception(
@@ -1724,6 +1843,18 @@ class CardPreviewGUI:
                     shutil.copy2(jpg_path, dest)
                     print(f"Postcard JPG saved to: {dest}")
 
+                # Save to album folder if enabled
+                if self.save_to_album and self.album_folder:
+                    album_save_result = save_to_album_folder(
+                        clean_path,
+                        self.images[self.current_index],
+                        self.album_folder
+                    )
+                    if album_save_result.get('success'):
+                        print(f"Postcard copy saved to album: {album_save_result.get('path')}")
+                    else:
+                        print(f"Album save warning: {album_save_result.get('error')}")
+
                 # Upload to GHL media folder if configured
                 if self.ghl_media_folder_id:
                     self.update_progress(progress_win, "Uploading to GHL...")
@@ -1747,7 +1878,7 @@ class CardPreviewGUI:
                 print(f"Post-send save/upload warning: {post_err}")
 
             # Success!
-            progress_win.destroy()
+            self.close_progress(progress_win)
             self.result = 0
 
             # Dark-themed success dialog
@@ -1778,10 +1909,7 @@ class CardPreviewGUI:
             self.root.destroy()
 
         except Exception as e:
-            try:
-                progress_win.destroy()
-            except Exception:
-                pass
+            self.close_progress(progress_win)
             self.post_btn.config(state='normal', text="Send Card")
             messagebox.showerror("Error", str(e))
 
@@ -1832,6 +1960,11 @@ def main() -> None:
     parser.add_argument("--album-name", default=None, help="Album/shoot name for display")
     parser.add_argument("--test-mode", action="store_true", help="Test mode: upload artwork but skip placing order")
     parser.add_argument("--preselect-image", default=None, help="Filename of image to pre-select in filmstrip (from PSConsole getSelectedImageData)")
+    parser.add_argument("--save-to-album", action="store_true", help="Save a copy of the postcard to the album folder")
+    parser.add_argument("--album-folder", default=None, help="Album folder path to save postcard copy")
+    parser.add_argument("--alt-template-id", default=None, help="Alternate orientation template ID (L\u2194P pair)")
+    parser.add_argument("--alt-card-width", default=None, help="Alternate template card width in pixels")
+    parser.add_argument("--alt-card-height", default=None, help="Alternate template card height in pixels")
 
     args = parser.parse_args()
 
@@ -1845,7 +1978,10 @@ def main() -> None:
         args.media_name, args.postcard_folder, args.ghl_media_folder_id,
         args.photo_link_field, psa_path=args.psa, xml_path=args.xml,
         album_name=args.album_name, test_mode=args.test_mode,
-        preselect_image=args.preselect_image
+        preselect_image=args.preselect_image,
+        save_to_album=args.save_to_album, album_folder=args.album_folder,
+        alt_template_id=args.alt_template_id,
+        alt_card_width=args.alt_card_width, alt_card_height=args.alt_card_height
     )
     result = gui.run()
     sys.exit(result)
