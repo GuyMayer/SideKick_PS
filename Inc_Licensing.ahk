@@ -1285,7 +1285,11 @@ CreateCardlyPanel()
 	
 	; Section header
 	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
-	Gui, Settings:Add, Text, x195 y20 w480 BackgroundTrans vCrdHeader Hidden, 📮 Cardly Integration
+	Gui, Settings:Add, Text, x195 y20 w380 BackgroundTrans vCrdHeader Hidden, 📮 Cardly Integration
+	
+	; Dashboard button (top-right)
+	Gui, Settings:Font, s9 Norm c%textColor%, Segoe UI
+	Gui, Settings:Add, Button, x585 y20 w85 h28 gOpenCardlyDashboard vCrdDashboardBtn Hidden, Dashboard
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; API CONFIGURATION GROUP BOX
@@ -1636,6 +1640,10 @@ TestGCConnection:
 		GuiControl, Settings:+cFF6B6B, GCStatusText
 		DarkMsgBox("Connection Failed", "Could not connect to GoCardless.`n`nError: " . Trim(errMsg) . "`n`nCheck your API token and try again.", "error")
 	}
+return
+
+OpenCardlyDashboard:
+	Run, https://www.cardly.net/account
 return
 
 OpenGCDashboard:
@@ -4425,7 +4433,7 @@ CreateDeveloperPanel()
 	Gui, Settings:Add, Button, x210 y395 w120 h35 gDevOpenFolder vDevOpenFolderBtn Hidden HwndHwndDevFolder, 📂 Open Folder
 	RegisterSettingsTooltip(HwndDevFolder, "OPEN FOLDER`n`nOpen the script folder in Windows Explorer.`nQuick access to source files and resources.")
 	Gui, Settings:Add, Button, x340 y395 w140 h35 gDevPushWebsite vDevPushWebBtn Hidden HwndHwndDevPushWeb, 🌍 Push Website
-	RegisterSettingsTooltip(HwndDevPushWeb, "PUSH WEBSITE`n`nSync website_ps to docs folder and push to GitHub.`nOnly commits website files (no scripts).`n`nSite goes live in ~1-2 minutes.")
+	RegisterSettingsTooltip(HwndDevPushWeb, "PUSH WEBSITE`n`nSync SideKick_PS_Website to docs folder and push to GitHub.`nOnly commits website files (no scripts).`n`nSite goes live in ~1-2 minutes.")
 	
 	; Progress bar for Push Website (hidden by default)
 	Gui, Settings:Add, Progress, x340 y435 w140 h8 vDevWebProgress Hidden BackgroundBlack c4FC3F7, 0
@@ -4805,6 +4813,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, TabCardlyBg
 	GuiControl, Settings:Hide, PanelCardly
 	GuiControl, Settings:Hide, CrdHeader
+	GuiControl, Settings:Hide, CrdDashboardBtn
 	GuiControl, Settings:Hide, CrdAPIGroup
 	GuiControl, Settings:Hide, CrdApiKeyLabel
 	GuiControl, Settings:Hide, CrdApiKeyEdit
@@ -5329,6 +5338,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, TabCardlyBg
 		GuiControl, Settings:Show, PanelCardly
 		GuiControl, Settings:Show, CrdHeader
+		GuiControl, Settings:Show, CrdDashboardBtn
 		GuiControl, Settings:Show, CrdAPIGroup
 		GuiControl, Settings:Show, CrdApiKeyLabel
 		GuiControl, Settings:Show, CrdApiKeyEdit
@@ -5443,6 +5453,11 @@ Return
 
 SettingsTabDeveloper:
 ShowSettingsTab("Developer")
+Return
+
+SettingsLogoClick:
+SettingsWebLinkClick:
+	Run, https://ps.ghl-sidekick.com
 Return
 
 ; ═══════════════════════════════════════════════════════════════════════════════════════════════
@@ -5866,18 +5881,22 @@ DevOpenFolder:
 Return
 
 DevPushWebsite:
-	; Sync website_ps to docs and push website only
+	; Sync SideKick_PS_Website to docs and push website only
 	GuiControl, Settings:Show, DevWebProgress
 	GuiControl, Settings:, DevWebProgress, 0
 	GuiControl, Settings:Disable, DevPushWebBtn
 	
-	; Step 1: Sync files (33%)
+	; Source is sibling folder ..\SideKick_PS_Website
+	webSrc := A_ScriptDir . "\..\SideKick_PS_Website"
+	webDst := A_ScriptDir . "\docs"
+	
+	; Step 1: Sync files (25%)
 	GuiControl, Settings:, DevWebProgress, 25
-	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && copy /y website_ps\*.html docs\ >nul 2>&1 && copy /y website_ps\*.xml docs\ >nul 2>&1 && copy /y website_ps\*.txt docs\ >nul 2>&1 && copy /y website_ps\CNAME docs\ >nul 2>&1 && xcopy /s /y /q website_ps\images\* docs\images\ >nul 2>&1", , Hide
+	RunWait, %ComSpec% /c "copy /y "%webSrc%\*.html" "%webDst%\" >nul 2>&1 && copy /y "%webSrc%\*.xml" "%webDst%\" >nul 2>&1 && copy /y "%webSrc%\*.txt" "%webDst%\" >nul 2>&1 && copy /y "%webSrc%\CNAME" "%webDst%\" >nul 2>&1 && xcopy /s /y /q "%webSrc%\images\*" "%webDst%\images\" >nul 2>&1", , Hide
 	
 	; Step 2: Stage files (50%)
 	GuiControl, Settings:, DevWebProgress, 50
-	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git add website_ps/* docs/* 2>nul", , Hide
+	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git add docs/* 2>nul", , Hide
 	
 	; Step 3: Check for changes and commit (75%)
 	GuiControl, Settings:, DevWebProgress, 75

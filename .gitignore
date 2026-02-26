@@ -10,10 +10,6 @@ Release/
 # Build cache (compiled EXEs for faster rebuilds)
 .build_cache/
 
-# Keep archived ZIPs
-!Releases/
-!Releases/**/*.zip
-
 # Python cache
 __pycache__/
 *.pyc
@@ -30,3 +26,6 @@ run_build.bat
 git_push.bat
 gh_release.bat
 cleanup_releases.bat
+
+# Test / temp folders
+Test Data/

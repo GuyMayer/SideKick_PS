@@ -557,7 +557,12 @@ AbY += 25
 Gui, Settings:Font, s9 c%SetTextDimColor%, Segoe UI
 Gui, Settings:Add, Text, % "x" ContentX+15 " y" AbY " w400 +BackgroundTrans +Hidden vAboutCopy", © 2022-2026 Guy Mayer
 
-AbY += 40
+AbY += 22
+Gui, Settings:Font, s9 Underline c%SetAccentColor%, Segoe UI
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" AbY " w200 +BackgroundTrans +Hidden vAboutWebsite gAboutWebsiteClick", ps.ghl-sidekick.com
+Gui, Settings:Font, s9 Norm, Segoe UI
+
+AbY += 28
 Gui, Settings:Font, s11 Bold cWhite, Segoe UI
 Gui, Settings:Add, Text, % "x" ContentX+15 " y" AbY " w200 +BackgroundTrans +Hidden vAboutFeatTitle", Features
 
@@ -674,7 +679,7 @@ ACCControls := "LblACCTitle,LblACCInstructions,ACCScrollContainer"
 
 HotkeysControls := "LblHKTitle,LblHKInstructions,GrpHotkeys,LblHK_LB2PS,HK_LB2PS_Edit,HK_LB2PS_Btn,LblHK_QR,HK_QR_Edit,HK_QR_Btn,LblHK_Download,HK_Download_Edit,HK_Download_Btn,LblHK_ACC,HK_ACC_Edit,HK_ACC_Btn,LblHK_Notes,HK_Notes_Edit,HK_Notes_Btn,HK_ResetBtn,HK_ClearBtn,GrpHotkeysFixed,LblHK_Wheel,HK_Wheel,LblHK_AltClick,HK_AltClick,HKInfoText"
 
-AboutControls := "AboutTitle,AboutVer,AboutCopy,AboutFeatTitle,AboutFeatList,AboutSysInfo,AboutAccTitle,LblAccEmail,SetAccEmail,LblAccPass,SetAccPass,BtnAccUpdate,AboutLicTitle,LblLicStatus,AboutLicStatus,LblLicKey,SetLicenceKey"
+AboutControls := "AboutTitle,AboutVer,AboutCopy,AboutWebsite,AboutFeatTitle,AboutFeatList,AboutSysInfo,AboutAccTitle,LblAccEmail,SetAccEmail,LblAccPass,SetAccPass,BtnAccUpdate,AboutLicTitle,LblLicStatus,AboutLicStatus,LblLicKey,SetLicenceKey"
 
 ; Hide all panels
 Loop, Parse, GeneralControls, `,
@@ -891,6 +896,11 @@ if ((v1Status = 200 || SetApiKey = "") && (v2Status = 200 || SetMediaToken = "")
 else
 	MsgBox, 262192, SideKick - Connection Test, %result%Please check your credentials.
 
+Return
+
+; === WEBSITE LINK ===
+AboutWebsiteClick:
+	Run, https://ps.ghl-sidekick.com
 Return
 
 ; === UPDATE CHECK ===

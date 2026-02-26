@@ -5241,6 +5241,10 @@ Gui, Settings:Add, Text, x15 y465 w160 h25 BackgroundTrans gSettingsTabCardly vT
 Gui, Settings:Add, Progress, x0 y500 w4 h35 Background0078D4 vTabDeveloperBg Hidden
 Gui, Settings:Add, Text, x15 y505 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
 
+; Version above logo
+Gui, Settings:Font, s9 c%mutedColor%, Segoe UI
+Gui, Settings:Add, Text, x15 y530 w150 BackgroundTrans Center, v%ScriptVersion%
+
 ; SideKick Logo at bottom of sidebar - transparent PNG, use appropriate version for theme
 logoPathDark := A_ScriptDir . "\SideKick_Logo_2025_Dark.png"
 logoPathLight := A_ScriptDir . "\SideKick_Logo_2025_Light.png"
@@ -5248,18 +5252,19 @@ logoPath := Settings_DarkMode ? logoPathDark : logoPathLight
 
 if FileExist(logoPath) {
 	; Add background patch to match sidebar color for logo area
-	Gui, Settings:Add, Progress, x20 y545 w140 h140 Background%sidebarBg% Disabled
-	; Add logo on top
-	Gui, Settings:Add, Picture, x20 y545 w140 h140 vSettingsLogo BackgroundTrans, %logoPath%
+	Gui, Settings:Add, Progress, x20 y548 w140 h130 Background%sidebarBg% Disabled
+	; Add logo on top (clickable - opens website)
+	Gui, Settings:Add, Picture, x20 y548 w140 h130 vSettingsLogo BackgroundTrans gSettingsLogoClick, %logoPath%
 } else {
 	; Fallback text if logo not found
 	Gui, Settings:Font, s14 cFF8C00, Segoe UI
-	Gui, Settings:Add, Text, x15 y580 w150 h40 BackgroundTrans Center, 🚀 SIDEKICK
+	Gui, Settings:Add, Text, x15 y580 w150 h40 BackgroundTrans Center gSettingsLogoClick, 🚀 SIDEKICK
 }
 
-; Version at bottom of sidebar
-Gui, Settings:Font, s9 c%mutedColor%, Segoe UI
-Gui, Settings:Add, Text, x15 y535 w150 BackgroundTrans Center, v%ScriptVersion%
+; Website link below logo
+Gui, Settings:Font, s8 Underline c4FC3F7, Segoe UI
+Gui, Settings:Add, Text, x15 y682 w150 BackgroundTrans Center gSettingsWebLinkClick vSettingsWebLink, ps.ghl-sidekick.com
+Gui, Settings:Font, s8 Norm, Segoe UI
 
 ; Main content area background
 Gui, Settings:Add, Progress, x180 y0 w520 h600 Background%contentBg% Disabled
