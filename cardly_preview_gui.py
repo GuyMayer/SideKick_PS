@@ -1062,9 +1062,11 @@ class CardPreviewGUI:
         sticker_options = ["None"]
 
         if self.sticker_folder and os.path.exists(self.sticker_folder):
-            for f in os.listdir(self.sticker_folder):
+            for f in sorted(os.listdir(self.sticker_folder)):
                 if f.lower().endswith('.png'):
                     sticker_options.append(f)
+
+        sticker_options.append("Open Folder...")
 
         self.sticker_combo = ttk.Combobox(ctrl_frame, textvariable=self.sticker_var,
                                           values=sticker_options, state='readonly', width=25)
@@ -1386,6 +1388,12 @@ class CardPreviewGUI:
     def on_sticker_change(self, event):
         """Handle sticker selection change."""
         selection = self.sticker_var.get()
+        if selection == "Open Folder...":
+            # Revert dropdown to previous value
+            self.sticker_var.set(self.sticker_name)
+            if self.sticker_folder and os.path.exists(self.sticker_folder):
+                subprocess.Popen(['explorer', self.sticker_folder])
+            return
         self.sticker_name = selection
         if selection == "None":
             self.sticker_path = None

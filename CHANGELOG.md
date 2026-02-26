@@ -24,6 +24,12 @@ AI INSTRUCTIONS - When publishing a new version:
 - **UpdatePS Payment Flow**: Save album → write payments to PSA → reload album (no XML export needed)
 
 ### Improvements
+- **Cardly Sticker: Open Folder**: Added "Open Folder..." option to the sticker overlay dropdown — opens the sticker folder in Explorer for quick access to add/remove sticker PNGs
+- **Cardly Orientation Pair: API ID Fallback**: Orientation swap now also matches template pairs by Cardly API ID (e.g. `thankyou-photocard-l` ↔ `thankyou-photocard-p`) when display name matching fails
+- **GoCardless Always Live**: Removed environment selector from settings and setup wizard (was Sandbox/Live dropdown). Environment is now always "live" — simplifies setup and prevents accidental sandbox usage
+- **GoCardless Wizard Simplified**: Reduced setup wizard from 5 steps to 4 by removing the environment selection step
+- **Plan Naming: Order Date**: Added "Order Date" field option to GoCardless plan naming dropdown — reads the order date from the .psa album file
+- **Plan Naming Format Applied**: Plan naming format from Settings is now used to auto-generate the default plan name in the payment dialog (previously just used the album name)
 - **PSConsole saveAlbum**: Replaces Ctrl+S keyboard automation with direct API call (no blind 3-second sleep)
 - **PSConsole openAlbum**: Replaces Ctrl+O with direct API call and smart single-PSA file detection
 - **Cardly Message Box Height**: Doubled from 4 to 8 lines for longer personalised messages
@@ -32,6 +38,7 @@ AI INSTRUCTIONS - When publishing a new version:
 - **Card Details Orientation Label**: Size display now shows "Landscape" or "Portrait" next to dimensions
 
 ### Bug Fixes
+- **GoCardless Environment Default**: Hardcoded environment to "live" — fixes test connection failure for users with live API tokens (was defaulting to sandbox)
 - **GHL Tag Sync**: Fixed INI key mismatch — `Tags` vs `SyncTag` and `OppTags` vs `OpportunityTags` now both supported with fallback
 - **Cardly Address Validation**: State/county field no longer required (UK addresses don't have state)
 - **Build: Missing Python Scripts**: Added `write_psa_payments`, `read_psa_payments`, `read_psa_images`, and `create_ghl_contactsheet` to build pipeline, installer, and AHK script map

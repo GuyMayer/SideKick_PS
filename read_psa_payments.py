@@ -43,6 +43,12 @@ def read_payments_from_psa(psa_path):
         
         conn.close()
         
+        # Extract order date from Group element's lastOrderChanged attribute
+        order_date = ""
+        group_match = re.search(r'<Group[^>]+lastOrderChanged="(\d{4})-(\d{2})-(\d{2})', order_data)
+        if group_match:
+            order_date = f"{group_match.group(3)}/{group_match.group(2)}/{group_match.group(1)}"  # DD/MM/YYYY
+        
         # Parse payments from XML
         # Format: <payment value="200" methodID="12" methodName="GoCardless DD" jdate="2026-03-01 12:41:33" id="10" />
         payments = []
@@ -73,9 +79,9 @@ def read_payments_from_psa(psa_path):
                 payments.append(payment_str)
         
         if not payments:
-            return "NO_PAYMENTS"
+            return "NO_PAYMENTS" + (f"|{order_date}" if order_date else "")
         
-        return f"PAYMENTS|{len(payments)}|" + "|".join(payments)
+        return f"PAYMENTS|{len(payments)}|{order_date}|" + "|".join(payments)
         
     except sqlite3.Error as e:
         return f"ERROR|SQLite error: {str(e)}"

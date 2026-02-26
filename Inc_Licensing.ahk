@@ -1443,12 +1443,7 @@ CreateGoCardlessPanel()
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
-	; Environment selector
-	Gui, Settings:Add, Text, x210 y225 w90 BackgroundTrans vGCEnvLabel Hidden gTT_GCEnv HwndHwndGCEnv, Environment:
-	RegisterSettingsTooltip(HwndGCEnv, "ENVIRONMENT`n`nSandbox: For testing (no real money)`nLive: Production (real transactions)`n`nStart with Sandbox to test your setup.")
-	Gui, Settings:Add, DropDownList, x305 y222 w150 vGCEnvDDL Hidden Choose1 gGCEnvChanged, Sandbox|Live
-	if (Settings_GoCardlessEnvironment = "live")
-		GuiControl, Settings:ChooseString, GCEnvDDL, Live
+	; Environment is always "live" - no selector needed
 	
 	; API Token display (masked)
 	Gui, Settings:Add, Text, x210 y258 w90 BackgroundTrans vGCTokenLabel Hidden gTT_GCToken HwndHwndGCToken, API Token:
@@ -1473,7 +1468,7 @@ CreateGoCardlessPanel()
 	Gui, Settings:Add, Button, x470 y295 w110 h26 gListEmptyMandates vGCEmptyMandatesBtn Hidden HwndHwndGCEmpty, No Plans
 	RegisterSettingsTooltip(HwndGCEmpty, "LIST MANDATES WITHOUT PLANS`n`nScans ALL active GoCardless mandates and`nfinds those with no payment plans set up.`n`nUseful for:`n• Follow-up reminders to clients`n• Finding forgotten mandates`n• Identifying setup issues`n`nResults can be copied to clipboard`nfor Excel or email follow-up.")
 	Gui, Settings:Add, Button, x585 y295 w85 h26 gOpenGCDashboard vGCDashboardBtn Hidden HwndHwndGCDash, Dashboard
-	RegisterSettingsTooltip(HwndGCDash, "GOCARDLESS DASHBOARD`n`nOpen the GoCardless web dashboard`nin your browser.`n`nOpens Sandbox or Live dashboard based`non your Environment setting.")
+	RegisterSettingsTooltip(HwndGCDash, "GOCARDLESS DASHBOARD`n`nOpen the GoCardless web dashboard`nin your browser.")
 	
 	; Progress bar for No Plans scan
 	Gui, Settings:Add, Progress, x405 y325 w265 h12 vGCProgressBar Hidden Range0-100 c00BFFF Background3D3D3D, 0
@@ -1552,7 +1547,7 @@ CreateGoCardlessPanel()
 	RegisterSettingsTooltip(HwndGCNaming, "PLAN NAME FORMAT`n`nChoose up to 3 fields to include in the`nGoCardless instalment schedule name.`n`nFields are joined with ' - ' separator.")
 	
 	; Name format dropdowns (3 in a row)
-	gcNameOptions := "(none)|Shoot No|Surname|First Name|Full Name|GHL ID|Album Name"
+	gcNameOptions := "(none)|Shoot No|Surname|First Name|Full Name|Order Date|GHL ID|Album Name"
 	Gui, Settings:Add, DropDownList, x275 y522 w115 vGCNamePart1DDL Hidden gGCNamePartChanged Choose1, %gcNameOptions%
 	Gui, Settings:Add, Text, x393 y525 w10 BackgroundTrans vGCNameSep1 Hidden, -
 	Gui, Settings:Add, DropDownList, x408 y522 w115 vGCNamePart2DDL Hidden gGCNamePartChanged Choose1, %gcNameOptions%
@@ -1583,13 +1578,7 @@ CreateGoCardlessPanel()
 }
 
 ; GoCardless Settings Handlers
-GCEnvChanged:
-	Gui, Settings:Submit, NoHide
-	Settings_GoCardlessEnvironment := (GCEnvDDL = "Live") ? "live" : "sandbox"
-	IniWrite, %Settings_GoCardlessEnvironment%, %IniFilename%, GoCardless, Environment
-	; Update status display
-	UpdateGCStatus()
-return
+; GoCardless environment is always "live" - no handler needed
 
 EditGCToken:
 	InputBox, newToken, GoCardless API Token, Enter your GoCardless API access token:,, 450, 150,,,,, %Settings_GoCardlessToken%
@@ -1614,7 +1603,7 @@ TestGCConnection:
 	ToolTip, Testing GoCardless connection...
 	
 	; Use Python script for GoCardless API test
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--test-connection" . envFlag)
 	
 	if (scriptCmd = "") {
@@ -1638,7 +1627,7 @@ TestGCConnection:
 		creditorId := Trim(parts[3])
 		GuiControl, Settings:, GCStatusText, ✅ Connected
 		GuiControl, Settings:+c00FF00, GCStatusText
-		DarkMsgBox("Connection Successful", "Connected to GoCardless!`n`nCreditor: " . creditorName . "`nID: " . creditorId . "`nEnvironment: " . Settings_GoCardlessEnvironment, "success")
+		DarkMsgBox("Connection Successful", "Connected to GoCardless!`n`nCreditor: " . creditorName . "`nID: " . creditorId, "success")
 	} else {
 		errMsg := InStr(testResult, "ERROR|") ? StrReplace(testResult, "ERROR|", "") : testResult
 		GuiControl, Settings:, GCStatusText, ❌ Failed
@@ -1659,7 +1648,7 @@ OpenCardlySignup:
 return
 
 OpenGCDashboard:
-	gcDashUrl := (Settings_GoCardlessEnvironment = "live") ? "https://manage.gocardless.com" : "https://manage-sandbox.gocardless.com"
+	gcDashUrl := "https://manage.gocardless.com"
 	Run, %gcDashUrl%
 return
 
@@ -1690,12 +1679,12 @@ GCWizard_ShowStep:
 	
 	; Header - step indicator
 	Gui, GCWizard:Font, s12 c888888, Segoe UI
-	stepText := "Step " . GCWizard_Step . " of 5"
+	stepText := "Step " . GCWizard_Step . " of 4"
 	Gui, GCWizard:Add, Text, x20 y15 w%wizW% BackgroundTrans, %stepText%
 	
 	; Progress dots
 	dotY := 18
-	Loop, 5 {
+	Loop, 4 {
 		dotX := wizW - 120 + (A_Index * 20)
 		dotColor := (A_Index <= GCWizard_Step) ? "4FC3F7" : "444444"
 		Gui, GCWizard:Font, s14 c%dotColor%, Segoe UI
@@ -1735,45 +1724,13 @@ GCWizard_ShowStep:
 		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, You'll need a GoCardless account. Don't have one? You can sign up in the next step.
 		
 	} else if (GCWizard_Step = 2) {
-		; Step 2: Choose Environment
-		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
-		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, 🔧 Choose Environment
-		
-		contentY += 50
-		Gui, GCWizard:Font, s11 cCCCCCC Norm, Segoe UI
-		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, GoCardless has two environments. Select which one to use:
-		
-		contentY += 45
-		; Sandbox option
-		Gui, GCWizard:Font, s12 cFFFFFF, Segoe UI
-		sandboxSelected := (Settings_GoCardlessEnvironment != "live")
-		Gui, GCWizard:Add, Radio, x35 y%contentY% w200 vGCWizard_EnvSandbox Checked%sandboxSelected% gGCWizard_EnvChanged, Sandbox (Testing)
-		contentY += 28
-		Gui, GCWizard:Font, s9 c888888, Segoe UI
-		Gui, GCWizard:Add, Text, x55 y%contentY% w420 BackgroundTrans, No real money moves. Perfect for testing your setup first.
-		
-		contentY += 40
-		; Live option
-		Gui, GCWizard:Font, s12 cFFFFFF, Segoe UI
-		liveSelected := (Settings_GoCardlessEnvironment = "live")
-		Gui, GCWizard:Add, Radio, x35 y%contentY% w200 vGCWizard_EnvLive Checked%liveSelected% gGCWizard_EnvChanged, Live (Production)
-		contentY += 28
-		Gui, GCWizard:Font, s9 c888888, Segoe UI
-		Gui, GCWizard:Add, Text, x55 y%contentY% w420 BackgroundTrans, Real transactions. Use this when you're ready to collect payments.
-		
-		contentY += 50
-		Gui, GCWizard:Font, s10 cFFAA00, Segoe UI
-		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, ⚠️ We recommend starting with Sandbox to test everything first.
-		
-	} else if (GCWizard_Step = 3) {
-		; Step 3: Sign up / Get token
+		; Step 2: Sign up / Get token
 		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
 		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, 🔑 Get Your API Token
 		
 		contentY += 50
 		Gui, GCWizard:Font, s11 cCCCCCC Norm, Segoe UI
-		envName := (Settings_GoCardlessEnvironment = "live") ? "Live" : "Sandbox"
-		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Follow these steps in the GoCardless %envName% Dashboard:
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Follow these steps in the GoCardless Live Dashboard:
 		
 		contentY += 40
 		Gui, GCWizard:Font, s10 c4FC3F7, Segoe UI
@@ -1785,15 +1742,15 @@ GCWizard_ShowStep:
 		contentY += 28
 		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, 4. Name it "SideKick" and enable Read + Write access
 		contentY += 28
-		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, 5. Copy the token (starts with "live_" or "sandbox_")
+		Gui, GCWizard:Add, Text, x35 y%contentY% w460 BackgroundTrans, 5. Copy the token (starts with "live_")
 		
 		contentY += 45
-		gcDashUrl := (Settings_GoCardlessEnvironment = "live") ? "https://manage.gocardless.com/developers/access-tokens/create" : "https://manage-sandbox.gocardless.com/developers/access-tokens/create"
+		gcDashUrl := "https://manage.gocardless.com/developers/access-tokens/create"
 		Gui, GCWizard:Font, s11, Segoe UI
 		Gui, GCWizard:Add, Button, x150 y%contentY% w220 h35 gGCWizard_OpenDashboard vGCWizard_DashBtn, 🌐 Open GoCardless Dashboard
 		
-	} else if (GCWizard_Step = 4) {
-		; Step 4: Paste token
+	} else if (GCWizard_Step = 3) {
+		; Step 3: Paste token
 		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
 		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, 📋 Paste Your API Token
 		
@@ -1807,15 +1764,14 @@ GCWizard_ShowStep:
 		
 		contentY += 45
 		Gui, GCWizard:Font, s9 c888888, Segoe UI
-		envName := (Settings_GoCardlessEnvironment = "live") ? "live" : "sandbox"
-		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Token should start with "%envName%_" for %envName% environment.
+		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Token should start with "live_".
 		
 		contentY += 35
 		Gui, GCWizard:Font, s9 c4FC3F7, Segoe UI
 		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans, Your token is stored securely in encrypted credentials.json
 		
-	} else if (GCWizard_Step = 5) {
-		; Step 5: Test & Complete
+	} else if (GCWizard_Step = 4) {
+		; Step 4: Test & Complete
 		Gui, GCWizard:Font, s18 cFFFFFF Bold, Segoe UI
 		Gui, GCWizard:Add, Text, x20 y%contentY% w480 BackgroundTrans vGCWizard_CompleteTitle, 🧪 Testing Connection...
 		
@@ -1831,7 +1787,7 @@ GCWizard_ShowStep:
 	btnY := wizH - 60
 	
 	; Back button (not on step 1)
-	if (GCWizard_Step > 1 && GCWizard_Step < 5) {
+	if (GCWizard_Step > 1 && GCWizard_Step < 4) {
 		Gui, GCWizard:Font, s10, Segoe UI
 		Gui, GCWizard:Add, Button, x20 y%btnY% w100 h35 gGCWizard_Back, ← Back
 	}
@@ -1841,11 +1797,11 @@ GCWizard_ShowStep:
 	Gui, GCWizard:Add, Button, x300 y%btnY% w90 h35 gGCWizard_Cancel, Cancel
 	
 	; Next/Finish button
-	if (GCWizard_Step < 4) {
+	if (GCWizard_Step < 3) {
 		Gui, GCWizard:Add, Button, x400 y%btnY% w100 h35 gGCWizard_Next Default, Next →
-	} else if (GCWizard_Step = 4) {
+	} else if (GCWizard_Step = 3) {
 		Gui, GCWizard:Add, Button, x400 y%btnY% w100 h35 gGCWizard_TestToken Default, Test →
-	} else if (GCWizard_Step = 5) {
+	} else if (GCWizard_Step = 4) {
 		Gui, GCWizard:Add, Button, x400 y%btnY% w100 h35 gGCWizard_Finish vGCWizard_FinishBtn Default, Finish
 		GuiControl, GCWizard:Disable, GCWizard_FinishBtn
 	}
@@ -1853,22 +1809,14 @@ GCWizard_ShowStep:
 	; Show wizard
 	Gui, GCWizard:Show, w%wizW% h%wizH%, GoCardless Setup Wizard
 	
-	; If step 5, auto-run the test
-	if (GCWizard_Step = 5) {
+	; If step 4, auto-run the test
+	if (GCWizard_Step = 4) {
 		SetTimer, GCWizard_RunTest, -500
 	}
 return
 
-GCWizard_EnvChanged:
-	Gui, GCWizard:Submit, NoHide
-	if (GCWizard_EnvLive)
-		Settings_GoCardlessEnvironment := "live"
-	else
-		Settings_GoCardlessEnvironment := "sandbox"
-return
-
 GCWizard_OpenDashboard:
-	gcDashUrl := (Settings_GoCardlessEnvironment = "live") ? "https://manage.gocardless.com/developers/access-tokens/create" : "https://manage-sandbox.gocardless.com/developers/access-tokens/create"
+	gcDashUrl := "https://manage.gocardless.com/developers/access-tokens/create"
 	Run, %gcDashUrl%
 return
 
@@ -1882,19 +1830,6 @@ return
 
 GCWizard_Next:
 	global GCWizard_Step
-	
-	; Validate step 2 (environment)
-	if (GCWizard_Step = 2) {
-		Gui, GCWizard:Submit, NoHide
-		if (GCWizard_EnvLive)
-			Settings_GoCardlessEnvironment := "live"
-		else
-			Settings_GoCardlessEnvironment := "sandbox"
-		; Save environment setting
-		IniWrite, %Settings_GoCardlessEnvironment%, %IniFilename%, GoCardless, Environment
-		; Update Settings GUI dropdown if visible
-		GuiControl, Settings:ChooseString, GCEnvDDL, % (Settings_GoCardlessEnvironment = "live") ? "Live" : "Sandbox"
-	}
 	
 	GCWizard_Step++
 	Gosub, GCWizard_ShowStep
@@ -1912,11 +1847,9 @@ GCWizard_TestToken:
 		return
 	}
 	
-	; Validate token prefix matches environment
-	envPrefix := (Settings_GoCardlessEnvironment = "live") ? "live_" : "sandbox_"
-	if (!InStr(GCWizard_Token, envPrefix) && GCWizard_Token != "") {
-		wrongEnv := (Settings_GoCardlessEnvironment = "live") ? "Sandbox" : "Live"
-		result := DarkMsgBox("Environment Mismatch", "This token appears to be for " . wrongEnv . " environment.`n`nYou selected: " . ((Settings_GoCardlessEnvironment = "live") ? "Live" : "Sandbox") . "`n`nContinue anyway?", "warning", ["Continue", "Go Back"])
+	; Validate token prefix - must be live
+	if (!InStr(GCWizard_Token, "live_") && GCWizard_Token != "") {
+		result := DarkMsgBox("Token Warning", "This token doesn't start with ""live_"".`n`nGoCardless live tokens should start with ""live_"".`n`nContinue anyway?", "warning", ["Continue", "Go Back"])
 		if (result != "Continue")
 			return
 	}
@@ -1926,7 +1859,7 @@ GCWizard_TestToken:
 	SaveGHLCredentials()
 	
 	; Go to test step
-	GCWizard_Step := 5
+	GCWizard_Step := 4
 	Gosub, GCWizard_ShowStep
 return
 
@@ -1934,7 +1867,7 @@ GCWizard_RunTest:
 	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment
 	
 	; Run API test
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--test-connection" . envFlag)
 	
 	if (scriptCmd = "") {
@@ -1959,7 +1892,7 @@ GCWizard_RunTest:
 		
 		GuiControl, GCWizard:, GCWizard_CompleteTitle, ✅ Connection Successful!
 		GuiControl, GCWizard:, GCWizard_CompleteMsg, Your GoCardless account is now connected.
-		resultMsg := "Creditor: " . creditorName . "`nCreditor ID: " . creditorId . "`nEnvironment: " . ((Settings_GoCardlessEnvironment = "live") ? "Live" : "Sandbox")
+		resultMsg := "Creditor: " . creditorName . "`nCreditor ID: " . creditorId . "`nEnvironment: Live"
 		GuiControl, GCWizard:, GCWizard_ResultText, %resultMsg%
 		
 		; Update Settings GUI
@@ -2006,7 +1939,7 @@ ListEmptyMandates:
 	GuiControl, Settings:, GCProgressText, Fetching mandates from GoCardless...
 	GuiControl, Settings:Show, GCProgressText
 	
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--list-empty-mandates" . envFlag)
 	
 	if (scriptCmd = "") {
@@ -2398,8 +2331,7 @@ GC_OpenInGC:
 	}
 	
 	; Open GoCardless customer page
-	gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
-	gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . m.customerId
+	gcUrl := "https://manage.gocardless.com/customers/" . m.customerId
 	Run, %gcUrl%
 return
 
@@ -2667,7 +2599,7 @@ GC_CheckCustomerMandate(customerEmail) {
 	}
 	
 	; Use Python script for GoCardless API calls
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--check-mandate """ . customerEmail . """" . envFlag)
 	
 	FileAppend, % A_Now . " - GC_CheckCustomerMandate - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
@@ -2851,7 +2783,7 @@ GC_SendMandateRequest(contactData, sendEmail, sendSMS) {
 	; Build JSON for the contact data
 	contactJson := "{""email"": """ . clientEmail . """, ""first_name"": """ . contactData.firstName . """, ""last_name"": """ . contactData.lastName . """}"
 	
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--create-billing-request """ . contactJson . """" . envFlag)
 	
 	if (scriptCmd = "") {
@@ -3007,9 +2939,11 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	global PayPlanLine, PayNo, DownpaymentLineAdded
 	global Settings_InvoiceWatchFolder
 	global GC_PP_PsaFilePath  ; Store .psa file path for display
+	global GC_PP_OrderDate    ; Store order date from .psa for plan naming
 	
 	; Initialize .psa path
 	GC_PP_PsaFilePath := ""
+	GC_PP_OrderDate := ""
 	
 	; Store data for GUI handlers
 	GC_PP_ContactData := contactData
@@ -3181,19 +3115,26 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		}
 		
 		if (InStr(scriptOutput, "NO_PAYMENTS")) {
+			; Extract order date if present (NO_PAYMENTS|DD/MM/YYYY)
+			noParts := StrSplit(scriptOutput, "|")
+			if (noParts.Length() >= 2 && noParts[2] != "")
+				GC_PP_OrderDate := noParts[2]
 			; No payments at all - let user know
 			DarkMsgBox("No Payments", "No payments found in the album.`n`nAdd a payment schedule in ProSelect first.", "warning")
 			return
 		}
 		
 		if (InStr(scriptOutput, "PAYMENTS|")) {
-			; Parse payments: PAYMENTS|count|day,month,year,amount,methodName,methodID|...
+			; Parse payments: PAYMENTS|count|order_date|day,month,year,amount,methodName,methodID|...
 			parts := StrSplit(scriptOutput, "|")
 			paymentCount := parts[2]
+			; Extract order date (DD/MM/YYYY format)
+			if (parts[3] != "")
+				GC_PP_OrderDate := parts[3]
 			
 			Loop, %paymentCount%
 			{
-				paymentData := parts[A_Index + 2]
+				paymentData := parts[A_Index + 3]
 				payParts := StrSplit(paymentData, ",")
 				
 				if (payParts.Length() >= 6) {
@@ -3317,6 +3258,46 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	GC_PP_SinglePayments := singlePayments
 	GC_PP_InstalmentPayments := instalmentPayments
 	GC_PP_InstalmentAmount := instalmentAmount
+	
+	; Build plan name from naming format parts (Settings)
+	global Settings_GCNamePart1, Settings_GCNamePart2, Settings_GCNamePart3
+	
+	; Resolve each naming part to actual data
+	resolvedParts := []
+	Loop, 3 {
+		partNum := A_Index
+		partVal := Settings_GCNamePart%partNum%
+		if (partVal = "" || partVal = "(none)")
+			continue
+		resolved := ""
+		if (partVal = "Shoot No")
+			resolved := jobCode
+		else if (partVal = "Surname")
+			resolved := contactData.lastName
+		else if (partVal = "First Name")
+			resolved := contactData.firstName
+		else if (partVal = "Full Name")
+			resolved := Trim(contactData.firstName . " " . contactData.lastName)
+		else if (partVal = "Order Date")
+			resolved := GC_PP_OrderDate
+		else if (partVal = "GHL ID")
+			resolved := contactData.id
+		else if (partVal = "Album Name")
+			resolved := defaultName
+		if (resolved != "")
+			resolvedParts.Push(resolved)
+	}
+	
+	; If naming parts produced a result, use it; otherwise keep defaultName
+	if (resolvedParts.Length() > 0) {
+		formattedName := ""
+		for i, part in resolvedParts {
+			if (formattedName != "")
+				formattedName .= " - "
+			formattedName .= part
+		}
+		defaultName := formattedName
+	}
 	
 	; Create dark-themed GUI
 	Gui, GCPayPlan:New, +AlwaysOnTop +ToolWindow -MinimizeBox
@@ -3583,7 +3564,7 @@ GC_PP_CreateMixed:
 	ToolTip, Creating payments...
 	
 	; Call Python script
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--create-payment-plan-file """ . tempJsonFile . """" . envFlag)
 	FileAppend, % A_Now . " - GC_PP_CreateMixed - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
 	
@@ -3611,8 +3592,7 @@ GC_PP_CreateMixed:
 		if (result = "Open GC") {
 			; Open GoCardless customer page
 			customerId := GC_PP_MandateResult.customerId
-			gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
-			gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . customerId
+			gcUrl := "https://manage.gocardless.com/customers/" . customerId
 			Run, %gcUrl%
 		}
 	}
@@ -3690,7 +3670,7 @@ GC_PP_CreateSingles:
 	successCount := 0
 	failedCount := 0
 	createdIds := ""
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	
 	Loop, % payCount
 	{
@@ -3766,7 +3746,7 @@ GC_PP_Create:
 	planName := GC_PP_Name
 	
 	ToolTip, Checking for existing plans...
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	checkCmd := GetScriptCommand("gocardless_api", "--list-plans """ . mandateId . """" . envFlag)
 	tempCheck := A_Temp . "\gc_check_plans_" . A_TickCount . ".txt"
 	RunWait, %ComSpec% /c %checkCmd% > "%tempCheck%" 2>&1, , Hide
@@ -3819,7 +3799,7 @@ GC_PP_Create:
 	ToolTip, Creating payment plan...
 	
 	; Call Python script
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--create-instalment-file """ . tempJsonFile . """" . envFlag)
 	FileAppend, % A_Now . " - GC_PP_Create - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
 	
@@ -3873,7 +3853,6 @@ Toggle_GoCardlessEnabled_Changed:
 	IniWrite, %Settings_GoCardlessEnabled%, %IniFilename%, GoCardless, Enabled
 	; Enable/disable all other GoCardless controls based on toggle state
 	if (Settings_GoCardlessEnabled) {
-		GuiControl, Settings:Enable, GCEnvDDL
 		GuiControl, Settings:Enable, GCTokenEditBtn
 		GuiControl, Settings:Enable, GCTestBtn
 		GuiControl, Settings:Enable, GCDashboardBtn
@@ -3886,7 +3865,6 @@ Toggle_GoCardlessEnabled_Changed:
 		GuiControl, Settings:Enable, GCNamePart2DDL
 		GuiControl, Settings:Enable, GCNamePart3DDL
 	} else {
-		GuiControl, Settings:Disable, GCEnvDDL
 		GuiControl, Settings:Disable, GCTokenEditBtn
 		GuiControl, Settings:Disable, GCTestBtn
 		GuiControl, Settings:Disable, GCDashboardBtn
@@ -3928,7 +3906,7 @@ UpdateGCNameExample() {
 	global Settings_GCNamePart1, Settings_GCNamePart2, Settings_GCNamePart3
 	
 	; Sample data for preview
-	sampleData := {shootNo: "P26005", surname: "Smith", firstName: "John", fullName: "John Smith", ghlId: "abc123xyz", albumName: "2026-02-17_Smith"}
+	sampleData := {shootNo: "P26005", surname: "Smith", firstName: "John", fullName: "John Smith", orderDate: "17/02/2026", ghlId: "abc123xyz", albumName: "2026-02-17_Smith"}
 	
 	; Build example string from selected parts
 	parts := []
@@ -3945,6 +3923,8 @@ UpdateGCNameExample() {
 			parts.Push(sampleData.firstName)
 		else if (partVal = "Full Name")
 			parts.Push(sampleData.fullName)
+		else if (partVal = "Order Date")
+			parts.Push(sampleData.orderDate)
 		else if (partVal = "GHL ID")
 			parts.Push(sampleData.ghlId)
 		else if (partVal = "Album Name")
@@ -4718,8 +4698,6 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GCEnable
 	GuiControl, Settings:Hide, Toggle_GoCardlessEnabled
 	GuiControl, Settings:Hide, GCApiConfig
-	GuiControl, Settings:Hide, GCEnvLabel
-	GuiControl, Settings:Hide, GCEnvDDL
 	GuiControl, Settings:Hide, GCTokenLabel
 	GuiControl, Settings:Hide, GCTokenDisplay
 	GuiControl, Settings:Hide, GCTokenEditBtn
@@ -5171,11 +5149,6 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GCEnable
 		GuiControl, Settings:Show, Toggle_GoCardlessEnabled
 		GuiControl, Settings:Show, GCApiConfig
-		; Environment selector only for developers
-		if (IsDeveloperMode()) {
-			GuiControl, Settings:Show, GCEnvLabel
-			GuiControl, Settings:Show, GCEnvDDL
-		}
 		GuiControl, Settings:Show, GCTokenLabel
 		GuiControl, Settings:Show, GCTokenDisplay
 		GuiControl, Settings:Show, GCTokenEditBtn
@@ -5209,7 +5182,6 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GCNameExample
 		; Apply enable/disable state based on toggle
 		if (Settings_GoCardlessEnabled) {
-			GuiControl, Settings:Enable, GCEnvDDL
 			GuiControl, Settings:Enable, GCTokenEditBtn
 			GuiControl, Settings:Enable, GCTestBtn
 			GuiControl, Settings:Enable, GCDashboardBtn
@@ -5222,7 +5194,6 @@ ShowSettingsTab(tabName)
 			GuiControl, Settings:Enable, GCNamePart2DDL
 			GuiControl, Settings:Enable, GCNamePart3DDL
 		} else {
-			GuiControl, Settings:Disable, GCEnvDDL
 			GuiControl, Settings:Disable, GCTokenEditBtn
 			GuiControl, Settings:Disable, GCTestBtn
 			GuiControl, Settings:Disable, GCDashboardBtn
@@ -5561,26 +5532,49 @@ RefreshCardlyTemplates:
 	}
 	
 	; --- Build orientation pair map (L↔P / Landscape↔Portrait) ---
-	; For each template, strip orientation suffix to get a base name, then find its partner
+	; For each template, strip orientation suffix to get a base name, then find its partner.
+	; Method 1: Match by display name (e.g. "MyCard-L (WxHpx)" ↔ "MyCard-P (WxHpx)")
+	; Method 2: Fallback — match by API ID (e.g. "thankyou-photocard-l" ↔ "thankyou-photocard-p")
 	CardlyTemplateAltOrientation := {}
+	orientSuffix := "i)[\s_-]+(landscape|portrait|l|p)$"
 	for dName, tId in CardlyTemplateMap {
-		; Strip the " (WxHpx)" dimension suffix to get the raw name
+		if (CardlyTemplateAltOrientation.HasKey(dName))
+			continue
+		; --- Method 1: match by display name ---
 		rawName := RegExReplace(dName, "\s*\([^)]*px\)$")
-		; Strip orientation suffix (case-insensitive): " L", " P", " -L", "-P", " Landscape", " Portrait"
-		baseName := RegExReplace(rawName, "i)[\s_-]+(landscape|portrait|l|p)$")
-		; Search all other templates for a match with opposite orientation
+		baseName := RegExReplace(rawName, orientSuffix)
+		found := false
 		for dName2, tId2 in CardlyTemplateMap {
 			if (dName2 = dName)
 				continue
 			rawName2 := RegExReplace(dName2, "\s*\([^)]*px\)$")
-			baseName2 := RegExReplace(rawName2, "i)[\s_-]+(landscape|portrait|l|p)$")
-			; Case-insensitive base name comparison
-			if (baseName != "" && baseName2 != "") {
-				StringLower, baseNameLower, baseName
-				StringLower, baseName2Lower, baseName2
-				if (baseNameLower = baseName2Lower && rawName != rawName2) {
+			baseName2 := RegExReplace(rawName2, orientSuffix)
+			if (baseName != "" && baseName != rawName && baseName2 != "" && baseName2 != rawName2) {
+				StringLower, bLow, baseName
+				StringLower, bLow2, baseName2
+				if (bLow = bLow2) {
 					CardlyTemplateAltOrientation[dName] := dName2
+					found := true
 					break
+				}
+			}
+		}
+		; --- Method 2: fallback — match by API template ID ---
+		if (!found) {
+			baseId := RegExReplace(tId, orientSuffix)
+			if (baseId != "" && baseId != tId) {
+				for dName2, tId2 in CardlyTemplateMap {
+					if (dName2 = dName)
+						continue
+					baseId2 := RegExReplace(tId2, orientSuffix)
+					if (baseId2 != "" && baseId2 != tId2) {
+						StringLower, iLow, baseId
+						StringLower, iLow2, baseId2
+						if (iLow = iLow2) {
+							CardlyTemplateAltOrientation[dName] := dName2
+							break
+						}
+					}
 				}
 			}
 		}

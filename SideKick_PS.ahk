@@ -296,7 +296,7 @@ global Settings_ShowBtn_Cardly := true   ; Cardly postcard button (default ON)
 global Settings_Cardly_ApiKey := ""          ; Cardly API key (stored in credentials.json)
 global Settings_GoCardlessEnabled := false   ; Master enable for GoCardless integration
 global Settings_GoCardlessToken := ""        ; GoCardless API access token (sandbox or live)
-global Settings_GoCardlessEnvironment := "sandbox"  ; "sandbox" or "live"
+global Settings_GoCardlessEnvironment := "live"  ; Always live (sandbox removed)
 global Settings_GCEmailTemplateID := ""      ; GHL email template ID for mandate link
 global Settings_GCEmailTemplateName := "(none selected)"  ; GHL email template name for mandate link
 global Settings_GCSMSTemplateID := ""        ; GHL SMS template ID for mandate link
@@ -3954,8 +3954,7 @@ Toolbar_GoCardless:
 		}
 		else if (result = "Open GC Client") {
 			; Open GoCardless customer page
-			gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
-			gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . customerId
+			gcUrl := "https://manage.gocardless.com/customers/" . customerId
 			Run, %gcUrl%
 		}
 		return
@@ -4024,7 +4023,7 @@ GC_SearchMandateByNameOrEmail(contactData) {
 	ToolTip, Searching for mandate by %searchType%: %searchTerm%...
 	
 	; Call Python script with appropriate argument
-	envFlag := (Settings_GoCardlessEnvironment = "live") ? " --live" : ""
+	envFlag := " --live"  ; Always live
 	if (isEmail)
 		scriptCmd := GetScriptCommand("gocardless_api", "--check-mandate """ . searchTerm . """" . envFlag)
 	else
@@ -4085,8 +4084,7 @@ GC_SearchMandateByNameOrEmail(contactData) {
 		}
 		else if (result = "Open GC Client") {
 			; Open GoCardless customer page
-			gcEnv := (Settings_GoCardlessEnvironment = "live") ? "manage" : "manage-sandbox"
-			gcUrl := "https://" . gcEnv . ".gocardless.com/customers/" . mandateResult.customerId
+			gcUrl := "https://manage.gocardless.com/customers/" . mandateResult.customerId
 			Run, %gcUrl%
 		}
 		return
@@ -5387,7 +5385,6 @@ Settings_GoCardlessEnabled := Toggle_GoCardlessEnabled_State
 IniWrite, %Settings_GoCardlessEnabled%, %IniFilename%, GoCardless, Enabled
 ; Enable/disable controls and recreate toolbar
 if (Settings_GoCardlessEnabled) {
-	GuiControl, Settings:Enable, GCEnvDDL
 	GuiControl, Settings:Enable, GCTokenEditBtn
 	GuiControl, Settings:Enable, GCTestBtn
 	GuiControl, Settings:Enable, GCDashboardBtn
@@ -5400,7 +5397,6 @@ if (Settings_GoCardlessEnabled) {
 	GuiControl, Settings:Enable, GCNamePart2DDL
 	GuiControl, Settings:Enable, GCNamePart3DDL
 } else {
-	GuiControl, Settings:Disable, GCEnvDDL
 	GuiControl, Settings:Disable, GCTokenEditBtn
 	GuiControl, Settings:Disable, GCTestBtn
 	GuiControl, Settings:Disable, GCDashboardBtn

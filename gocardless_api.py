@@ -153,7 +153,7 @@ def load_config() -> Dict[str, Any]:
     debug_log(f"SCRIPT_DIR: {SCRIPT_DIR}")
 
     gc_token = ""
-    environment = "sandbox"
+    environment = "live"
     ghl_api_key = ""
     location_id = ""
 
@@ -206,7 +206,7 @@ def load_config() -> Dict[str, Any]:
         config.read(ini_path, encoding='utf-8')
 
         if config.has_section('GoCardless'):
-            environment = config.get('GoCardless', 'Environment', fallback='sandbox')
+            environment = config.get('GoCardless', 'Environment', fallback='live')
             debug_log(f"GC environment from INI: {environment}")
     except Exception as e:
         debug_log(f"INI file error: {e}")

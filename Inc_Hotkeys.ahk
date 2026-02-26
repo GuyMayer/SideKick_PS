@@ -211,7 +211,7 @@ LoadSettings()
 	
 	; GoCardless settings (token is loaded separately via LoadGHLCredentials)
 	IniRead, Settings_GoCardlessEnabled, %IniFilename%, GoCardless, Enabled, 0
-	IniRead, Settings_GoCardlessEnvironment, %IniFilename%, GoCardless, Environment, sandbox
+	IniRead, Settings_GoCardlessEnvironment, %IniFilename%, GoCardless, Environment, live
 	IniRead, Settings_GCEmailTemplateID, %IniFilename%, GoCardless, EmailTemplateID, %A_Space%
 	IniRead, Settings_GCEmailTemplateName, %IniFilename%, GoCardless, EmailTemplateName, SELECT
 	IniRead, Settings_GCSMSTemplateID, %IniFilename%, GoCardless, SMSTemplateID, %A_Space%
