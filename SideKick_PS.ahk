@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.37
+; Version:     2.5.38
 ; Build Date:  2026-02-27
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -567,20 +567,10 @@ PlaceButton:
 if EnteringPaylines
 	Return
 
-; Verify the Add Payment list window (with "Payments" text) is open
-; Only show PayPlan button if user opened Payline from the Add Payment list
-if !WinExist("Add Payment", "Payments")
-{
-	; Add Payment list window not found - don't show PayPlan button
-	SetTimer, WatchForAddPayment, 1000
-	Return
-}
-
-SoundPlay %A_ScriptDir%\sidekick\media\KbdSpacebar.wav
-sleep 250
+; Play notification sounds (non-blocking)
 SoundPlay %A_ScriptDir%\sidekick\media\KbdSpacebar.wav
 
-; Wait for the Payline window
+; Wait for the Payline window (should already exist from watcher)
 WinWait, Add Payment, Date, 5
 if ErrorLevel {
 	; Re-enable watcher for next time
@@ -717,14 +707,6 @@ else
 	SetTimer, WatchForAddPayment, 1000
 }
 
-; Also check if the Add Payment list window was closed - if so, hide button
-IfWinNotExist, Add Payment, Payments
-{
-	; Add Payment list window closed - destroy button and restart watcher
-	Gui, PP:Destroy
-	SetTimer, KeepPayPlanVisible, Off
-	SetTimer, WatchForAddPayment, 1000
-}
 Return
 
 PayCalcGUI:
@@ -1175,14 +1157,11 @@ CheckForPS:
 Return
 
 WatchForAddPayment:
-; Watch for the Payline window - but only show PayPlan if Add Payment list window is also open
-; The Add Payment list window (with "Payments" text) must be open behind the Payline window (with "Date" text)
+; Watch for the Payline entry form (contains "Date" text)
+; Only the payline form is needed - the payment list may not contain detectable text
 If WinExist("Add Payment", "Date") {
-	; Check if the Add Payment list window is also open
-	If WinExist("Add Payment", "Payments") {
-		SetTimer, WatchForAddPayment, Off
-		GoSub, PlaceButton
-	}
+	SetTimer, WatchForAddPayment, Off
+	GoSub, PlaceButton
 }
 Return
 
@@ -1564,21 +1543,23 @@ CreateFloatingToolbar()
 	; Calculate toolbar width dynamically based on enabled buttons
 	; Each button = 44px wide + 7px spacing (51px per slot), plus 2px left margin
 	btnCount := 0
+	; -- GHL Section --
 	if (Settings_ShowBtn_Client)
 		btnCount++
 	if (Settings_ShowBtn_Invoice)
 		btnCount++
 	if (Settings_ShowBtn_OpenGHL)
 		btnCount++
+	; -- Shortcuts Section --
 	if (Settings_ShowBtn_Camera)
 		btnCount++
 	if (Settings_ShowBtn_OpenFolder)
 		btnCount++
-	if (Settings_ShowBtn_Sort)
-		btnCount++
 	if (Settings_ShowBtn_Photoshop)
 		btnCount++
 	if (Settings_ShowBtn_Refresh)
+		btnCount++
+	if (Settings_ShowBtn_Sort)
 		btnCount++
 	if (Settings_ShowBtn_Print)
 		btnCount++
@@ -1588,11 +1569,22 @@ CreateFloatingToolbar()
 		btnCount++
 	if (Settings_SDCardEnabled)
 		btnCount++
+	; -- Services Section --
 	if (Settings_GoCardlessEnabled)
 		btnCount++
 	if (Settings_ShowBtn_Cardly)
 		btnCount++
 	btnCount++  ; Settings button (always visible)
+	
+	; Determine which sections have visible buttons (for separator logic)
+	hasGHLButtons := (Settings_ShowBtn_Client || Settings_ShowBtn_Invoice || Settings_ShowBtn_OpenGHL)
+	hasShortcutButtons := (Settings_ShowBtn_Camera || Settings_ShowBtn_OpenFolder || Settings_ShowBtn_Photoshop || Settings_ShowBtn_Refresh || Settings_ShowBtn_Sort || Settings_ShowBtn_Print || Settings_EnablePDF || Settings_ShowBtn_QRCode || Settings_SDCardEnabled)
+	hasServiceButtons := (Settings_GoCardlessEnabled || Settings_ShowBtn_Cardly)
+	separatorCount := 0
+	if (hasGHLButtons && (hasShortcutButtons || hasServiceButtons))
+		separatorCount++
+	if (hasShortcutButtons && hasServiceButtons)
+		separatorCount++
 	
 	; Scale button dimensions for DPI
 	; Make buttons fill entire toolbar with NO gaps - eliminates click-blocking transparent areas
@@ -1604,8 +1596,9 @@ CreateFloatingToolbar()
 	btnY1 := 0  ; Camera button also at top
 	fontSize := Round(16 * DPI_Scale)
 	fontSizeSmall := Round(14 * DPI_Scale)
+	separatorW := Round(12 * DPI_Scale)  ; Width of section dividers
 	
-	toolbarWidth := btnMargin + (btnCount * btnSpacing)
+	toolbarWidth := btnMargin + (btnCount * btnSpacing) + (separatorCount * separatorW)
 	toolbarHeight := btnH  ; Exact button height - no padding
 	
 	; Add width for grab handle on the left
@@ -1662,6 +1655,7 @@ CreateFloatingToolbar()
 	
 	; Use detected icon font (Phosphor Thin or fallback)
 	
+	; ═══ GHL Section ═══
 	; Client button (person icon)
 	if (Settings_ShowBtn_Client) {
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
@@ -1686,6 +1680,17 @@ CreateFloatingToolbar()
 		nextX += btnSpacing
 	}
 	
+	; ── Section Separator: GHL → Shortcuts ──
+	if (hasGHLButtons && (hasShortcutButtons || hasServiceButtons)) {
+		sepLineW := Round(2 * DPI_Scale)
+		sepX := nextX + Round((separatorW - sepLineW) / 2)
+		sepH := Round(btnH * 0.5)
+		sepY := Round((btnH - sepH) / 2)
+		Gui, Toolbar:Add, Progress, x%sepX% y%sepY% w%sepLineW% h%sepH% Background666666 c666666, 100
+		nextX += separatorW
+	}
+	
+	; ═══ Shortcuts Section ═══
 	; Camera button - two versions for state indication (only one visible at a time)
 	if (Settings_ShowBtn_Camera) {
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
@@ -1727,20 +1732,20 @@ CreateFloatingToolbar()
 		nextX += btnSpacing
 	}
 	
+	; Refresh button (sync icon)
+	if (Settings_ShowBtn_Refresh) {
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh +HwndTB_Refresh_Hwnd, % Chr(Icon_Refresh)
+		ToolbarTooltips[TB_Refresh_Hwnd] := "Refresh Album"
+		nextX += btnSpacing
+	}
+	
 	; Sort button (shuffle/alpha toggle) - uses emoji for toggle states
 	if (Settings_ShowBtn_Sort) {
 		SortMode_IsRandom := false
 		Gui, Toolbar:Font, s%fontSize%, Segoe UI Emoji
 		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_ToggleSort vTB_Sort +HwndTB_Sort_Hwnd, 🔀
 		ToolbarTooltips[TB_Sort_Hwnd] := "Toggle Sort Mode"
-		nextX += btnSpacing
-	}
-	
-	; Refresh button (sync icon)
-	if (Settings_ShowBtn_Refresh) {
-		Gui, Toolbar:Font, s%fontSize%, %IconFont%
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundNavy c%iconColor% gToolbar_Refresh vTB_Refresh +HwndTB_Refresh_Hwnd, % Chr(Icon_Refresh)
-		ToolbarTooltips[TB_Refresh_Hwnd] := "Refresh Album"
 		nextX += btnSpacing
 	}
 	
@@ -1777,6 +1782,17 @@ CreateFloatingToolbar()
 		nextX += btnSpacing
 	}
 	
+	; ── Section Separator: Shortcuts → Services ──
+	if (hasShortcutButtons && hasServiceButtons) {
+		sepLineW := Round(2 * DPI_Scale)
+		sepX := nextX + Round((separatorW - sepLineW) / 2)
+		sepH := Round(btnH * 0.5)
+		sepY := Round((btnH - sepH) / 2)
+		Gui, Toolbar:Add, Progress, x%sepX% y%sepY% w%sepLineW% h%sepH% Background666666 c666666, 100
+		nextX += separatorW
+	}
+	
+	; ═══ Services Section ═══
 	; GoCardless button (PNG icon - colored to match toolbar icons)
 	if (Settings_GoCardlessEnabled) {
 		; Calculate icon size: 51% of button
@@ -9178,7 +9194,7 @@ if ErrorLevel {
 	return
 }
 
-DarkMsgBox("Settings Exported", "Settings exported successfully!`n`nFile: " . exportPath . "`n`n✅ INCLUDED IN PACKAGE:`n• All settings and preferences`n• GHL API Key and Location ID`n• License information`n• Hotkey configurations`n`nImport this file on another machine to copy`nyour complete SideKick setup.", "success")
+DarkMsgBox("Settings Exported", "Settings exported successfully!`n`nFile: " . exportPath . "`n`n✅ INCLUDED IN PACKAGE:`n• All settings and preferences`n• GHL API Key and Location ID`n• License information`n• Hotkey configurations`n• Toolbar button visibility`n• Cardly sticker overlays`n• GoCardless settings`n`nImport this file on another machine to copy`nyour complete SideKick setup.", "success")
 Return
 
 ; Import settings from encrypted .skp file
@@ -9269,7 +9285,7 @@ if (License_Key != "" && License_Status = "active") {
 if (importWarnings != "") {
 	DarkMsgBox("Settings Imported with Warnings", "Settings imported successfully!`n`nBackup saved to:`n" . backupPath . "`n`n⚠️ VALIDATION WARNINGS:`n" . importWarnings . "`nThe imported settings may be from a different GHL account`nor a different licensed installation.`n`nPlease go to Settings to verify and update as needed.", "warning")
 } else {
-	DarkMsgBox("Settings Imported", "Settings imported successfully!`n`nBackup saved to:`n" . backupPath . "`n`n✅ IMPORTED AND VALIDATED:`n• All settings and preferences`n• GHL connection verified`n• License verified`n• Hotkey configurations`n`nYou're ready to go!", "success")
+	DarkMsgBox("Settings Imported", "Settings imported successfully!`n`nBackup saved to:`n" . backupPath . "`n`n✅ IMPORTED AND VALIDATED:`n• All settings and preferences`n• GHL connection verified`n• License verified`n• Hotkey configurations`n• Toolbar button visibility`n• Cardly sticker overlays`n• GoCardless settings`n`nYou're ready to go!", "success")
 }
 Return
 
@@ -9293,7 +9309,26 @@ BuildExportData() {
 		}
 	}
 	
-	; Export everything - license and credentials included for multi-machine setup
+	; Add sticker PNG files as base64 (for Cardly postcards)
+	stickerDir := A_ScriptDir . "\stickers"
+	if FileExist(stickerDir) {
+		stickerData := ""
+		Loop, Files, %stickerDir%\*.png
+		{
+			; Use PowerShell to base64-encode each file (reliable for binary PNG data)
+			tempB64 := A_Temp . "\skp_sticker_" . A_TickCount . ".b64"
+			psCmd := "[Convert]::ToBase64String([IO.File]::ReadAllBytes('" . A_LoopFileFullPath . "')) | Set-Content -NoNewline '" . tempB64 . "'"
+			RunWait, powershell -NoProfile -Command "%psCmd%",, Hide
+			FileRead, b64Content, %tempB64%
+			FileDelete, %tempB64%
+			if (b64Content != "")
+				stickerData .= A_LoopFileName . "=" . b64Content . "`n"
+		}
+		if (stickerData != "")
+			data .= "`n[__STICKERS__]`n" . stickerData . "[__END_STICKERS__]"
+	}
+	
+	; Export everything - license, credentials, and stickers included for multi-machine setup
 	return data
 }
 
@@ -9382,6 +9417,46 @@ ParseImportData(data) {
 ; Apply imported settings to current configuration
 ApplyImportedSettings(data) {
 	global
+	
+	; Check for embedded sticker files (base64-encoded PNGs)
+	stickerStart := InStr(data, "[__STICKERS__]")
+	stickerEnd := InStr(data, "[__END_STICKERS__]")
+	if (stickerStart && stickerEnd) {
+		; Extract sticker data block
+		stickerBlock := SubStr(data, stickerStart + StrLen("[__STICKERS__]") + 1, stickerEnd - stickerStart - StrLen("[__STICKERS__]") - 1)
+		
+		; Ensure stickers folder exists
+		stickerDir := A_ScriptDir . "\stickers"
+		if !FileExist(stickerDir)
+			FileCreateDir, %stickerDir%
+		
+		; Decode each sticker: filename=base64data
+		Loop, Parse, stickerBlock, `n, `r
+		{
+			line := A_LoopField
+			if (line = "")
+				continue
+			equalPos := InStr(line, "=")
+			if (!equalPos)
+				continue
+			stickerName := SubStr(line, 1, equalPos - 1)
+			stickerB64 := SubStr(line, equalPos + 1)
+			if (stickerName = "" || stickerB64 = "")
+				continue
+			
+			; Write base64 to temp file, then decode with PowerShell
+			tempB64 := A_Temp . "\skp_sticker_" . A_TickCount . ".b64"
+			outFile := stickerDir . "\" . stickerName
+			FileDelete, %tempB64%
+			FileAppend, %stickerB64%, %tempB64%
+			psCmd := "[IO.File]::WriteAllBytes('" . outFile . "', [Convert]::FromBase64String((Get-Content -Raw '" . tempB64 . "')))"
+			RunWait, powershell -NoProfile -Command "%psCmd%",, Hide
+			FileDelete, %tempB64%
+		}
+		
+		; Remove stickers section from data for INI processing
+		data := SubStr(data, 1, stickerStart - 1) . SubStr(data, stickerEnd + StrLen("[__END_STICKERS__]"))
+	}
 	
 	; Check for embedded credentials JSON
 	credStart := InStr(data, "[__CREDENTIALS_JSON__]")

@@ -453,7 +453,8 @@ New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
 
 if (Test-Path $InnoCompiler) {
     Write-Host "  Compiling installer with Inno Setup..." -ForegroundColor Gray
-    & $InnoCompiler /Q $issFile
+    $signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
+    cmd /c "`"$InnoCompiler`" /Q `"/SMsSign=`"`"$signtoolExe`"`" sign /tr http://time.certum.pl /td sha256 /fd sha256 /sha1 0A8665226386555FD6AE7BD4EC3A240624887AD9 `$f`" `"$issFile`""
     
     $installerPath = "$ArchiveDir\SideKick_PS_Setup.exe"
     if (Test-Path $installerPath) {

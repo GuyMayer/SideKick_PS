@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.37"
+#define MyAppVersion "2.5.38"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -35,6 +35,10 @@ SetupIconFile=Release\SideKick_PS.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
+
+; Code signing (Certum card must be connected)
+SignTool=MsSign
+SignedUninstaller=yes
 
 ; Privileges (user-level install, no admin needed)
 PrivilegesRequired=lowest
@@ -192,6 +196,10 @@ begin
     end;
   end;
 end;
+
+
+
+
 
 
 

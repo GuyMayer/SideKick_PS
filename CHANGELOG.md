@@ -12,6 +12,25 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.38 (2026-02-27)
+
+### New Features
+- **Toolbar Section Separators**: Visual dividers between GHL, Shortcuts, and Services button groups on the floating toolbar — clearer button organisation at a glance
+- **GoCardless Auto-Detect on Payment Entry**: After writing DD payments to an album, SideKick detects GoCardless/Direct Debit payment types and offers to create them in GoCardless immediately
+- **Settings Export/Import: Sticker Support**: Cardly sticker overlay PNGs are now base64-encoded into the `.skp` export package and restored on import — stickers transfer seamlessly between machines
+
+### Improvements
+- **Toolbar Button Order**: Refresh button moved before Sort; buttons logically grouped into GHL → Shortcuts → Services sections
+- **PayPlan Window Detection Simplified**: Payline watcher no longer requires the "Add Payment" list window — only the payline entry form ("Date" text) is needed, fixing detection on some ProSelect versions
+- **PayPlan Silent Success**: Removed confirmation dialog after successful payment entry — success indicated by sound only, failures still show error dialog
+- **Settings Export/Import Summary**: Confirmation dialogs now list toolbar button visibility, Cardly sticker overlays, and GoCardless settings in the package contents
+- **Code Signing**: Installer and uninstaller are now digitally signed with Certum code signing certificate (Zoom Studios Ltd)
+
+### Bug Fixes
+- **PayPlan EnteringPaylines State**: Fixed `EnteringPaylines` flag not being reset after payment write — previously could block subsequent payment entries until script restart
+
+---
+
 ## v2.5.37 (2026-02-27)
 
 ### New Features

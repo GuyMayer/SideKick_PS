@@ -960,18 +960,50 @@ if (InStr(pyOutput, "SUCCESS|")) {
 	reloadResult := PsConsole("openAlbum", psaPath, "true")
 	Sleep, 2000  ; Give ProSelect time to reload
 	
-	; Play ding sound and show confirmation
+	; Play ding sound (no dialog - success is silent, only failures shown)
 	SoundPlay, *48
-	if (DownpaymentLineAdded)
-		DarkMsgBox("Payments Entered", "✅ Downpayment + " . PayNo . " scheduled payment(s) written to album!", "info", {timeout: 5})
-	else
-		DarkMsgBox("Payments Entered", "✅ " . countAdded . " payment(s) written to album!", "info", {timeout: 5})
+	
+	; Step 8: Check for GoCardless DD payments and offer to create in GoCardless
+	hasGCPayments := false
+	Loop %TotalPaymentsToEnter%
+	{
+		PaymentIndex := StartIndex + A_Index - 1
+		payLine := PayPlanLine[PaymentIndex]
+		if (payLine = "")
+			continue
+		parts := StrSplit(payLine, ",")
+		if (parts.Length() >= 4) {
+			payType := parts[4]
+			if (InStr(payType, "GoCardless") || InStr(payType, "Direct Debit") || InStr(payType, " DD") || payType = "DD" || InStr(payType, "BACS"))
+			{
+				hasGCPayments := true
+				break
+			}
+		}
+	}
+	
+	if (hasGCPayments && Settings_GoCardlessToken != "")
+	{
+		FileAppend, % A_Now . " - UpdatePS - GoCardless DD payments detected, prompting user`n", %DebugLogFile%
+		gcResult := DarkMsgBox("Create in GoCardless?", "GoCardless DD payments detected in this plan.`n`nCreate these payments in GoCardless now?", "info", {buttons: ["Create in GoCardless", "Skip"]})
+		
+		if (gcResult = "Create in GoCardless")
+		{
+			FileAppend, % A_Now . " - UpdatePS - User chose to create GoCardless payments`n", %DebugLogFile%
+			EnteringPaylines := False
+			GoSub, Toolbar_GoCardless
+			return
+		}
+		FileAppend, % A_Now . " - UpdatePS - User skipped GoCardless creation`n", %DebugLogFile%
+	}
 } else {
 	; Failed
 	errorMsg := StrReplace(pyOutput, "ERROR|", "")
 	FileAppend, % A_Now . " - UpdatePS - FAILED: " . errorMsg . "`n", %DebugLogFile%
 	DarkMsgBox("Payment Write Failed", "Failed to write payments to album.`n`n" . errorMsg, "error")
 }
+
+EnteringPaylines := False
 
 ; Legacy ProSelect 2024 and older - keep keyboard automation as fallback
 if (false)
