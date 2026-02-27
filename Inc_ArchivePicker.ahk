@@ -228,11 +228,27 @@ if (selectedFolder != "")
 Return
 
 FilesEditorBrowseBtn:
-FileSelectFile, selectedFile, 3, , Select Photo Editor, Executables (*.exe)
+Gui, Settings:+OwnDialogs
+FileSelectFile, selectedFile, 3, , Select File Browser Application, Executables (*.exe)
 if (selectedFile != "")
 {
-	Settings_EditorRunPath := selectedFile
-	GuiControl, Settings:, FilesEditorEdit, %selectedFile%
+	; Get display name from the exe filename (e.g. "Adobe Bridge" from "Adobe Bridge.exe")
+	SplitPath, selectedFile, exeName, exeDir
+	displayName := RegExReplace(exeName, "\.exe$", "")
+	; Add to the global map
+	global FileBrowserPaths
+	FileBrowserPaths[displayName] := selectedFile
+	; Add to dropdown if not already present
+	GuiControlGet, currentList, Settings:, FilesEditorEdit
+	if !InStr(currentList, displayName)
+		GuiControl, Settings:, FilesEditorEdit, %currentList%|%displayName%
+	; Select the new item
+	GuiControl, Settings:ChooseString, FilesEditorEdit, %displayName%
+	; Also update old panel dropdown if it exists
+	GuiControlGet, oldList, Settings:, SetEditorPath
+	if (oldList != "" && !InStr(oldList, displayName))
+		GuiControl, Settings:, SetEditorPath, %oldList%|%displayName%
+	GuiControl, Settings:ChooseString, SetEditorPath, %displayName%
 }
 Return
 

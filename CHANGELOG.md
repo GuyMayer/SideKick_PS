@@ -12,6 +12,21 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.39 (2026-02-27)
+
+### New Features
+- **File Browser Dropdown**: Replaced Editor Path text field with auto-detecting dropdown — automatically finds installed Adobe Bridge, Lightroom Classic, Photoshop, and Capture One. Browse button for manual selection.
+- **Dynamic Toolbar Icons**: Open Folder toolbar button now shows the selected file browser's icon (Bridge, Lightroom, or Explorer) recolored to match the toolbar icon colour
+
+### Improvements
+- **Toolbar Icon Recoloring**: File browser icons use the same white-source → PowerShell recolor pipeline as Photoshop/GC/Cardly icons, updating automatically on toolbar colour change
+
+### Bug Fixes
+- **Cardly Orientation Swap API**: Fixed `create_cardly_artwork` using the wrong template ID after flipping between landscape/portrait — `template_id` was passed as `name` parameter instead of `media_id_override`, causing dimension mismatch errors
+- **Open Folder Button Visibility**: Fixed Open Folder toolbar icon/label not hiding when switching away from Toolbar settings tab
+
+---
+
 ## v2.5.38 (2026-02-27)
 
 ### New Features

@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.38
+; Version:     2.5.39
 ; Build Date:  2026-02-27
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -259,7 +259,7 @@ global Settings_FolderTemplatePath := ""  ; Folder template for new shoots
 global Settings_ShootPrefix := "P"        ; Shoot number prefix
 global Settings_ShootSuffix := "P"        ; Shoot number suffix
 global Settings_AutoShootYear := true     ; Include year in shoot number
-global Settings_EditorRunPath := "Explore"  ; Photo editor path or "Explore"
+global Settings_EditorRunPath := "Explore"  ; File browser path or "Explore" for Windows Explorer
 global Settings_BrowsDown := true         ; Open editor after download
 global Settings_AutoRenameImages := false ; Auto-rename by date
 global Settings_AutoDriveDetect := true   ; Detect SD card insertion
@@ -1703,11 +1703,35 @@ CreateFloatingToolbar()
 		nextX += btnSpacing
 	}
 	
-	; Open Folder button (folder icon) - opens current album folder in Explorer/editor
+	; Open Folder button - shows recolored PNG icon matching toolbar color
 	if (Settings_ShowBtn_OpenFolder) {
-		Gui, Toolbar:Font, s%fontSize%, %IconFont%
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background%initialBgColor% c%iconColor% gToolbar_OpenFolder vTB_OpenFolder +HwndTB_OpenFolder_Hwnd, % Chr(Icon_FolderOpen)
-		ToolbarTooltips[TB_OpenFolder_Hwnd] := "Open Shoot Folder"
+		; Generate recolored icon based on configured file browser
+		ofIconPath := ""
+		ofTooltip := "Open Shoot Folder"
+		if (InStr(Settings_EditorRunPath, "Bridge")) {
+			ofIconPath := GenerateBridgeIcon(iconColor)
+			ofTooltip := "Open in Adobe Bridge"
+		} else if (InStr(Settings_EditorRunPath, "Lightroom")) {
+			ofIconPath := GenerateLightroomIcon(iconColor)
+			ofTooltip := "Open in Lightroom"
+		} else if (InStr(Settings_EditorRunPath, "Explore") || Settings_EditorRunPath = "") {
+			ofIconPath := GenerateExplorerIcon(iconColor)
+			ofTooltip := "Open in Windows Explorer"
+		}
+		
+		if (ofIconPath != "" && FileExist(ofIconPath)) {
+			; Use recolored PNG icon (63% of button - slightly larger than PS to match visual weight)
+			ofIconW := Round(btnW * 0.63)
+			ofIconH := Round(btnH * 0.63)
+			ofIconX := nextX + Round((btnW - ofIconW) / 2)
+			ofIconY := btnY + Round((btnH - ofIconH) / 2)
+			Gui, Toolbar:Add, Picture, x%ofIconX% y%ofIconY% w%ofIconW% h%ofIconH% gToolbar_OpenFolder vTB_OpenFolder +HwndTB_OpenFolder_Hwnd, %ofIconPath%
+		} else {
+			; Fallback to folder font icon
+			Gui, Toolbar:Font, s%fontSize%, %IconFont%
+			Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background%initialBgColor% c%iconColor% gToolbar_OpenFolder vTB_OpenFolder +HwndTB_OpenFolder_Hwnd, % Chr(Icon_FolderOpen)
+		}
+		ToolbarTooltips[TB_OpenFolder_Hwnd] := ofTooltip
 		nextX += btnSpacing
 	}
 	
@@ -2039,6 +2063,90 @@ GeneratePSIcon(colorHex) {
 	
 	; Call PowerShell script to generate icon
 	psScript := A_ScriptDir . "\GeneratePSIcon.ps1"
+	if (FileExist(psScript)) {
+		RunWait, powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%psScript%" -ColorHex "%colorHex%",, Hide
+	}
+	
+	return dstPath
+}
+
+; Generate colored Bridge icon using PowerShell - any color supported
+GenerateBridgeIcon(colorHex) {
+	static lastColor := ""
+	dstPath := A_ScriptDir . "\Icon_Bridge_Current.png"
+	
+	colorHex := RegExReplace(colorHex, "^0x|^#", "")
+	if (colorHex = "White")
+		colorHex := "FFFFFF"
+	else if (colorHex = "Black")
+		colorHex := "282828"
+	else if (colorHex = "Yellow")
+		colorHex := "FFFF00"
+	else if (colorHex = "Orange")
+		colorHex := "FF8800"
+	
+	if (colorHex = lastColor && FileExist(dstPath))
+		return dstPath
+	
+	lastColor := colorHex
+	
+	psScript := A_ScriptDir . "\GenerateBridgeIcon.ps1"
+	if (FileExist(psScript)) {
+		RunWait, powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%psScript%" -ColorHex "%colorHex%",, Hide
+	}
+	
+	return dstPath
+}
+
+; Generate colored Lightroom icon using PowerShell - any color supported
+GenerateLightroomIcon(colorHex) {
+	static lastColor := ""
+	dstPath := A_ScriptDir . "\Icon_Lightroom_Current.png"
+	
+	colorHex := RegExReplace(colorHex, "^0x|^#", "")
+	if (colorHex = "White")
+		colorHex := "FFFFFF"
+	else if (colorHex = "Black")
+		colorHex := "282828"
+	else if (colorHex = "Yellow")
+		colorHex := "FFFF00"
+	else if (colorHex = "Orange")
+		colorHex := "FF8800"
+	
+	if (colorHex = lastColor && FileExist(dstPath))
+		return dstPath
+	
+	lastColor := colorHex
+	
+	psScript := A_ScriptDir . "\GenerateLightroomIcon.ps1"
+	if (FileExist(psScript)) {
+		RunWait, powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%psScript%" -ColorHex "%colorHex%",, Hide
+	}
+	
+	return dstPath
+}
+
+; Generate colored Explorer icon using PowerShell - any color supported
+GenerateExplorerIcon(colorHex) {
+	static lastColor := ""
+	dstPath := A_ScriptDir . "\Icon_Explorer_Current.png"
+	
+	colorHex := RegExReplace(colorHex, "^0x|^#", "")
+	if (colorHex = "White")
+		colorHex := "FFFFFF"
+	else if (colorHex = "Black")
+		colorHex := "282828"
+	else if (colorHex = "Yellow")
+		colorHex := "FFFF00"
+	else if (colorHex = "Orange")
+		colorHex := "FF8800"
+	
+	if (colorHex = lastColor && FileExist(dstPath))
+		return dstPath
+	
+	lastColor := colorHex
+	
+	psScript := A_ScriptDir . "\GenerateExplorerIcon.ps1"
 	if (FileExist(psScript)) {
 		RunWait, powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%psScript%" -ColorHex "%colorHex%",, Hide
 	}
@@ -2439,7 +2547,7 @@ Toolbar_OpenFolder:
 		Return
 	}
 	
-	; Open in configured editor or Windows Explorer
+	; Open in configured file browser or Windows Explorer
 	if (Settings_EditorRunPath != "" && !InStr(Settings_EditorRunPath, "Explore")) {
 		Run, %Settings_EditorRunPath% "%albumFolder%"
 	} else {
@@ -5772,11 +5880,11 @@ UpdateFilesControlsState(enabled) {
 	GuiControl, Settings:%cmd%, FilesEditorEdit
 	
 	; Buttons
+	GuiControl, Settings:%cmd%, FilesEditorBrowse
 	GuiControl, Settings:%cmd%, FilesCardDriveBrowse
 	GuiControl, Settings:%cmd%, FilesDownloadBrowse
 	GuiControl, Settings:%cmd%, FilesArchiveBrowse
 	GuiControl, Settings:%cmd%, FilesFolderTemplateBrowse
-	GuiControl, Settings:%cmd%, FilesEditorBrowse
 	GuiControl, Settings:%cmd%, FilesSyncFromLBBtn
 	
 	; Toggle sliders (these are Text controls)
@@ -7451,8 +7559,8 @@ Settings_CameraDownloadPath := FilesDownloadEdit
 Settings_ShootArchivePath := FilesArchiveEdit
 Settings_ShootPrefix := FilesPrefixEdit
 Settings_ShootSuffix := FilesSuffixEdit
-; Handle editor path - if "Windows Explorer", save as "Explore"
-Settings_EditorRunPath := (FilesEditorEdit = "Windows Explorer") ? "Explore" : FilesEditorEdit
+; Handle file browser - convert dropdown display name to executable path
+Settings_EditorRunPath := FileBrowserPathFromDisplay(FilesEditorEdit)
 ; File Management toggles (using _State from toggle sliders)
 Settings_AutoShootYear := Toggle_AutoShootYear_State
 Settings_AutoRenameImages := Toggle_AutoRenameImages_State
@@ -7581,8 +7689,8 @@ Settings_CameraDownloadPath := FilesDownloadEdit
 Settings_ShootArchivePath := FilesArchiveEdit
 Settings_ShootPrefix := FilesPrefixEdit
 Settings_ShootSuffix := FilesSuffixEdit
-; Handle editor path - if "Windows Explorer", save as "Explore"
-Settings_EditorRunPath := (FilesEditorEdit = "Windows Explorer") ? "Explore" : FilesEditorEdit
+; Handle file browser - convert dropdown display name to executable path
+Settings_EditorRunPath := FileBrowserPathFromDisplay(FilesEditorEdit)
 ; File Management toggles (using _State from toggle sliders)
 Settings_AutoShootYear := Toggle_AutoShootYear_State
 Settings_AutoRenameImages := Toggle_AutoRenameImages_State

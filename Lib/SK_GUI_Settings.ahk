@@ -182,26 +182,22 @@ Gui, Settings:Add, Button, % "x" ContentX+430 " y" ShY+17 " w60 h26 gBrowsePostC
 ; === PATHS PANEL (initially hidden) ===
 PathY := 60
 Gui, Settings:Font, s10 Bold c%SetAccentColor%, Segoe UI
-Gui, Settings:Add, GroupBox, x%ContentX% y%PathY% w%ContentW% h180 vGrpAppPaths +Hidden, Application Paths
+Gui, Settings:Add, GroupBox, x%ContentX% y%PathY% w%ContentW% h130 vGrpAppPaths +Hidden, Application Paths
 
 PathY += 28
 Gui, Settings:Font, s9 cWhite, Segoe UI
-Gui, Settings:Add, Text, % "x" ContentX+15 " y" PathY " w100 c" SetTextDimColor " +BackgroundTrans +Hidden vLblEditor", Editor Path:
+Gui, Settings:Add, Text, % "x" ContentX+15 " y" PathY " w100 c" SetTextDimColor " +BackgroundTrans +Hidden vLblEditor", File Browser:
+; Build dropdown from detected file browsers
+browserList := DetectFileBrowsers()
+editorDisplay := (EditorRunPath = "Explore" || EditorRunPath = "") ? "Windows Explorer" : EditorRunPath
+selectedBrowser := FileBrowserDisplayFromPath(editorDisplay)
 Gui, Settings:Font, s9 cBlack, Segoe UI
-Gui, Settings:Add, Edit, % "x" ContentX+15 " y" PathY+18 " w410 h24 vSetEditorPath +Hidden", %EditorRunPath%
+Gui, Settings:Add, DropDownList, % "x" ContentX+15 " y" PathY+18 " w410 r4 vSetEditorPath +Hidden", %browserList%
+GuiControl, Settings:ChooseString, SetEditorPath, %selectedBrowser%
 Gui, Settings:Font, s9 cWhite, Segoe UI
-Gui, Settings:Add, Button, % "x" ContentX+430 " y" PathY+17 " w60 h26 gBrowseEditorNew vBtnEditor +Hidden", Browse
+Gui, Settings:Add, Button, % "x" ContentX+430 " y" PathY+17 " w60 h26 gFilesEditorBrowseBtn vBtnEditorBrowse +Hidden", Browse
 
 PathY += 55
-Gui, Settings:Add, Text, % "x" ContentX+15 " y" PathY " w100 c" SetTextDimColor " +BackgroundTrans +Hidden vLblEditorType", Editor Type:
-gosub, ExternalProgramsCheck
-if (RegPathBridge and FileExist(RegPathBridge))
-	Gui, Settings:Add, CheckBox, % "x" ContentX+100 " y" PathY " w80 vSetBridge gEditorTypeChange +BackgroundTrans +Hidden " (EditorBridge ? "Checked" : ""), Bridge
-if (RegPathLightRoom and FileExist(RegPathLightRoom))
-	Gui, Settings:Add, CheckBox, % "x" ContentX+190 " y" PathY " w90 vSetLightroom gEditorTypeChange +BackgroundTrans +Hidden " (EditorLightroom ? "Checked" : ""), Lightroom
-Gui, Settings:Add, CheckBox, % "x" ContentX+290 " y" PathY " w120 vSetWinExplorer gEditorTypeChange +BackgroundTrans +Hidden " (EditorWin ? "Checked" : ""), Win Explorer
-
-PathY += 40
 Gui, Settings:Add, Text, % "x" ContentX+15 " y" PathY " w100 c" SetTextDimColor " +BackgroundTrans +Hidden vLblProSelect", ProSelect:
 Gui, Settings:Font, s9 cBlack, Segoe UI
 Gui, Settings:Add, Edit, % "x" ContentX+15 " y" PathY+18 " w410 h24 vSetProSelectPath +Hidden", %ProSelectRunPath%
@@ -669,7 +665,7 @@ GeneralControls := "GrpLB,SetPersistant,SetClickFormat,SetDiaryWheel,SetLableDoc
 
 ShootsControls := "GrpNaming,LblPrefix,SetPrefix,LblSuffix,SetSuffix,SetAutoYear,SetAutoAppend,SetAutoRename,GrpFolders,LblCamera,SetCameraPath,BtnCamera,LblTemplate,SetTemplatePath,BtnTemplate,LblArchive,SetArchivePath,BtnArchive,LblCard,SetCardPath,BtnCard,SetAutoDrive,LblPostCard,SetPostCardPath,BtnPostCard"
 
-PathsControls := "GrpAppPaths,LblEditor,SetEditorPath,BtnEditor,LblEditorType,SetBridge,SetLightroom,SetWinExplorer,LblProSelect,SetProSelectPath,BtnProSelect,GrpBrowseOpts,SetBrowseDown,SetBrowseArchive,SetNestFolders,GrpAppLink,LblAppLink,SetAppLinkUrl"
+PathsControls := "GrpAppPaths,LblEditor,SetEditorPath,LblProSelect,SetProSelectPath,BtnProSelect,GrpBrowseOpts,SetBrowseDown,SetBrowseArchive,SetNestFolders,GrpAppLink,LblAppLink,SetAppLinkUrl"
 
 GHLControls := "GrpGHL,LblApiKey,SetApiKey,LblMediaToken,SetMediaToken,LblLocId,SetLocId,LblPhotoField,SetPhotoField,BtnTestGHL,GHLInfoText"
 
@@ -785,38 +781,11 @@ if (newPath != "")
 	GuiControl, Settings:, SetCardlyPCFolder, %newPath%
 Return
 
-BrowseEditorNew:
-Gui, Settings:+OwnDialogs
-FileSelectFile, newPath, 3, , Select Image Editor, Executables (*.exe)
-if (newPath != "")
-	GuiControl, Settings:, SetEditorPath, %newPath%
-Return
-
 BrowseProSelectNew:
 Gui, Settings:+OwnDialogs
 FileSelectFile, newPath, 3, , Select ProSelect.exe, Executables (*.exe)
 if (newPath != "")
 	GuiControl, Settings:, SetProSelectPath, %newPath%
-Return
-
-; === EDITOR TYPE CHANGE ===
-EditorTypeChange:
-Gui, Settings:Submit, NoHide
-if (A_GuiControl = "SetBridge" and SetBridge) {
-	GuiControl, Settings:, SetLightroom, 0
-	GuiControl, Settings:, SetWinExplorer, 0
-	GuiControl, Settings:, SetEditorPath, %RegPathBridge%
-}
-else if (A_GuiControl = "SetLightroom" and SetLightroom) {
-	GuiControl, Settings:, SetBridge, 0
-	GuiControl, Settings:, SetWinExplorer, 0
-	GuiControl, Settings:, SetEditorPath, %RegPathLightRoom%
-}
-else if (A_GuiControl = "SetWinExplorer" and SetWinExplorer) {
-	GuiControl, Settings:, SetBridge, 0
-	GuiControl, Settings:, SetLightroom, 0
-	GuiControl, Settings:, SetEditorPath, explore 
-}
 Return
 
 ; === TEST GHL CONNECTION ===
@@ -946,10 +915,7 @@ AutoDriveDetect := SetAutoDrive
 PostCardFolder := SetPostCardPath
 
 ; Paths panel
-EditorRunPath := SetEditorPath
-EditorBridge := SetBridge
-EditorLightroom := SetLightroom
-EditorWin := SetWinExplorer
+EditorRunPath := FileBrowserPathFromDisplay(SetEditorPath)
 ProSelectRunPath := SetProSelectPath
 BrowsDown := SetBrowseDown
 BrowsArchive := SetBrowseArchive
@@ -1047,13 +1013,9 @@ If !FileExist(IniFilename)
 	Return
 }
 
-; Ensure EditorRunPath matches the selected editor type before saving
-if EditorBridge
-	EditorRunPath := RegPathBridge
-else if EditorLightroom
-	EditorRunPath := RegPathLightRoom
-else if EditorWin
-	EditorRunPath := "explore "
+; Ensure EditorRunPath is a valid path (already converted from dropdown)
+if (EditorRunPath = "" || EditorRunPath = "Windows Explorer")
+	EditorRunPath := "Explore"
 
 SplitPath, CardPath,Drivelable,OutDir,,,CardDrive
 CameraFolder = CardPath
@@ -1073,9 +1035,6 @@ IniWrite, %SK_Persistant%,               %IniFilename%, Config, SK_Persistant
 IniWrite, %TCCC%,                        %IniFilename%, Config, TCCC
 IniWrite, %SK_AutoUp%,                   %IniFilename%, Config, SK_AutoUp
 IniWrite, %EditorRunPath%,               %IniFilename%, Config, EditorRunPath
-IniWrite, %EditorLightroom%,             %IniFilename%, Config, EditorLightroom
-IniWrite, %EditorBridge%,                %IniFilename%, Config, EditorBridge
-IniWrite, %EditorWin%,                   %IniFilename%, Config, EditorWin
 IniWrite, %ProSelectRunPath%,            %IniFilename%, Config, ProSelectRunPath
 IniWrite, %ShootArchivePath%,            %IniFilename%, Config, ShootArchivePath
 IniWrite, %ClientWorkSubFolder%,         %IniFilename%, Config, ClientWorkSubFolder
@@ -1301,28 +1260,6 @@ ReadConfig:
 	
 	SplitPath, CardPath, Drivelable, OutDir, , , CardDrive
 	CameraFolder := CardPath
-	
-	; Restore editor checkbox states based on saved values
-	; EditorBridge, EditorLightroom, and EditorWin are already set from SyncSettingsToGlobals
-	; But ensure mutual exclusivity is maintained
-	if (EditorBridge = "true" or EditorBridge = "1" or EditorBridge = 1)
-	{
-		EditorBridge := 1
-		EditorLightroom := 0
-		EditorWin := 0
-	}
-	else if (EditorLightroom = "true" or EditorLightroom = "1" or EditorLightroom = 1)
-	{
-		EditorBridge := 0
-		EditorLightroom := 1
-		EditorWin := 0
-	}
-	else
-	{
-		EditorBridge := 0
-		EditorLightroom := 0
-		EditorWin := 1
-	}
 	
 	; SetYearPrefix inline (was in legacy code block)
 	FormatTime, Year,, yy

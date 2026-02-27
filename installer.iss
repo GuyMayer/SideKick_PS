@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.38"
+#define MyAppVersion "2.5.39"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -85,9 +85,15 @@ Source: "Release\SideKick_Logo_2025_Light.png"; DestDir: "{app}"; Flags: ignorev
 Source: "Release\Icon_GC_32_White.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\Icon_PS_32_White.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\Icon_Cardly_32_White.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\Icon_Bridge_32_White.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\Icon_Lightroom_32_White.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\Icon_Explorer_32_White.png"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\GenerateGCIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\GeneratePSIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\GenerateCardlyIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\GenerateBridgeIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\GenerateLightroomIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\GenerateExplorerIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Python executables (compiled with cryptic names - NO Python install needed)
 Source: "Release\_vlk.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -196,6 +202,7 @@ begin
     end;
   end;
 end;
+
 
 
 

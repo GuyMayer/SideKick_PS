@@ -27,6 +27,24 @@ $ReleaseDir = "$ScriptDir\Release"
 $ArchiveDir = "$ScriptDir\Releases\latest"
 $CacheDir = "$ScriptDir\.build_cache"
 $HashFile = "$CacheDir\file_hashes.json"
+$BuildLogDir = "$ScriptDir\Releases"
+$BuildLogFile = "$BuildLogDir\build.log"
+
+# Ensure log directory exists
+if (!(Test-Path $BuildLogDir)) { New-Item -ItemType Directory -Path $BuildLogDir -Force | Out-Null }
+
+# Build logging function
+function Write-BuildLog($message, $level = "INFO") {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $entry = "[$timestamp] [$level] $message"
+    Add-Content -Path $BuildLogFile -Value $entry -ErrorAction SilentlyContinue
+    if ($level -eq "ERROR") {
+        Write-Host "  $message" -ForegroundColor Red
+    }
+}
+
+# Start new build log entry
+Write-BuildLog "===== Build started: v$Version ====="
 
 # Create cache directory
 if (!(Test-Path $CacheDir)) {
@@ -142,12 +160,12 @@ if (Test-Path $Ahk2Exe) {
     # Check if EXE was created (more reliable than exit code)
     Start-Sleep -Milliseconds 500
     if (!(Test-Path $exeOutput)) {
-        Write-Host "  ERROR: Compilation failed - EXE not created!" -ForegroundColor Red
+        Write-BuildLog "AHK compilation failed - EXE not created" "ERROR"
         exit 1
     }
     Write-Host "  [OK] Compiled: SideKick_PS.exe" -ForegroundColor Green
 } else {
-    Write-Host "  ERROR: Ahk2Exe not found!" -ForegroundColor Red
+    Write-BuildLog "Ahk2Exe not found at: $Ahk2Exe" "ERROR"
     exit 1
 }
 
@@ -266,7 +284,7 @@ if (!$SkipPythonCompile) {
                     Copy-Item "$ReleaseDir\$exeName" $cachedExe -Force
                     $cachedHashes[$pyFile] = Get-FileHashMD5 $pyFile
                 } else {
-                    Write-Host "    [X] Failed: $script.py" -ForegroundColor Red
+                    Write-BuildLog "PyInstaller failed: $script.py -> $outputName.exe" "ERROR"
                 }
             }
         }
@@ -320,7 +338,7 @@ if (Test-Path $logoLight) {
 }
 
 # Copy toolbar icon source files and generation scripts (for dynamic icon colors)
-$iconFiles = @("Icon_GC_32_White.png", "Icon_PS_32_White.png", "Icon_Cardly_32_White.png", "GenerateGCIcon.ps1", "GeneratePSIcon.ps1", "GenerateCardlyIcon.ps1")
+$iconFiles = @("Icon_GC_32_White.png", "Icon_PS_32_White.png", "Icon_Cardly_32_White.png", "Icon_Bridge_32_White.png", "Icon_Lightroom_32_White.png", "Icon_Explorer_32_White.png", "GenerateGCIcon.ps1", "GeneratePSIcon.ps1", "GenerateCardlyIcon.ps1", "GenerateBridgeIcon.ps1", "GenerateLightroomIcon.ps1", "GenerateExplorerIcon.ps1")
 foreach ($iconFile in $iconFiles) {
     $srcPath = "$SourceDir\$iconFile"
     if (Test-Path $srcPath) {
@@ -454,14 +472,16 @@ New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
 if (Test-Path $InnoCompiler) {
     Write-Host "  Compiling installer with Inno Setup..." -ForegroundColor Gray
     $signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-    cmd /c "`"$InnoCompiler`" /Q `"/SMsSign=`"`"$signtoolExe`"`" sign /tr http://time.certum.pl /td sha256 /fd sha256 /sha1 0A8665226386555FD6AE7BD4EC3A240624887AD9 `$f`" `"$issFile`""
+    $isccOutput = cmd /c "`"$InnoCompiler`" /Q `"/SMsSign=`"`"$signtoolExe`"`" sign /tr http://time.certum.pl /td sha256 /fd sha256 /sha1 0A8665226386555FD6AE7BD4EC3A240624887AD9 `$f`" `"$issFile`" 2>&1"
+    $isccExitCode = $LASTEXITCODE
     
     $installerPath = "$ArchiveDir\SideKick_PS_Setup.exe"
     if (Test-Path $installerPath) {
         $installerSize = [math]::Round((Get-Item $installerPath).Length / 1MB, 2)
         Write-Host "  Created: SideKick_PS_Setup.exe - $installerSize MB" -ForegroundColor Green
+        Write-BuildLog "Installer created: SideKick_PS_Setup.exe ($installerSize MB)"
     } else {
-        Write-Host "  ERROR: Installer not created!" -ForegroundColor Red
+        Write-BuildLog "ISCC failed (exit code $isccExitCode): $isccOutput" "ERROR"
     }
 } else {
     Write-Host "  WARNING: Inno Setup not found. Creating ZIP instead." -ForegroundColor Yellow
@@ -473,6 +493,8 @@ if (Test-Path $InnoCompiler) {
     $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
     Write-Host "  Created: SideKick_PS.zip - $zipSize MB" -ForegroundColor Green
 }
+
+Write-BuildLog "===== Build complete: v$Version ====="
 
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host " Build Complete!" -ForegroundColor Green

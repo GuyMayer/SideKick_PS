@@ -807,21 +807,26 @@ CreateFilesPanel()
 	GuiControl, Settings:Hide, Toggle_AutoRenameImages
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; PHOTO EDITOR GROUP BOX
+	; FILE BROWSER GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y450 w480 h130 vFilesEditorGroup Hidden, Photo Editor
+	Gui, Settings:Add, GroupBox, x195 y450 w480 h130 vFilesEditorGroup Hidden, File Browser
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y475 w100 BackgroundTrans vFilesEditorLabel Hidden HwndHwndFilesEditor, Editor Path:
-	RegisterSettingsTooltip(HwndFilesEditor, "PHOTO EDITOR PATH`n`nPath to your preferred photo editing software.`nLeave as 'Windows Explorer' to open folder instead.`n`nCommon editors: Lightroom, Photoshop, Capture One")
+	Gui, Settings:Add, Text, x210 y475 w100 BackgroundTrans vFilesEditorLabel Hidden HwndHwndFilesEditor, File Browser:
+	RegisterSettingsTooltip(HwndFilesEditor, "FILE BROWSER`n`nApplication used to open shoot folders`nafter download or archive.`n`nWindows Explorer opens a folder window.`nBridge/Lightroom launch the Adobe app.")
+	; Build dropdown list of detected file browsers
+	browserList := DetectFileBrowsers()
 	editorDisplay := (Settings_EditorRunPath = "Explore" || Settings_EditorRunPath = "") ? "Windows Explorer" : Settings_EditorRunPath
-	Gui, Settings:Add, Edit, x315 y472 w240 h25 cBlack vFilesEditorEdit Hidden, %editorDisplay%
+	; Find which option to pre-select by matching the saved path to known items
+	selectedBrowser := FileBrowserDisplayFromPath(editorDisplay)
+	Gui, Settings:Add, DropDownList, x315 y472 w240 r4 vFilesEditorEdit Hidden, %browserList%
+	GuiControl, Settings:ChooseString, FilesEditorEdit, %selectedBrowser%
 	Gui, Settings:Add, Button, x560 y471 w100 h27 gFilesEditorBrowseBtn vFilesEditorBrowse Hidden, Browse
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y510 w200 BackgroundTrans vFilesOpenEditor Hidden HwndHwndFilesOpenEditor, Open Editor After Download
-	RegisterSettingsTooltip(HwndFilesOpenEditor, "OPEN EDITOR AFTER DOWNLOAD`n`nAutomatically launch your photo editor`nafter SD card download completes.`n`nSaves time by jumping straight to editing.")
+	Gui, Settings:Add, Text, x210 y510 w200 BackgroundTrans vFilesOpenEditor Hidden HwndHwndFilesOpenEditor, Open Browser After Download
+	RegisterSettingsTooltip(HwndFilesOpenEditor, "OPEN BROWSER AFTER DOWNLOAD`n`nAutomatically launch your file browser`nafter SD card download completes.`n`nSaves time by jumping straight to your files.")
 	CreateToggleSlider("Settings", "BrowsDown", 630, 508, Settings_BrowsDown)
 	GuiControl, Settings:Hide, Toggle_BrowsDown
 	
@@ -830,6 +835,103 @@ CreateFilesPanel()
 	RegisterSettingsTooltip(HwndFilesAutoDrive, "AUTO-DETECT SD CARDS`n`nAutomatically detect when an SD card is inserted.`nShows a notification or prompt when detected.`n`nConvenient for streamlined download workflow.")
 	CreateToggleSlider("Settings", "AutoDriveDetect", 630, 538, Settings_AutoDriveDetect)
 	GuiControl, Settings:Hide, Toggle_AutoDriveDetect
+}
+
+; ═══════════════════════════════════════════════════════════════════════════
+; DetectFileBrowsers - Scan registry & filesystem for installed file browsers
+; Returns pipe-delimited list for AHK DropDownList (e.g. "Windows Explorer|Adobe Bridge 2026|...")
+; ═══════════════════════════════════════════════════════════════════════════
+DetectFileBrowsers()
+{
+	global FileBrowserPaths
+	FileBrowserPaths := {}
+	list := "Windows Explorer"
+	FileBrowserPaths["Windows Explorer"] := "Explore"
+	
+	; --- Adobe Bridge (yearly releases) ---
+	Loop, Files, C:\Program Files\Adobe\Adobe Bridge*, D
+	{
+		exePath := A_LoopFileFullPath . "\Adobe Bridge.exe"
+		if FileExist(exePath) {
+			; Use folder name as display (e.g. "Adobe Bridge 2026")
+			SplitPath, A_LoopFileFullPath, folderName
+			list .= "|" . folderName
+			FileBrowserPaths[folderName] := exePath
+		}
+	}
+	; Fallback: check App Paths registry
+	if !FileBrowserPaths.HasKey("Adobe Bridge") {
+		RegRead, regBridge, HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\bridge.exe
+		if (regBridge != "" && FileExist(regBridge)) {
+			list .= "|Adobe Bridge"
+			FileBrowserPaths["Adobe Bridge"] := regBridge
+		}
+	}
+	
+	; --- Adobe Lightroom Classic ---
+	Loop, Files, C:\Program Files\Adobe\Adobe Lightroom Classic*, D
+	{
+		exePath := A_LoopFileFullPath . "\Lightroom.exe"
+		if FileExist(exePath) {
+			SplitPath, A_LoopFileFullPath, folderName
+			list .= "|" . folderName
+			FileBrowserPaths[folderName] := exePath
+		}
+	}
+	; Fallback: check App Paths registry
+	RegRead, regLR, HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\lightroom.exe
+	if (regLR != "" && FileExist(regLR) && !InStr(list, "Lightroom")) {
+		list .= "|Adobe Lightroom Classic"
+		FileBrowserPaths["Adobe Lightroom Classic"] := regLR
+	}
+	
+	; --- Adobe Photoshop ---
+	Loop, Files, C:\Program Files\Adobe\Adobe Photoshop*, D
+	{
+		exePath := A_LoopFileFullPath . "\Photoshop.exe"
+		if FileExist(exePath) {
+			SplitPath, A_LoopFileFullPath, folderName
+			list .= "|" . folderName
+			FileBrowserPaths[folderName] := exePath
+		}
+	}
+	
+	; --- Capture One ---
+	RegRead, regC1, HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\CaptureOne.exe
+	if (regC1 != "" && FileExist(regC1)) {
+		list .= "|Capture One"
+		FileBrowserPaths["Capture One"] := regC1
+	}
+	
+	return list
+}
+
+; Convert a stored path back to the display name for the dropdown
+FileBrowserDisplayFromPath(pathOrDisplay)
+{
+	global FileBrowserPaths
+	if (pathOrDisplay = "Explore" || pathOrDisplay = "" || pathOrDisplay = "Windows Explorer")
+		return "Windows Explorer"
+	; Check if it already matches a display name
+	if FileBrowserPaths.HasKey(pathOrDisplay)
+		return pathOrDisplay
+	; Search by path value
+	for displayName, exePath in FileBrowserPaths
+	{
+		if (exePath = pathOrDisplay)
+			return displayName
+	}
+	; Fallback: return the raw path
+	return pathOrDisplay
+}
+
+; Convert a dropdown display name to the executable path for saving
+FileBrowserPathFromDisplay(displayName)
+{
+	global FileBrowserPaths
+	if FileBrowserPaths.HasKey(displayName)
+		return FileBrowserPaths[displayName]
+	return displayName  ; Fallback: assume it's already a path
 }
 
 CreateLicensePanel()

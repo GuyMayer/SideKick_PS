@@ -1,10 +1,14 @@
 ﻿{
-  "version": "2.5.38",
+  "version": "2.5.39",
   "build_date": "2026-02-27",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Toolbar section separators, GoCardless auto-detect on payment entry, sticker export/import, code signing",
+  "release_notes": "File browser dropdown with auto-detection, dynamic toolbar icons, Cardly orientation API fix",
   "changelog": [
-    "NEW: Toolbar section separators - visual dividers between GHL, Shortcuts, and Services button groups",
+    "NEW: File Browser dropdown - auto-detects installed Adobe Bridge, Lightroom Classic, Photoshop, Capture One with Browse button for manual selection",
+    "NEW: Dynamic toolbar icons - Open Folder button shows Bridge/Lightroom/Explorer icon matching selected file browser",
+    "IMPROVED: Toolbar icon recoloring - file browser icons use white-source PowerShell recolor pipeline, updating on toolbar colour change",
+    "FIX: Cardly orientation swap API - template_id was passed as name instead of media_id_override, causing dimension mismatch after portrait/landscape flip",
+    "FIX: Open Folder button visibility - icon and label now correctly hide when switching away from Toolbar settings tab",
     "NEW: GoCardless auto-detect on payment entry - prompts to create DD payments in GoCardless after writing to album",
     "NEW: Settings export/import sticker support - Cardly sticker PNGs transferred as base64 in .skp package",
     "IMPROVED: Toolbar button order - Refresh before Sort, logical GHL/Shortcuts/Services grouping",
@@ -98,7 +102,7 @@
   ],
   "versions": [
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
@@ -110,7 +114,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
@@ -138,7 +142,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
@@ -150,7 +154,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
@@ -163,7 +167,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
@@ -179,7 +183,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
@@ -193,7 +197,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
@@ -202,7 +206,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
@@ -222,7 +226,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
@@ -236,7 +240,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
@@ -247,7 +251,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
@@ -259,7 +263,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
@@ -270,7 +274,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
@@ -281,7 +285,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
@@ -290,7 +294,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
@@ -302,7 +306,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
@@ -312,7 +316,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
@@ -324,7 +328,7 @@
       ]
     },
     {
-      "version": "2.5.38",
+      "version": "2.5.39",
       "build_date": "2026-02-27",
       "release_notes": "Major GHL integration release",
       "changelog": [

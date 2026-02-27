@@ -4632,6 +4632,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, SCIcon_Sort
 	GuiControl, Settings:Hide, SCLabel_Sort
 	GuiControl, Settings:Hide, Toggle_ShowBtn_Sort
+	GuiControl, Settings:Hide, SCIcon_OpenFolder
+	GuiControl, Settings:Hide, SCLabel_OpenFolder
 	GuiControl, Settings:Hide, SCIcon_Photoshop
 	GuiControl, Settings:Hide, SCLabel_Photoshop
 	GuiControl, Settings:Hide, Toggle_ShowBtn_Photoshop
@@ -5026,7 +5028,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_AutoShootYear
 		GuiControl, Settings:Show, FilesAutoRename
 		GuiControl, Settings:Show, Toggle_AutoRenameImages
-		; Photo Editor GroupBox
+		; File Browser GroupBox
 		GuiControl, Settings:Show, FilesEditorGroup
 		GuiControl, Settings:Show, FilesEditorLabel
 		GuiControl, Settings:Show, FilesEditorEdit
@@ -5108,6 +5110,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, SCIcon_Sort
 		GuiControl, Settings:Show, SCLabel_Sort
 		GuiControl, Settings:Show, Toggle_ShowBtn_Sort
+		GuiControl, Settings:Show, SCIcon_OpenFolder
+		GuiControl, Settings:Show, SCLabel_OpenFolder
 		GuiControl, Settings:Show, SCIcon_Photoshop
 		GuiControl, Settings:Show, SCLabel_Photoshop
 		GuiControl, Settings:Show, Toggle_ShowBtn_Photoshop

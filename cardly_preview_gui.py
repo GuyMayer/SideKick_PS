@@ -1847,9 +1847,10 @@ class CardPreviewGUI:
 
             print(f"Using recipient from {recipient_source}: {recipient.get('name', '')}")
 
-            # Create artwork
+            # Create artwork — pass current template_id as media override
+            # (after orientation swap, self.template_id holds the alternate template)
             q.put(('status', 'Uploading artwork to Cardly...'))
-            artwork_result = create_cardly_artwork(processed_path, self.template_id)
+            artwork_result = create_cardly_artwork(processed_path, media_id_override=self.template_id)
             if not artwork_result.get('success'):
                 raise Exception(f"Failed to create artwork: {artwork_result.get('error')}")
 
