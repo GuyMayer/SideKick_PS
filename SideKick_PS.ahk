@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.30
-; Build Date:  2026-02-18
+; Version:     2.5.37
+; Build Date:  2026-02-27
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -118,7 +118,7 @@ global IconFont := DetectIconFont()
 FileAppend, % A_Now . " - Icon Font: " . IconFont . "`n", %DebugLogFile%
 
 ; Set icon codepoints based on detected font
-global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_IDCard, Icon_Camera, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_QRCode, Icon_Download, Icon_Settings
+global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_IDCard, Icon_Camera, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_QRCode, Icon_Download, Icon_Settings, Icon_FolderOpen
 if (InStr(IconFont, "Phosphor")) {
 	; Phosphor Icons codepoints (thin outline icons)
 	Icon_User := 0xEC28
@@ -133,6 +133,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_QRCode := 0xEAE8
 	Icon_Download := 0xE59A
 	Icon_Settings := 0xE79A
+	Icon_FolderOpen := 0xE6F2  ; FolderOpen
 } else if (InStr(IconFont, "Font Awesome")) {
 	; Font Awesome 6 codepoints (solid icons)
 	Icon_User := 0xF007
@@ -147,6 +148,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_QRCode := 0xF029
 	Icon_Download := 0xF019
 	Icon_Settings := 0xF013
+	Icon_FolderOpen := 0xF07C  ; folder-open
 } else {
 	; Segoe Fluent/MDL2 codepoints (thin outline icons)
 	Icon_User := 0xE77B
@@ -161,6 +163,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_QRCode := 0xED14
 	Icon_Download := 0xE896
 	Icon_Settings := 0xE713
+	Icon_FolderOpen := 0xE838  ; FolderOpen
 }
 
 ; Log monitor information
@@ -287,6 +290,7 @@ global Settings_ShowBtn_Invoice := true
 global Settings_ShowBtn_OpenGHL := true
 global Settings_ShowBtn_Camera := true
 global Settings_ShowBtn_Sort := true
+global Settings_ShowBtn_OpenFolder := true
 global Settings_ShowBtn_Photoshop := true
 global Settings_ShowBtn_Refresh := true
 global Settings_ShowBtn_Print := true
@@ -1568,6 +1572,8 @@ CreateFloatingToolbar()
 		btnCount++
 	if (Settings_ShowBtn_Camera)
 		btnCount++
+	if (Settings_ShowBtn_OpenFolder)
+		btnCount++
 	if (Settings_ShowBtn_Sort)
 		btnCount++
 	if (Settings_ShowBtn_Photoshop)
@@ -1689,6 +1695,14 @@ CreateFloatingToolbar()
 		ToolbarTooltips[TB_CameraOn_Hwnd] := "Capture Room Photo"
 		ToolbarTooltips[TB_CameraOff_Hwnd] := "Capture Room Photo"
 		ToolbarTooltips[TB_CameraCalib_Hwnd] := "Capture Room Photo"
+		nextX += btnSpacing
+	}
+	
+	; Open Folder button (folder icon) - opens current album folder in Explorer/editor
+	if (Settings_ShowBtn_OpenFolder) {
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background%initialBgColor% c%iconColor% gToolbar_OpenFolder vTB_OpenFolder +HwndTB_OpenFolder_Hwnd, % Chr(Icon_FolderOpen)
+		ToolbarTooltips[TB_OpenFolder_Hwnd] := "Open Shoot Folder"
 		nextX += btnSpacing
 	}
 	
@@ -2389,6 +2403,35 @@ WinWaitActive, ahk_exe ProSelect.exe, , 2
 Send, ^u
 Return
 
+Toolbar_OpenFolder:
+; Open the album's image source folder (extracted from .psa SQLite database)
+{
+	global Settings_EditorRunPath
+	
+	; Extract source folder from .psa file's ImageList buffer
+	ToolTip, Reading album source folder...
+	albumFolder := GetAlbumSourceFolder()
+	ToolTip
+	
+	; Fallback: try the .psa file's parent directory
+	if (albumFolder = "" || !FileExist(albumFolder)) {
+		albumFolder := GetAlbumFolder()
+	}
+	
+	if (albumFolder = "" || !FileExist(albumFolder)) {
+		DarkMsgBox("Open Folder", "No album source folder found.`n`nPlease open an album in ProSelect first.", "warning")
+		Return
+	}
+	
+	; Open in configured editor or Windows Explorer
+	if (Settings_EditorRunPath != "" && !InStr(Settings_EditorRunPath, "Explore")) {
+		Run, %Settings_EditorRunPath% "%albumFolder%"
+	} else {
+		Run, explorer.exe "%albumFolder%"
+	}
+}
+Return
+
 Toolbar_Refresh:
 ; Refresh/Update album
 ; Only works when ProSelect is in focus
@@ -3032,6 +3075,45 @@ GetAlbumPath() {
 	; Parse XML: <albumFile albumName="..." path="D:\path\to\album.psa" saved="true" />
 	if (RegExMatch(albumData, "<albumFile[^>]+path=""([^""]+)""", pathMatch))
 		return pathMatch1
+	
+	return ""
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; GetAlbumSourceFolder() - Gets the image source folder via PSConsole getImageData
+; Extracts the shellpath attribute from the first image element, which contains
+; the actual folder where the original images reside on disk
+; ═══════════════════════════════════════════════════════════════════════════════
+GetAlbumSourceFolder() {
+	global PsConsolePath
+	
+	if (PsConsolePath = "")
+		return ""
+	
+	; Call PSConsole getImageData - returns XML with path/shellpath per image
+	imageData := PsConsole("getImageData")
+	if (!imageData || imageData = "false" || imageData = "true")
+		return ""
+	
+	; Extract shellpath from the first <image> element
+	; e.g. shellpath="D:\\Shoot_Archive\\P26010P_Johnson_03022026_1559\\Unprocessed"
+	if (RegExMatch(imageData, "shellpath=""([^""]+)""", pathMatch)) {
+		sourceFolder := pathMatch1
+		; Normalise double-escaped backslashes
+		StringReplace, sourceFolder, sourceFolder, \\, \, All
+		sourceFolder := RTrim(sourceFolder, "\")
+		if (sourceFolder != "" && FileExist(sourceFolder))
+			return sourceFolder
+	}
+	
+	; Fallback: try path attribute (has trailing backslash)
+	if (RegExMatch(imageData, "<image[^>]+path=""([^""]+)""", pathMatch2)) {
+		sourceFolder := pathMatch21
+		StringReplace, sourceFolder, sourceFolder, \\, \, All
+		sourceFolder := RTrim(sourceFolder, "\")
+		if (sourceFolder != "" && FileExist(sourceFolder))
+			return sourceFolder
+	}
 	
 	return ""
 }
@@ -5060,7 +5142,72 @@ Toolbar_Cardly:
 		cmdArgs .= " --card-height """ . Settings_Cardly_CardHeight . """"
 	if (Settings_Cardly_MediaName != "")
 		cmdArgs .= " --media-name """ . Settings_Cardly_MediaName . """"
+	; Rebuild orientation pair map if empty (e.g. after restart - not persisted to INI)
+	if (!CardlyTemplateAltOrientation || CardlyTemplateAltOrientation.Count() = 0) {
+		if (CardlyTemplateMap && CardlyTemplateMap.Count() > 0) {
+			CardlyTemplateAltOrientation := {}
+			orientSuffix := "i)[\s_-]+(landscape|portrait|l|p)$"
+			orientPrefix := "i)^(landscape|portrait|l|p)[\s_-]+"
+			for dName, tId in CardlyTemplateMap {
+				if (CardlyTemplateAltOrientation.HasKey(dName))
+					continue
+				rawName := RegExReplace(dName, "\s*\([^)]*px\)$")
+				baseName := RegExReplace(rawName, orientSuffix)
+				if (baseName = rawName)
+					baseName := RegExReplace(rawName, orientPrefix)
+				found := false
+				for dName2, tId2 in CardlyTemplateMap {
+					if (dName2 = dName)
+						continue
+					rawName2 := RegExReplace(dName2, "\s*\([^)]*px\)$")
+					baseName2 := RegExReplace(rawName2, orientSuffix)
+					if (baseName2 = rawName2)
+						baseName2 := RegExReplace(rawName2, orientPrefix)
+					if (baseName != "" && baseName != rawName && baseName2 != "" && baseName2 != rawName2) {
+						; Normalise separators and compare case-insensitively
+						StringLower, bLow, baseName
+						StringLower, bLow2, baseName2
+						bLow := RegExReplace(bLow, "[\s_-]+", "-")
+						bLow2 := RegExReplace(bLow2, "[\s_-]+", "-")
+						if (bLow = bLow2) {
+							CardlyTemplateAltOrientation[dName] := dName2
+							found := true
+							break
+						}
+					}
+				}
+				if (!found) {
+					normId := RegExReplace(tId, "[\s_-]+", "-")
+					; Strip trailing numeric segment (e.g. "-11482") before orientation check
+					cleanId := RegExReplace(normId, "-\d+$")
+					baseId := RegExReplace(cleanId, orientSuffix)
+					if (baseId = cleanId)
+						baseId := RegExReplace(cleanId, orientPrefix)
+					if (baseId != "" && baseId != cleanId) {
+						for dName2, tId2 in CardlyTemplateMap {
+							if (dName2 = dName)
+								continue
+							normId2 := RegExReplace(tId2, "[\s_-]+", "-")
+							cleanId2 := RegExReplace(normId2, "-\d+$")
+							baseId2 := RegExReplace(cleanId2, orientSuffix)
+							if (baseId2 = cleanId2)
+								baseId2 := RegExReplace(cleanId2, orientPrefix)
+							if (baseId2 != "" && baseId2 != cleanId2) {
+								StringLower, iLow, baseId
+								StringLower, iLow2, baseId2
+								if (iLow = iLow2) {
+									CardlyTemplateAltOrientation[dName] := dName2
+									break
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	; Pass alternate orientation template if a pair exists
+	altPassed := false
 	if (CardlyTemplateAltOrientation && CardlyTemplateAltOrientation.HasKey(Settings_Cardly_MediaName)) {
 		altDisplayName := CardlyTemplateAltOrientation[Settings_Cardly_MediaName]
 		if (CardlyTemplateMap.HasKey(altDisplayName)) {
@@ -5072,7 +5219,16 @@ Toolbar_Cardly:
 					cmdArgs .= " --alt-card-height """ . altDim2 . """"
 				}
 			}
+			altPassed := true
 		}
+	}
+	; Fallback: use persisted INI values when maps are empty (e.g. after restart without Refresh)
+	if (!altPassed && Settings_Cardly_AltTemplateID != "") {
+		cmdArgs .= " --alt-template-id """ . Settings_Cardly_AltTemplateID . """"
+		if (Settings_Cardly_AltCardWidth != "")
+			cmdArgs .= " --alt-card-width """ . Settings_Cardly_AltCardWidth . """"
+		if (Settings_Cardly_AltCardHeight != "")
+			cmdArgs .= " --alt-card-height """ . Settings_Cardly_AltCardHeight . """"
 	}
 	if (Settings_Cardly_PostcardFolder != "")
 		cmdArgs .= " --postcard-folder """ . Settings_Cardly_PostcardFolder . """"
@@ -7062,6 +7218,11 @@ Settings_ShowBtn_Sort := !Settings_ShowBtn_Sort
 GoSub, UpdateTBButtonStates
 Return
 
+ToggleTB_OpenFolder:
+Settings_ShowBtn_OpenFolder := !Settings_ShowBtn_OpenFolder
+GoSub, UpdateTBButtonStates
+Return
+
 ToggleTB_Photoshop:
 Settings_ShowBtn_Photoshop := !Settings_ShowBtn_Photoshop
 GoSub, UpdateTBButtonStates
@@ -7169,6 +7330,20 @@ Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 if (!Settings_ShowBtn_Sort)
 	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
 GuiControl, Settings:Font, SCLabel_Sort
+
+; Open Folder button
+if (Settings_ShowBtn_OpenFolder) {
+	GuiControl, Settings:+Background8B6914, SCIcon_OpenFolder
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_OpenFolder
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_OpenFolder
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_OpenFolder)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_OpenFolder
 
 ; Photoshop button
 if (Settings_ShowBtn_Photoshop) {

@@ -1421,4 +1421,15 @@ Examples:
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        # Last-resort crash handler - ensures SOME output reaches AHK
+        try:
+            error_log(f"FATAL unhandled exception in main(): {e}", exception=e)
+        except Exception:
+            pass
+        print(f"ERROR|Unexpected error: {e}")
+        sys.exit(1)

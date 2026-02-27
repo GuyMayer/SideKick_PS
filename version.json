@@ -1,16 +1,18 @@
-{
-  "version": "2.5.36",
-  "build_date": "2026-02-26",
+﻿{
+  "version": "2.5.37",
+  "build_date": "2026-02-27",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GoCardless always-live environment fix, plan naming Order Date, Cardly orientation swap, PSConsole automation",
+  "release_notes": "Open Folder toolbar button opens album image source folder via PSConsole",
   "changelog": [
-    "NEW: Cardly template orientation swap - rotate button (⇄) switches crop between Landscape and Portrait using matched template pairs",
-    "NEW: Cardly orientation pair detection - auto-discovers L↔P template pairs by case-insensitive base name matching",
+    "NEW: Open Folder toolbar button - opens the album's image source folder (extracted from PSConsole getImageData) in Explorer or configured editor",
+    "NEW: GetAlbumSourceFolder() function - uses PSConsole getImageData to extract the actual image source path (shellpath) instead of the .psa file location",
+    "NEW: Cardly template orientation swap - rotate button (â‡„) switches crop between Landscape and Portrait using matched template pairs",
+    "NEW: Cardly orientation pair detection - auto-discovers Lâ†”P template pairs by case-insensitive base name matching",
     "NEW: Lead Connector QR toggle - switch QR code URL between white-label domain and LC app deep link",
     "NEW: Cardly Sign Up button in settings next to Dashboard",
     "NEW: Cardly Dashboard URL configurable from Settings (no longer hardcoded)",
     "NEW: Direct PSA payment writing - write_psa_payments.py injects payments directly into .psa SQLite files",
-    "NEW: UpdatePS flow rewired: save album → write payments to PSA → reload album",
+    "NEW: UpdatePS flow rewired: save album â†’ write payments to PSA â†’ reload album",
     "IMPROVED: Cardly sticker Open Folder option - opens sticker folder in Explorer from the dropdown",
     "IMPROVED: Cardly orientation pair detection now also matches by API ID as fallback (e.g. thankyou-photocard-l/p)",
     "IMPROVED: GoCardless always live - removed environment selector, hardcoded to live (fixes sandbox default bug)",
@@ -19,10 +21,17 @@
     "IMPROVED: Plan naming format now auto-generates the default plan name in payment dialog",
     "IMPROVED: PSConsole saveAlbum replaces Ctrl+S keyboard automation (no blind 3s sleep)",
     "IMPROVED: PSConsole openAlbum replaces Ctrl+O with smart single-PSA detection",
-    "IMPROVED: Cardly message box height doubled (4→8 lines) for longer messages",
+    "IMPROVED: Cardly message box height doubled (4â†’8 lines) for longer messages",
     "IMPROVED: Cardly multiline message support - \\n escape chain across INI/AHK/cmdline/Python",
     "IMPROVED: Cardly spinner animation replaces stalling progress bar (canvas-based spinning dots)",
     "IMPROVED: Card Details panel shows orientation label (Landscape/Portrait) next to dimensions",
+    "IMPROVED: GoCardless crash handler - unhandled errors now print ERROR to stdout instead of silent empty output",
+    "IMPROVED: GoCardless empty output detection - shows antivirus/exe blocking message instead of blank error",
+    "IMPROVED: Cardly orientation matching strips trailing numeric IDs (e.g. -11482) from API template IDs before pair comparison",
+    "IMPROVED: Cardly preview window icon - all GUI windows show SideKick icon in title bar and taskbar",
+    "IMPROVED: Cardly send now runs on background thread - spinner animation stays smooth during network calls",
+    "IMPROVED: All compiled Python executables now include SideKick icon",
+    "NEW: Cardly Orders button in settings - opens order management page directly",
     "FIX: GoCardless environment default - hardcoded to live, fixes test connection failure with live tokens",
     "FIX: GHL tag sync - INI key mismatch (Tags vs SyncTag, OppTags vs OpportunityTags)",
     "FIX: Cardly address validation - state/county no longer required (UK addresses)",
@@ -32,7 +41,7 @@
     "NEW: Visual Toggle Feedback - icons and labels change color when disabled",
     "IMPROVED: Direct toggle updates - button visibility changes immediately on click",
     "NEW: Bank Transfer Display - show bank details on fullscreen display for client payments",
-    "NEW: Slide Cycling - display cycles through QR codes, bank details, and images (↑↓ keys)",
+    "NEW: Slide Cycling - display cycles through QR codes, bank details, and images (â†‘â†“ keys)",
     "NEW: Scalable Bank Display - bank text scales with Size slider same as QR codes",
     "IMPROVED: Sort code auto-formatted as ##-##-## on display",
     "NEW: Terms of Service pages - comprehensive terms.html for docs and website",
@@ -46,9 +55,9 @@
     "NEW: GC past payment detection - detects past due dates and offers to bump to future",
     "NEW: GC dynamic icon color - toolbar icon matches toolbar color scheme",
     "NEW: Clipboard helper functions - preserve user clipboard during copy operations",
-    "FIX: GHL invoice creation - remove taxInclusive from £0 items (HTTP 422 error)",
+    "FIX: GHL invoice creation - remove taxInclusive from Â£0 items (HTTP 422 error)",
     "FIX: GetAlbumFolder path - uses Alt+D trick instead of breadcrumb text",
-    "FIX: Payment regex now handles decimal values (e.g., £91.70)",
+    "FIX: Payment regex now handles decimal values (e.g., Â£91.70)",
     "FIX: GC Search Mandate dialog now stays on top",
     "FIX: GHL settings Auto-save XML toggle hides on other tabs",
     "FIX: Build script now copies icon source files for installer",
@@ -80,8 +89,8 @@
   ],
   "versions": [
     {
-      "version": "2.5.35",
-      "build_date": "2026-02-25",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
         "FIX: GHL Photo Link URL - normalise upload URL to public CDN domain (assets.cdn.filesafe.space)",
@@ -92,8 +101,8 @@
       ]
     },
     {
-      "version": "2.5.34",
-      "build_date": "2026-02-17",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
         "NEW: GoCardless toolbar button - check mandates and send setup links",
@@ -120,8 +129,8 @@
       ]
     },
     {
-      "version": "2.5.10",
-      "build_date": "2026-02-17",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
         "NEW: Auto-blend toolbar background - samples screen behind toolbar and matches color",
@@ -132,8 +141,8 @@
       ]
     },
     {
-      "version": "2.5.9",
-      "build_date": "2026-02-17",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
         "FIX: GHL invoice creation failed when Product_Name was empty (Wall Groupings, Collections)",
@@ -145,8 +154,8 @@
       ]
     },
     {
-      "version": "2.5.8",
-      "build_date": "2026-02-17",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
         "NEW: Setup Wizard auto-loads GHL tags, opportunity tags, and email templates after setup",
@@ -161,8 +170,8 @@
       ]
     },
     {
-      "version": "2.5.7",
-      "build_date": "2026-02-17",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
         "NEW: SKU field (Product_Code) extracted from ProSelect XML for product matching",
@@ -175,8 +184,8 @@
       ]
     },
     {
-      "version": "2.5.6",
-      "build_date": "2026-02-12",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
         "FIX: GHL API updated to new endpoint for PIT token support",
@@ -184,8 +193,8 @@
       ]
     },
     {
-      "version": "2.5.3",
-      "build_date": "2026-02-09",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
         "NEW: Dedicated PDF toolbar button (maroon) - always prints to PDF",
@@ -204,8 +213,8 @@
       ]
     },
     {
-      "version": "2.5.1",
-      "build_date": "2026-02-09",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
         "NEW: Detailed error dialog when invoice sync fails - shows available data and what's missing",
@@ -218,8 +227,8 @@
       ]
     },
     {
-      "version": "2.4.78",
-      "build_date": "2026-02-09",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
         "NEW: Toolbar grab handle - Ctrl+Click and drag to reposition",
@@ -229,8 +238,8 @@
       ]
     },
     {
-      "version": "2.4.77",
-      "build_date": "2026-02-08",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
         "NEW: Local QR Code Generation - no more Google Charts API dependency",
@@ -241,8 +250,8 @@
       ]
     },
     {
-      "version": "2.4.75",
-      "build_date": "2026-02-07",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
         "NEW: Print to PDF - save PDF to album folder with optional copy to secondary folder",
@@ -252,8 +261,8 @@
       ]
     },
     {
-      "version": "2.4.72",
-      "build_date": "2026-02-07",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
         "NEW: Room Capture Email Template Picker - choose from GHL templates",
@@ -263,8 +272,8 @@
       ]
     },
     {
-      "version": "2.4.28",
-      "build_date": "2026-01-31",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
         "IMPROVED: Full high-DPI display support for DarkMsgBox",
@@ -272,8 +281,8 @@
       ]
     },
     {
-      "version": "2.4.27",
-      "build_date": "2026-01-31",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
         "IMPROVED: Payment schedules show as invoice line items with dates",
@@ -284,8 +293,8 @@
       ]
     },
     {
-      "version": "2.4.26",
-      "build_date": "2026-01-31",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
         "FIX: DateDiff errors - replaced with AHK v1 compatible EnvSub",
@@ -294,8 +303,8 @@
       ]
     },
     {
-      "version": "2.4.25",
-      "build_date": "2026-01-31",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
         "NEW: DarkMsgBox - universal dark mode message box",
@@ -306,8 +315,8 @@
       ]
     },
     {
-      "version": "2.4.0",
-      "build_date": "2026-01-08",
+      "version": "2.5.37",
+      "build_date": "2026-02-27",
       "release_notes": "Major GHL integration release",
       "changelog": [
         "NEW: GHL Client lookup from Chrome URLs",

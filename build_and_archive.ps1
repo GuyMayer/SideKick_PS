@@ -249,8 +249,12 @@ if (!$SkipPythonCompile) {
                         $extraArgs += " --hidden-import=$hiName"
                     }
                 }
+                # Use SideKick icon for exe if available
+                $pyIconPath = "$ScriptDir\media\SideKick_PS.ico"
+                if (!(Test-Path $pyIconPath)) { $pyIconPath = "$SourceDir\SideKick_PS.ico" }
+                $iconArg = if (Test-Path $pyIconPath) { "--icon=`"$pyIconPath`"" } else { "" }
                 $ErrorActionPreference = "SilentlyContinue"
-                $pyCmd = "& `"$pyinstallerExe`" --onefile --noconsole --clean --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
+                $pyCmd = "& `"$pyinstallerExe`" --onefile --noconsole --clean --noconfirm $iconArg --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
                 Invoke-Expression $pyCmd
                 $ErrorActionPreference = "Stop"
                 

@@ -806,62 +806,71 @@ CreateShortcutsPanel()
 	Gui, Settings:Font, s10 Norm c%lblColorSort%, Segoe UI
 	Gui, Settings:Add, Text, x255 y249 w380 BackgroundTrans vSCLabel_Sort gToggleTB_Sort, Sort Order  —  Random / filename toggle
 	
+	; Open Folder button (📂) - Dark gold/brown background
+	iconBgOpenFolder := Settings_ShowBtn_OpenFolder ? "8B6914" : "444444"
+	iconFgOpenFolder := Settings_ShowBtn_OpenFolder ? "FFFFFF" : "888888"
+	lblColorOpenFolder := Settings_ShowBtn_OpenFolder ? labelColor : "666666"
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y280 w30 h28 Center Background%iconBgOpenFolder% c%iconFgOpenFolder% vSCIcon_OpenFolder gToggleTB_OpenFolder, 📂
+	Gui, Settings:Font, s10 Norm c%lblColorOpenFolder%, Segoe UI
+	Gui, Settings:Add, Text, x255 y284 w380 BackgroundTrans vSCLabel_OpenFolder gToggleTB_OpenFolder, Open Folder  —  Open shoot folder in Explorer
+	
 	; Photoshop button (Ps) - Dark blue with lighter blue text
 	iconBgPhotoshop := Settings_ShowBtn_Photoshop ? "001E36" : "444444"
 	iconFgPhotoshop := Settings_ShowBtn_Photoshop ? "33A1FD" : "888888"
 	lblColorPhotoshop := Settings_ShowBtn_Photoshop ? labelColor : "666666"
 	Gui, Settings:Font, s10 Bold, Segoe UI
-	Gui, Settings:Add, Text, x215 y280 w30 h28 Center Background%iconBgPhotoshop% c%iconFgPhotoshop% vSCIcon_Photoshop gToggleTB_Photoshop, Ps
+	Gui, Settings:Add, Text, x215 y315 w30 h28 Center Background%iconBgPhotoshop% c%iconFgPhotoshop% vSCIcon_Photoshop gToggleTB_Photoshop, Ps
 	Gui, Settings:Font, s10 Norm c%lblColorPhotoshop%, Segoe UI
-	Gui, Settings:Add, Text, x255 y284 w380 BackgroundTrans vSCLabel_Photoshop gToggleTB_Photoshop, Photoshop  —  Send to Photoshop (Ctrl+T)
+	Gui, Settings:Add, Text, x255 y319 w380 BackgroundTrans vSCLabel_Photoshop gToggleTB_Photoshop, Photoshop  —  Send to Photoshop (Ctrl+T)
 	
 	; Refresh button (🔄) - Navy background
 	iconBgRefresh := Settings_ShowBtn_Refresh ? "000080" : "444444"
 	iconFgRefresh := Settings_ShowBtn_Refresh ? "FFFFFF" : "888888"
 	lblColorRefresh := Settings_ShowBtn_Refresh ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y315 w30 h28 Center Background%iconBgRefresh% c%iconFgRefresh% vSCIcon_Refresh gToggleTB_Refresh, 🔄
+	Gui, Settings:Add, Text, x215 y350 w30 h28 Center Background%iconBgRefresh% c%iconFgRefresh% vSCIcon_Refresh gToggleTB_Refresh, 🔄
 	Gui, Settings:Font, s10 Norm c%lblColorRefresh%, Segoe UI
-	Gui, Settings:Add, Text, x255 y319 w380 BackgroundTrans vSCLabel_Refresh gToggleTB_Refresh, Refresh  —  Update album (Ctrl+U)
+	Gui, Settings:Add, Text, x255 y354 w380 BackgroundTrans vSCLabel_Refresh gToggleTB_Refresh, Refresh  —  Update album (Ctrl+U)
 	
 	; Print button (🖨) - Dark gray background
 	iconBgPrint := Settings_ShowBtn_Print ? "444444" : "333333"
 	iconFgPrint := Settings_ShowBtn_Print ? "FFFFFF" : "888888"
 	lblColorPrint := Settings_ShowBtn_Print ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y350 w30 h28 Center Background%iconBgPrint% c%iconFgPrint% vSCIcon_Print gToggleTB_Print, 🖨
+	Gui, Settings:Add, Text, x215 y385 w30 h28 Center Background%iconBgPrint% c%iconFgPrint% vSCIcon_Print gToggleTB_Print, 🖨
 	Gui, Settings:Font, s10 Norm c%lblColorPrint%, Segoe UI
-	Gui, Settings:Add, Text, x255 y354 w380 BackgroundTrans vSCLabel_Print gToggleTB_Print, Quick Print  —  Auto-print with template
+	Gui, Settings:Add, Text, x255 y389 w380 BackgroundTrans vSCLabel_Print gToggleTB_Print, Quick Print  —  Auto-print with template
 	
 	; QR Code button (▣) - Teal background
 	iconBgQRCode := Settings_ShowBtn_QRCode ? "006666" : "444444"
 	iconFgQRCode := Settings_ShowBtn_QRCode ? "FFFFFF" : "888888"
 	lblColorQRCode := Settings_ShowBtn_QRCode ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y385 w30 h28 Center Background%iconBgQRCode% c%iconFgQRCode% vSCIcon_QRCode gToggleTB_QRCode, ▣
+	Gui, Settings:Add, Text, x215 y420 w30 h28 Center Background%iconBgQRCode% c%iconFgQRCode% vSCIcon_QRCode gToggleTB_QRCode, ▣
 	Gui, Settings:Font, s10 Norm c%lblColorQRCode%, Segoe UI
-	Gui, Settings:Add, Text, x255 y389 w380 BackgroundTrans vSCLabel_QRCode gToggleTB_QRCode, QR Code  —  Display QR code from text
+	Gui, Settings:Add, Text, x255 y424 w380 BackgroundTrans vSCLabel_QRCode gToggleTB_QRCode, QR Code  —  Display QR code from text
 	
 	; Cardly button (📮) - Coral/salmon background
 	iconBgCardly := Settings_ShowBtn_Cardly ? "E88D67" : "444444"
 	iconFgCardly := Settings_ShowBtn_Cardly ? "FFFFFF" : "888888"
 	lblColorCardly := Settings_ShowBtn_Cardly ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y420 w30 h28 Center Background%iconBgCardly% c%iconFgCardly% vSCIcon_Cardly gToggleTB_Cardly, 📮
+	Gui, Settings:Add, Text, x215 y455 w30 h28 Center Background%iconBgCardly% c%iconFgCardly% vSCIcon_Cardly gToggleTB_Cardly, 📮
 	Gui, Settings:Font, s10 Norm c%lblColorCardly%, Segoe UI
-	Gui, Settings:Add, Text, x255 y424 w380 BackgroundTrans vSCLabel_Cardly gToggleTB_Cardly, Cardly  —  Send postcard via Cardly
+	Gui, Settings:Add, Text, x255 y459 w380 BackgroundTrans vSCLabel_Cardly gToggleTB_Cardly, Cardly  —  Send postcard via Cardly
 	
 	; SD Download button (📥) — note: managed separately in File Management
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y455 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
+	Gui, Settings:Add, Text, x215 y490 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y459 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
+	Gui, Settings:Add, Text, x255 y494 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INFO NOTE
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y510 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
+	Gui, Settings:Add, Text, x210 y545 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
 	
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -1289,8 +1298,9 @@ CreateCardlyPanel()
 	
 	; Dashboard button (top-right)
 	Gui, Settings:Font, s9 Norm c%textColor%, Segoe UI
-	Gui, Settings:Add, Button, x490 y20 w85 h28 gOpenCardlyDashboard vCrdDashboardBtn Hidden, Dashboard
-	Gui, Settings:Add, Button, x585 y20 w85 h28 gOpenCardlySignup vCrdSignupBtn Hidden, Sign Up
+	Gui, Settings:Add, Button, x430 y20 w80 h28 gOpenCardlyDashboard vCrdDashboardBtn Hidden, Dashboard
+	Gui, Settings:Add, Button, x515 y20 w75 h28 gOpenCardlyOrders vCrdOrdersBtn Hidden, Orders
+	Gui, Settings:Add, Button, x595 y20 w80 h28 gOpenCardlySignup vCrdSignupBtn Hidden, Sign Up
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; API CONFIGURATION GROUP BOX
@@ -1340,7 +1350,7 @@ CreateCardlyPanel()
 	; CARD MESSAGE SETTINGS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y375 w480 h280 vCrdMsgGroup Hidden, Card Message Settings
+	Gui, Settings:Add, GroupBox, x195 y375 w480 h310 vCrdMsgGroup Hidden, Card Message Settings
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
@@ -1360,19 +1370,19 @@ CreateCardlyPanel()
 	; Auto Send checkbox
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	chkAutoSend := Settings_Cardly_AutoSend ? "Checked" : ""
-	Gui, Settings:Add, CheckBox, x210 y527 w250 vCrdAutoSendChk BackgroundTrans Hidden %chkAutoSend%, Auto send card (skip preview)
+	Gui, Settings:Add, CheckBox, x210 y547 w250 vCrdAutoSendChk BackgroundTrans Hidden %chkAutoSend%, Auto send card (skip preview)
 	
 	; Test Mode checkbox
 	chkTestMode := Settings_Cardly_TestMode ? "Checked" : ""
-	Gui, Settings:Add, CheckBox, x210 y552 w350 vCrdTestModeChk BackgroundTrans Hidden %chkTestMode%, Test mode (upload artwork; skip order)
+	Gui, Settings:Add, CheckBox, x210 y572 w350 vCrdTestModeChk BackgroundTrans Hidden %chkTestMode%, Test mode (upload artwork; skip order)
 	
 	; Save to Album Folder checkbox
 	chkSaveToAlbum := Settings_Cardly_SaveToAlbum ? "Checked" : ""
-	Gui, Settings:Add, CheckBox, x210 y577 w350 vCrdSaveToAlbumChk BackgroundTrans Hidden %chkSaveToAlbum%, Save to album folder
+	Gui, Settings:Add, CheckBox, x210 y597 w350 vCrdSaveToAlbumChk BackgroundTrans Hidden %chkSaveToAlbum%, Save to album folder
 	
 	; Info text
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y602 w450 h40 BackgroundTrans vCrdInfoText Hidden, API Key and credentials are stored securely in credentials.json
+	Gui, Settings:Add, Text, x210 y625 w450 h40 BackgroundTrans vCrdInfoText Hidden, API Key and credentials are stored securely in credentials.json
 	
 	; Reset font
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
@@ -1621,6 +1631,8 @@ TestGCConnection:
 	
 	ToolTip
 	
+	testResult := Trim(testResult)
+	
 	if (InStr(testResult, "SUCCESS|")) {
 		parts := StrSplit(testResult, "|")
 		creditorName := Trim(parts[2])
@@ -1628,6 +1640,11 @@ TestGCConnection:
 		GuiControl, Settings:, GCStatusText, ✅ Connected
 		GuiControl, Settings:+c00FF00, GCStatusText
 		DarkMsgBox("Connection Successful", "Connected to GoCardless!`n`nCreditor: " . creditorName . "`nID: " . creditorId, "success")
+	} else if (testResult = "") {
+		; Script produced no output - likely blocked by antivirus or exe crash
+		GuiControl, Settings:, GCStatusText, ❌ Failed
+		GuiControl, Settings:+cFF6B6B, GCStatusText
+		DarkMsgBox("Connection Failed", "GoCardless script returned no output.`n`nThis is usually caused by:`n• Antivirus blocking the exe`n• Windows Defender SmartScreen`n• Missing Visual C++ Runtime`n`nTry adding an exclusion for:`n" . GetScriptPath("gocardless_api") . "`n`nOr check Windows Security > Virus & threat protection > Protection history.", "error")
 	} else {
 		errMsg := InStr(testResult, "ERROR|") ? StrReplace(testResult, "ERROR|", "") : testResult
 		GuiControl, Settings:, GCStatusText, ❌ Failed
@@ -1641,6 +1658,10 @@ OpenCardlyDashboard:
 		Run, %Settings_Cardly_DashboardURL%
 	else
 		Run, https://www.cardly.net/account
+return
+
+OpenCardlyOrders:
+	Run, https://zoom-photography-studio.cardly.net/manage/orders
 return
 
 OpenCardlySignup:
@@ -2624,7 +2645,7 @@ GC_CheckCustomerMandate(customerEmail) {
 	
 	; Check for empty output
 	if (scriptOutput = "") {
-		result.error := "No response from GoCardless API"
+		result.error := "GoCardless script returned no output - this may be caused by antivirus blocking the exe"
 		return result
 	}
 	
@@ -4735,6 +4756,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, PanelCardly
 	GuiControl, Settings:Hide, CrdHeader
 	GuiControl, Settings:Hide, CrdDashboardBtn
+	GuiControl, Settings:Hide, CrdOrdersBtn
 	GuiControl, Settings:Hide, CrdSignupBtn
 	GuiControl, Settings:Hide, CrdAPIGroup
 	GuiControl, Settings:Hide, CrdApiKeyLabel
@@ -5256,6 +5278,7 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, PanelCardly
 		GuiControl, Settings:Show, CrdHeader
 		GuiControl, Settings:Show, CrdDashboardBtn
+		GuiControl, Settings:Show, CrdOrdersBtn
 		GuiControl, Settings:Show, CrdSignupBtn
 		GuiControl, Settings:Show, CrdAPIGroup
 		GuiControl, Settings:Show, CrdApiKeyLabel
@@ -5532,26 +5555,37 @@ RefreshCardlyTemplates:
 	}
 	
 	; --- Build orientation pair map (L↔P / Landscape↔Portrait) ---
-	; For each template, strip orientation suffix to get a base name, then find its partner.
+	; For each template, strip orientation to get a base name, then find its partner.
 	; Method 1: Match by display name (e.g. "MyCard-L (WxHpx)" ↔ "MyCard-P (WxHpx)")
 	; Method 2: Fallback — match by API ID (e.g. "thankyou-photocard-l" ↔ "thankyou-photocard-p")
+	; Handles orientation as suffix (-L, -P, -Landscape, -Portrait) OR prefix (Landscape Card, Portrait Card)
+	; Normalises separators (spaces/hyphens/underscores) for API ID comparison
 	CardlyTemplateAltOrientation := {}
 	orientSuffix := "i)[\s_-]+(landscape|portrait|l|p)$"
+	orientPrefix := "i)^(landscape|portrait|l|p)[\s_-]+"
 	for dName, tId in CardlyTemplateMap {
 		if (CardlyTemplateAltOrientation.HasKey(dName))
 			continue
 		; --- Method 1: match by display name ---
 		rawName := RegExReplace(dName, "\s*\([^)]*px\)$")
+		; Try suffix first, then prefix
 		baseName := RegExReplace(rawName, orientSuffix)
+		if (baseName = rawName)
+			baseName := RegExReplace(rawName, orientPrefix)
 		found := false
 		for dName2, tId2 in CardlyTemplateMap {
 			if (dName2 = dName)
 				continue
 			rawName2 := RegExReplace(dName2, "\s*\([^)]*px\)$")
 			baseName2 := RegExReplace(rawName2, orientSuffix)
+			if (baseName2 = rawName2)
+				baseName2 := RegExReplace(rawName2, orientPrefix)
 			if (baseName != "" && baseName != rawName && baseName2 != "" && baseName2 != rawName2) {
+				; Normalise separators and compare case-insensitively
 				StringLower, bLow, baseName
 				StringLower, bLow2, baseName2
+				bLow := RegExReplace(bLow, "[\s_-]+", "-")
+				bLow2 := RegExReplace(bLow2, "[\s_-]+", "-")
 				if (bLow = bLow2) {
 					CardlyTemplateAltOrientation[dName] := dName2
 					found := true
@@ -5560,14 +5594,24 @@ RefreshCardlyTemplates:
 			}
 		}
 		; --- Method 2: fallback — match by API template ID ---
+		; Normalise separators (spaces/hyphens/underscores → single hyphen) before comparing
 		if (!found) {
-			baseId := RegExReplace(tId, orientSuffix)
-			if (baseId != "" && baseId != tId) {
+			normId := RegExReplace(tId, "[\s_-]+", "-")
+			; Strip trailing numeric segment (e.g. "-11482") before orientation check
+			cleanId := RegExReplace(normId, "-\d+$")
+			baseId := RegExReplace(cleanId, orientSuffix)
+			if (baseId = cleanId)
+				baseId := RegExReplace(cleanId, orientPrefix)
+			if (baseId != "" && baseId != cleanId) {
 				for dName2, tId2 in CardlyTemplateMap {
 					if (dName2 = dName)
 						continue
-					baseId2 := RegExReplace(tId2, orientSuffix)
-					if (baseId2 != "" && baseId2 != tId2) {
+					normId2 := RegExReplace(tId2, "[\s_-]+", "-")
+					cleanId2 := RegExReplace(normId2, "-\d+$")
+					baseId2 := RegExReplace(cleanId2, orientSuffix)
+					if (baseId2 = cleanId2)
+						baseId2 := RegExReplace(cleanId2, orientPrefix)
+					if (baseId2 != "" && baseId2 != cleanId2) {
 						StringLower, iLow, baseId
 						StringLower, iLow2, baseId2
 						if (iLow = iLow2) {
@@ -5598,6 +5642,31 @@ CardlyTemplateSelected:
 		Return
 	if (CardlyTemplateMap.HasKey(selectedTemplate)) {
 		Settings_Cardly_MediaID := CardlyTemplateMap[selectedTemplate]
+	}
+	; Update size from template
+	if (CardlyTemplateSizes.HasKey(selectedTemplate)) {
+		sizeStr := CardlyTemplateSizes[selectedTemplate]
+		if (RegExMatch(sizeStr, "(\d+)x(\d+)", sDim)) {
+			Settings_Cardly_CardWidth := sDim1
+			Settings_Cardly_CardHeight := sDim2
+		}
+	}
+	; Update alt orientation info for persistence
+	Settings_Cardly_AltTemplateID := ""
+	Settings_Cardly_AltCardWidth := ""
+	Settings_Cardly_AltCardHeight := ""
+	if (CardlyTemplateAltOrientation && CardlyTemplateAltOrientation.HasKey(selectedTemplate)) {
+		altName := CardlyTemplateAltOrientation[selectedTemplate]
+		if (CardlyTemplateMap.HasKey(altName)) {
+			Settings_Cardly_AltTemplateID := CardlyTemplateMap[altName]
+			if (CardlyTemplateSizes.HasKey(altName)) {
+				altSize := CardlyTemplateSizes[altName]
+				if (RegExMatch(altSize, "(\d+)x(\d+)", aDim)) {
+					Settings_Cardly_AltCardWidth := aDim1
+					Settings_Cardly_AltCardHeight := aDim2
+				}
+			}
+		}
 	}
 	Return
 }
@@ -5977,8 +6046,23 @@ DevQuickPush:
 	mainScript := A_ScriptDir . "\SideKick_PS.ahk"
 	FileRead, scriptContent, %mainScript%
 	scriptContent := RegExReplace(scriptContent, "global ScriptVersion := ""[^""]+""", "global ScriptVersion := """ . newVersion . """")
+	; Also sync the header comment block (; Version: / ; Build Date:)
+	FormatTime, todayDate, , yyyy-MM-dd
+	scriptContent := RegExReplace(scriptContent, "; Version:\s+\d+\.\d+\.\d+", "; Version:     " . newVersion)
+	scriptContent := RegExReplace(scriptContent, "; Build Date:\s+\d{4}-\d{2}-\d{2}", "; Build Date:  " . todayDate)
 	FileDelete, %mainScript%
 	FileAppend, %scriptContent%, %mainScript%, UTF-8
+	
+	; Sync version.json (single source of truth for version info)
+	ToolTip, Syncing version.json...
+	versionJsonFile := A_ScriptDir . "\version.json"
+	if FileExist(versionJsonFile) {
+		FileRead, jsonContent, %versionJsonFile%
+		jsonContent := RegExReplace(jsonContent, """version"":\s*""[^""]+""", """version"": """ . newVersion . """")
+		jsonContent := RegExReplace(jsonContent, """build_date"":\s*""[^""]+""", """build_date"": """ . todayDate . """")
+		FileDelete, %versionJsonFile%
+		FileAppend, %jsonContent%, %versionJsonFile%, UTF-8
+	}
 	
 	; Run the full build (compiles AHK + Python to EXE)
 	ToolTip, Building EXE-only release v%newVersion%...`nThis may take a minute...
@@ -5992,7 +6076,6 @@ DevQuickPush:
 	FileAppend, cd /d "%repoDir%"`n, %batchFile%
 	FileAppend, call C:\Stash\.venv\Scripts\activate.bat`n, %batchFile%
 	FileAppend, powershell -ExecutionPolicy Bypass -File "build_and_archive.ps1" -Version "%newVersion%" -ForceRebuild -SkipPublish`n, %batchFile%
-	FileAppend, pause`n, %batchFile%
 	
 	Run, %batchFile%, %repoDir%
 	

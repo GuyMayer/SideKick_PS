@@ -29,6 +29,34 @@ from tkinter import ttk, messagebox
 from pathlib import Path
 import atexit
 import ctypes
+import threading
+import queue as _queue
+
+# Set Windows AppUserModelID so the taskbar shows our icon, not Python's
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('GuyMayer.SideKick.CardlyPreview.1')
+except Exception:
+    pass
+
+# === WINDOW ICON HELPER ===
+_icon_path_cache = None
+
+def _set_window_icon(win):
+    """Set the SideKick icon on any Tk or Toplevel window."""
+    global _icon_path_cache
+    try:
+        if _icon_path_cache is None:
+            if getattr(sys, 'frozen', False):
+                _d = os.path.dirname(sys.executable)
+            else:
+                _d = os.path.dirname(os.path.abspath(__file__))
+            _p = os.path.join(_d, 'SideKick_PS.ico')
+            _icon_path_cache = _p if os.path.isfile(_p) else ''
+        if _icon_path_cache:
+            win.iconbitmap(_icon_path_cache)
+    except Exception:
+        pass
+
 
 # === TOOLTIP ===
 class ToolTip:
@@ -309,6 +337,7 @@ class CardPreviewGUI:
         if not self.psa_path or not os.path.exists(self.psa_path):
             import tkinter.messagebox as _mb
             _root = tk.Tk()
+            _set_window_icon(_root)
             _root.withdraw()
             _mb.showwarning(
                 "No Album Found",
@@ -322,6 +351,8 @@ class CardPreviewGUI:
 
         # Create GUI
         self.root = tk.Tk()
+        # Set window/taskbar icon
+        _set_window_icon(self.root)
         # Build window title with successful image source only
         title = "SideKick - Send Greeting Card"
         if self.image_source:
@@ -1028,8 +1059,8 @@ class CardPreviewGUI:
                 fg='#FFB347', bg='#1a1a1a').pack(side='left')
 
         # Rotate / swap orientation button (only active when alt template exists)
-        self.rotate_btn = tk.Button(crop_header_frame, text="\u21C4",
-                                    font=('Segoe UI', 12, 'bold'), width=3,
+        self.rotate_btn = tk.Button(crop_header_frame, text="\u21BB",
+                                    font=('Segoe UI', 14), width=2,
                                     command=self.swap_orientation,
                                     relief='flat', cursor='hand2',
                                     bg='#333333', fg='#FFB347',
@@ -1595,6 +1626,7 @@ class CardPreviewGUI:
         import math
 
         progress_win = tk.Toplevel(self.root)
+        _set_window_icon(progress_win)
         progress_win.title(title)
         progress_win.configure(bg='#1a1a1a')
         progress_win.resizable(False, False)
@@ -1679,20 +1711,20 @@ class CardPreviewGUI:
             pass
 
     def post_card(self):
-        """Send the card via Cardly API."""
+        """Send the card via Cardly API (threaded to keep spinner alive)."""
         if not self.images:
             messagebox.showerror("Error", "No image selected")
             return
 
-        # Get message
+        # Get message (must read from main thread)
         message = self.message_text.get('1.0', 'end-1c').strip()
 
         # Disable button and show progress popup
         self.post_btn.config(state='disabled')
         progress_win = self.show_progress("Sending Card...", "Preparing image...")
 
+        # --- Pre-validation on main thread (needs user interaction) ---
         try:
-            # Get high-res image from For Printing folder
             display_path = self.images[self.current_index]
             hires_path = self.get_hires_image_path(display_path)
 
@@ -1729,10 +1761,58 @@ class CardPreviewGUI:
                 print(f"Could not check source dimensions: {e}")
                 self._source_dimensions = None
 
-            # Process image (with ICC conversion for accurate colours)
-            self.update_progress(progress_win, "Processing image...")
+            # Validate recipient before starting background work
+            recipient = dict(self.recipient) if self.recipient else None
+            recipient_source = self.recipient_source
 
-            # Log sticker parameters (always visible – aids diagnosis)
+            if not recipient or not recipient.get('name', '').strip():
+                raise Exception(
+                    "No client details found in the album.\n\n"
+                    "Please enter the client's name and address in ProSelect\n"
+                    "(Client Setup) and save the album, then try again.\n\n"
+                    "A greeting card is a physical postcard \u2014 a postal address is required!"
+                )
+
+            # Remove internal tracking keys
+            recipient.pop('_source', None)
+            recipient.pop('email', None)
+            recipient.pop('phone', None)
+
+            # Validate required address fields
+            missing = [k for k in ('name', 'address1', 'city', 'postcode')
+                       if not recipient.get(k, '').strip()]
+            if missing:
+                raise Exception(
+                    f"Recipient address is incomplete (source: {recipient_source}).\n\n"
+                    f"Missing: {', '.join(missing)}\n\n"
+                    f"A greeting card is a physical postcard \u2014 a full postal address is required!\n"
+                    f"Please update the client's address in ProSelect (Client Setup) and save."
+                )
+
+        except Exception as e:
+            self.close_progress(progress_win)
+            self.post_btn.config(state='normal', text="Send Card")
+            messagebox.showerror("Error", str(e))
+            return
+
+        # --- Launch background thread for all blocking work ---
+        self._post_queue = _queue.Queue()
+        self._post_progress_win = progress_win
+        worker = threading.Thread(
+            target=self._post_card_worker,
+            args=(hires_path, display_path, message, recipient, recipient_source),
+            daemon=True
+        )
+        worker.start()
+        self.root.after(50, self._poll_post_card)
+
+    def _post_card_worker(self, hires_path, display_path, message, recipient, recipient_source):
+        """Background worker for post_card — does all blocking I/O."""
+        q = self._post_queue
+        try:
+            q.put(('status', 'Processing image...'))
+
+            # Log sticker parameters
             print(f"[Cardly Send] sticker_path = {self.sticker_path}")
             print(f"[Cardly Send] sticker_x={self.sticker_x}  sticker_y={self.sticker_y}  "
                   f"sticker_zoom={self.sticker_zoom}")
@@ -1750,13 +1830,12 @@ class CardPreviewGUI:
                 card_height=self.card_height
             )
 
-            # Save a proof copy so the user can verify the sticker was composited
+            # Save a proof copy
             if processed_path and os.path.exists(processed_path) and self.postcard_folder:
                 try:
                     proof_dir = os.path.join(self.postcard_folder, "_proof")
                     os.makedirs(proof_dir, exist_ok=True)
-                    proof_name = os.path.splitext(os.path.basename(
-                        self.images[self.current_index]))[0]
+                    proof_name = os.path.splitext(os.path.basename(display_path))[0]
                     proof_path = os.path.join(proof_dir, f"{proof_name}_cardly_artwork.png")
                     import shutil
                     shutil.copy2(processed_path, proof_path)
@@ -1764,40 +1843,12 @@ class CardPreviewGUI:
                 except Exception as e:
                     print(f"[Cardly Send] Could not save proof copy: {e}")
 
-            # Send to Cardly - use recipient resolved at init
-            progress_win = self.show_progress("Sending Card...", "Preparing to send...")
-
-            recipient = dict(self.recipient) if self.recipient else None
-            recipient_source = self.recipient_source
-
-            if not recipient or not recipient.get('name', '').strip():
-                raise Exception(
-                    "No client details found in the album.\n\n"
-                    "Please enter the client's name and address in ProSelect\n"
-                    "(Client Setup) and save the album, then try again.\n\n"
-                    "A greeting card is a physical postcard \u2014 a postal address is required!"
-                )
+            q.put(('status', 'Preparing to send...'))
 
             print(f"Using recipient from {recipient_source}: {recipient.get('name', '')}")
 
-            # Remove internal tracking keys before passing to Cardly API
-            recipient.pop('_source', None)
-            recipient.pop('email', None)
-            recipient.pop('phone', None)
-
-            # Validate required address fields (state/county is optional for UK)
-            missing = [k for k in ('name', 'address1', 'city', 'postcode')
-                       if not recipient.get(k, '').strip()]
-            if missing:
-                raise Exception(
-                    f"Recipient address is incomplete (source: {recipient_source}).\n\n"
-                    f"Missing: {', '.join(missing)}\n\n"
-                    f"A greeting card is a physical postcard \u2014 a full postal address is required!\n"
-                    f"Please update the client's address in ProSelect (Client Setup) and save."
-                )
-
             # Create artwork
-            self.update_progress(progress_win, "Uploading artwork to Cardly...")
+            q.put(('status', 'Uploading artwork to Cardly...'))
             artwork_result = create_cardly_artwork(processed_path, self.template_id)
             if not artwork_result.get('success'):
                 raise Exception(f"Failed to create artwork: {artwork_result.get('error')}")
@@ -1806,9 +1857,9 @@ class CardPreviewGUI:
 
             # Place order (skip in test mode)
             if self.test_mode:
-                self.update_progress(progress_win, "TEST MODE \u2014 skipping order...")
+                q.put(('status', 'TEST MODE \u2014 skipping order...'))
             else:
-                self.update_progress(progress_win, "Placing order...")
+                q.put(('status', 'Placing order...'))
                 order_result = place_cardly_order(
                     artwork_id,
                     recipient,
@@ -1816,14 +1867,12 @@ class CardPreviewGUI:
                     first_name=self.first_name,
                     template_id=self.template_id
                 )
-
                 if not order_result.get('success'):
                     raise Exception(f"Failed to place order: {order_result.get('error')}")
 
             # --- Post-send: save JPG to postcard folder & upload to GHL ---
-            self.update_progress(progress_win, "Saving postcard...")
+            q.put(('status', 'Saving postcard...'))
             try:
-                # Build a clean (no sticker) sRGB crop for the postcard JPG
                 clean_path = resize_image_for_cardly(
                     hires_path,
                     crop_x=int(self.crop_x),
@@ -1837,25 +1886,22 @@ class CardPreviewGUI:
                     card_height=self.card_height
                 )
 
-                # Convert the clean PNG to sRGB JPG
                 from PIL import Image as _PILImg
                 clean_img = _PILImg.open(clean_path)
-                orig_name = os.path.splitext(os.path.basename(self.images[self.current_index]))[0]
+                orig_name = os.path.splitext(os.path.basename(display_path))[0]
                 jpg_path = os.path.join(os.path.dirname(clean_path), f"{orig_name}_postcard.jpg")
                 clean_img.convert('RGB').save(jpg_path, 'JPEG', quality=95, optimize=True)
 
-                # Save to postcard folder if configured
                 if self.postcard_folder and os.path.isdir(self.postcard_folder):
                     import shutil
                     dest = os.path.join(self.postcard_folder, f"{orig_name}_postcard.jpg")
                     shutil.copy2(jpg_path, dest)
                     print(f"Postcard JPG saved to: {dest}")
 
-                # Save to album folder if enabled
                 if self.save_to_album and self.album_folder:
                     album_save_result = save_to_album_folder(
                         clean_path,
-                        self.images[self.current_index],
+                        display_path,
                         self.album_folder
                     )
                     if album_save_result.get('success'):
@@ -1863,15 +1909,12 @@ class CardPreviewGUI:
                     else:
                         print(f"Album save warning: {album_save_result.get('error')}")
 
-                # Upload to GHL media folder if configured
                 if self.ghl_media_folder_id:
-                    self.update_progress(progress_win, "Uploading to GHL...")
+                    q.put(('status', 'Uploading to GHL...'))
                     ghl_result = upload_to_ghl_photos(jpg_path, self.contact_id, self.ghl_media_folder_id)
                     if ghl_result.get('success'):
                         uploaded_url = ghl_result.get('url', '')
                         print(f"Uploaded postcard to GHL media: {uploaded_url}")
-
-                        # Update the contact's photo link custom field
                         if uploaded_url and self.photo_link_field:
                             field_result = update_ghl_contact_field(
                                 self.contact_id, self.photo_link_field, uploaded_url
@@ -1885,41 +1928,63 @@ class CardPreviewGUI:
             except Exception as post_err:
                 print(f"Post-send save/upload warning: {post_err}")
 
-            # Success!
-            self.close_progress(progress_win)
-            self.result = 0
-
-            # Dark-themed success dialog
-            success_win = tk.Toplevel(self.root)
-            success_win.title("Success")
-            success_win.configure(bg='#1a1a1a')
-            success_win.resizable(False, False)
-            success_win.protocol("WM_DELETE_WINDOW", lambda: None)
-            tk.Label(success_win, text="\u2705", font=('Segoe UI', 32),
-                    fg='#4CAF50', bg='#1a1a1a').pack(pady=(20, 5))
-            success_msg = (f"TEST MODE \u2014 artwork uploaded for {self.first_name}\n(order not placed)"
-                          if self.test_mode
-                          else f"Card sent successfully to {self.first_name}!")
-            tk.Label(success_win, text=success_msg,
-                    font=('Segoe UI', 11), fg='white', bg='#1a1a1a').pack(padx=30, pady=(0, 15))
-            tk.Button(success_win, text="OK", width=10, font=('Segoe UI', 10),
-                     bg='#4CAF50', fg='white', activebackground='#5CBF60',
-                     relief='flat', cursor='hand2',
-                     command=success_win.destroy).pack(pady=(0, 20))
-            success_win.update_idletasks()
-            w = success_win.winfo_width()
-            h = success_win.winfo_height()
-            x = (success_win.winfo_screenwidth() - w) // 2
-            y = (success_win.winfo_screenheight() - h) // 2
-            success_win.geometry(f"+{x}+{y}")
-            success_win.grab_set()
-            success_win.wait_window()
-            self.root.destroy()
+            # Signal success
+            q.put(('done', None))
 
         except Exception as e:
-            self.close_progress(progress_win)
-            self.post_btn.config(state='normal', text="Send Card")
-            messagebox.showerror("Error", str(e))
+            q.put(('error', str(e)))
+
+    def _poll_post_card(self):
+        """Poll the background worker queue to update progress UI."""
+        try:
+            while True:
+                msg_type, msg_data = self._post_queue.get_nowait()
+                if msg_type == 'status':
+                    if hasattr(self, 'progress_label'):
+                        self.progress_label.config(text=msg_data)
+                elif msg_type == 'done':
+                    self.close_progress(self._post_progress_win)
+                    self.result = 0
+                    self._show_success_dialog()
+                    return
+                elif msg_type == 'error':
+                    self.close_progress(self._post_progress_win)
+                    self.post_btn.config(state='normal', text="Send Card")
+                    messagebox.showerror("Error", msg_data)
+                    return
+        except _queue.Empty:
+            pass
+        # Keep polling
+        self.root.after(50, self._poll_post_card)
+
+    def _show_success_dialog(self):
+        """Show dark-themed success dialog after card is sent."""
+        success_win = tk.Toplevel(self.root)
+        _set_window_icon(success_win)
+        success_win.title("Success")
+        success_win.configure(bg='#1a1a1a')
+        success_win.resizable(False, False)
+        success_win.protocol("WM_DELETE_WINDOW", lambda: None)
+        tk.Label(success_win, text="\u2705", font=('Segoe UI', 32),
+                fg='#4CAF50', bg='#1a1a1a').pack(pady=(20, 5))
+        success_msg = (f"TEST MODE \u2014 artwork uploaded for {self.first_name}\n(order not placed)"
+                      if self.test_mode
+                      else f"Card sent successfully to {self.first_name}!")
+        tk.Label(success_win, text=success_msg,
+                font=('Segoe UI', 11), fg='white', bg='#1a1a1a').pack(padx=30, pady=(0, 15))
+        tk.Button(success_win, text="OK", width=10, font=('Segoe UI', 10),
+                 bg='#4CAF50', fg='white', activebackground='#5CBF60',
+                 relief='flat', cursor='hand2',
+                 command=success_win.destroy).pack(pady=(0, 20))
+        success_win.update_idletasks()
+        w = success_win.winfo_width()
+        h = success_win.winfo_height()
+        x = (success_win.winfo_screenwidth() - w) // 2
+        y = (success_win.winfo_screenheight() - h) // 2
+        success_win.geometry(f"+{x}+{y}")
+        success_win.grab_set()
+        success_win.wait_window()
+        self.root.destroy()
 
     def cancel(self) -> None:
         """Cancel and close dialog."""

@@ -12,6 +12,14 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.37 (2026-02-27)
+
+### New Features
+- **Open Folder Toolbar Button**: New toolbar button opens the album's image source folder (where the original photos reside on disk) rather than the .psa file location
+- **GetAlbumSourceFolder()**: Uses PSConsole `getImageData` to extract the actual `shellpath` from the first image element — no Python or SQLite needed
+
+---
+
 ## v2.5.36 (2026-02-26)
 
 ### New Features
@@ -36,6 +44,13 @@ AI INSTRUCTIONS - When publishing a new version:
 - **Cardly Multiline Messages**: Full `\n` escape chain across INI → AHK → command line → Python preserves line breaks
 - **Cardly Spinner Animation**: Replaced stalling ttk.Progressbar with canvas-based spinning dots animation
 - **Card Details Orientation Label**: Size display now shows "Landscape" or "Portrait" next to dimensions
+- **GoCardless Crash Handler**: Added top-level exception handler to gocardless_api.py — unhandled errors now print `ERROR|...` to stdout instead of producing silent empty output
+- **GoCardless Empty Output Detection**: Test connection and mandate check now detect when the script returns no output and display a specific message about antivirus/exe blocking (previously showed blank error)
+- **Cardly Orientation: Trailing Number Tolerance**: API ID matching now strips trailing numeric segments (e.g. `-11482`) before comparing orientation pairs — handles Cardly's version-suffixed template IDs
+- **Cardly Preview Window Icon**: All Cardly preview GUI windows (main, progress, success) now show the SideKick icon in the title bar and taskbar instead of the default Python/Tk icon
+- **Cardly Preview Threaded Send**: Card sending (image processing, artwork upload, order placement, GHL upload) now runs on a background thread — spinner animation stays smooth instead of freezing during network calls
+- **Cardly Orders Button**: Added "Orders" button in Cardly settings tab — opens the Cardly order management page directly
+- **PyInstaller Icon**: All compiled Python executables now include the SideKick icon (previously used generic PyInstaller icon)
 
 ### Bug Fixes
 - **GoCardless Environment Default**: Hardcoded environment to "live" — fixes test connection failure for users with live API tokens (was defaulting to sandbox)

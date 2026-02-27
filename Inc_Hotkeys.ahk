@@ -158,6 +158,7 @@ LoadSettings()
 	IniRead, Settings_ShowBtn_OpenGHL, %IniFilename%, Toolbar, ShowBtn_OpenGHL, 1
 	IniRead, Settings_ShowBtn_Camera, %IniFilename%, Toolbar, ShowBtn_Camera, 1
 	IniRead, Settings_ShowBtn_Sort, %IniFilename%, Toolbar, ShowBtn_Sort, 1
+	IniRead, Settings_ShowBtn_OpenFolder, %IniFilename%, Toolbar, ShowBtn_OpenFolder, 1
 	IniRead, Settings_ShowBtn_Photoshop, %IniFilename%, Toolbar, ShowBtn_Photoshop, 1
 	IniRead, Settings_ShowBtn_Refresh, %IniFilename%, Toolbar, ShowBtn_Refresh, 1
 	IniRead, Settings_ShowBtn_Print, %IniFilename%, Toolbar, ShowBtn_Print, 1
@@ -203,6 +204,9 @@ LoadSettings()
 	IniRead, Settings_Cardly_PostcardFolder, %IniFilename%, Cardly, PostcardFolder, %A_Space%
 	IniRead, Settings_Cardly_CardWidth, %IniFilename%, Cardly, CardWidth, 2913
 	IniRead, Settings_Cardly_CardHeight, %IniFilename%, Cardly, CardHeight, 2125
+	IniRead, Settings_Cardly_AltTemplateID, %IniFilename%, Cardly, AltTemplateID, %A_Space%
+	IniRead, Settings_Cardly_AltCardWidth, %IniFilename%, Cardly, AltCardWidth, %A_Space%
+	IniRead, Settings_Cardly_AltCardHeight, %IniFilename%, Cardly, AltCardHeight, %A_Space%
 	IniRead, Settings_Cardly_GHLMediaFolderID, %IniFilename%, Cardly, GHLMediaFolderID, %A_Space%
 	IniRead, Settings_Cardly_GHLMediaFolderName, %IniFilename%, Cardly, GHLMediaFolderName, Client Photos
 	IniRead, Settings_Cardly_PhotoLinkField, %IniFilename%, Cardly, PhotoLinkField, Contact Photo Link
@@ -341,6 +345,7 @@ SaveSettings()
 	IniWrite, %Settings_ShowBtn_OpenGHL%, %IniFilename%, Toolbar, ShowBtn_OpenGHL
 	IniWrite, %Settings_ShowBtn_Camera%, %IniFilename%, Toolbar, ShowBtn_Camera
 	IniWrite, %Settings_ShowBtn_Sort%, %IniFilename%, Toolbar, ShowBtn_Sort
+	IniWrite, %Settings_ShowBtn_OpenFolder%, %IniFilename%, Toolbar, ShowBtn_OpenFolder
 	IniWrite, %Settings_ShowBtn_Photoshop%, %IniFilename%, Toolbar, ShowBtn_Photoshop
 	IniWrite, %Settings_ShowBtn_Refresh%, %IniFilename%, Toolbar, ShowBtn_Refresh
 	IniWrite, %Settings_ShowBtn_Print%, %IniFilename%, Toolbar, ShowBtn_Print
@@ -389,6 +394,9 @@ SaveSettings()
 	IniWrite, %Settings_Cardly_PostcardFolder%, %IniFilename%, Cardly, PostcardFolder
 	IniWrite, %Settings_Cardly_CardWidth%, %IniFilename%, Cardly, CardWidth
 	IniWrite, %Settings_Cardly_CardHeight%, %IniFilename%, Cardly, CardHeight
+	IniWrite, %Settings_Cardly_AltTemplateID%, %IniFilename%, Cardly, AltTemplateID
+	IniWrite, %Settings_Cardly_AltCardWidth%, %IniFilename%, Cardly, AltCardWidth
+	IniWrite, %Settings_Cardly_AltCardHeight%, %IniFilename%, Cardly, AltCardHeight
 	IniWrite, %Settings_Cardly_GHLMediaFolderID%, %IniFilename%, Cardly, GHLMediaFolderID
 	IniWrite, %Settings_Cardly_GHLMediaFolderName%, %IniFilename%, Cardly, GHLMediaFolderName
 	IniWrite, %Settings_Cardly_PhotoLinkField%, %IniFilename%, Cardly, PhotoLinkField
