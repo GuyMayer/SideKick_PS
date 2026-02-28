@@ -45,26 +45,42 @@ RegisterHotkeys()
 
 ; Hotkey handler labels - check if ProSelect/SideKick is active before executing
 HK_GHLLookup:
-if (!IsProSelectOrSideKickActive())
+if (!IsProSelectOrSideKickActive()) {
+	Hotkey, %Hotkey_GHLLookup%, Off
+	SendInput, %Hotkey_GHLLookup%
+	Hotkey, %Hotkey_GHLLookup%, HK_GHLLookup, On
 	Return
+}
 GoSub, GHLClientLookup
 Return
 
 HK_PayPlan:
-if (!IsProSelectOrSideKickActive())
+if (!IsProSelectOrSideKickActive()) {
+	Hotkey, %Hotkey_PayPlan%, Off
+	SendInput, %Hotkey_PayPlan%
+	Hotkey, %Hotkey_PayPlan%, HK_PayPlan, On
 	Return
+}
 GoSub, PlaceButton
 Return
 
 HK_Settings:
-if (!IsProSelectOrSideKickActive())
+if (!IsProSelectOrSideKickActive()) {
+	Hotkey, %Hotkey_Settings%, Off
+	SendInput, %Hotkey_Settings%
+	Hotkey, %Hotkey_Settings%, HK_Settings, On
 	Return
+}
 GoSub, ShowSettings
 Return
 
 HK_DevReload:
-if (!IsProSelectOrSideKickActive())
+if (!IsProSelectOrSideKickActive()) {
+	Hotkey, %Hotkey_DevReload%, Off
+	SendInput, %Hotkey_DevReload%
+	Hotkey, %Hotkey_DevReload%, HK_DevReload, On
 	Return
+}
 Run, "%A_ScriptFullPath%"
 ExitApp
 Return
@@ -89,7 +105,7 @@ LoadSettings()
 	; Load hotkey settings
 	IniRead, Hotkey_GHLLookup, %IniFilename%, Hotkeys, GHLLookup, ^+g
 	IniRead, Hotkey_PayPlan, %IniFilename%, Hotkeys, PayPlan, ^+p
-	IniRead, Hotkey_Settings, %IniFilename%, Hotkeys, Settings, ^+w
+	IniRead, Hotkey_Settings, %IniFilename%, Hotkeys, Settings, ^+i
 	IniRead, Hotkey_DevReload, %IniFilename%, Hotkeys, DevReload, ^+r
 	
 	; Invoice folder settings
@@ -157,6 +173,7 @@ LoadSettings()
 	IniRead, Settings_ShowBtn_Invoice, %IniFilename%, Toolbar, ShowBtn_Invoice, 1
 	IniRead, Settings_ShowBtn_OpenGHL, %IniFilename%, Toolbar, ShowBtn_OpenGHL, 1
 	IniRead, Settings_ShowBtn_Camera, %IniFilename%, Toolbar, ShowBtn_Camera, 1
+	IniRead, Settings_ShowBtn_ReviewOrder, %IniFilename%, Toolbar, ShowBtn_ReviewOrder, 1
 	IniRead, Settings_ShowBtn_Sort, %IniFilename%, Toolbar, ShowBtn_Sort, 1
 	IniRead, Settings_ShowBtn_OpenFolder, %IniFilename%, Toolbar, ShowBtn_OpenFolder, 1
 	IniRead, Settings_ShowBtn_Photoshop, %IniFilename%, Toolbar, ShowBtn_Photoshop, 1
@@ -344,6 +361,7 @@ SaveSettings()
 	IniWrite, %Settings_ShowBtn_Invoice%, %IniFilename%, Toolbar, ShowBtn_Invoice
 	IniWrite, %Settings_ShowBtn_OpenGHL%, %IniFilename%, Toolbar, ShowBtn_OpenGHL
 	IniWrite, %Settings_ShowBtn_Camera%, %IniFilename%, Toolbar, ShowBtn_Camera
+	IniWrite, %Settings_ShowBtn_ReviewOrder%, %IniFilename%, Toolbar, ShowBtn_ReviewOrder
 	IniWrite, %Settings_ShowBtn_Sort%, %IniFilename%, Toolbar, ShowBtn_Sort
 	IniWrite, %Settings_ShowBtn_OpenFolder%, %IniFilename%, Toolbar, ShowBtn_OpenFolder
 	IniWrite, %Settings_ShowBtn_Photoshop%, %IniFilename%, Toolbar, ShowBtn_Photoshop

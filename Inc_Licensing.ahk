@@ -753,7 +753,7 @@ CreateShortcutsPanel()
 	; TOOLBAR BUTTONS GROUP BOX - Click icons to toggle on/off
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y55 w480 h450 vSCButtonsGroup, Toolbar Buttons
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h555 vSCButtonsGroup, Toolbar Buttons
 	
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y78 w450 BackgroundTrans vSCDescription, Click buttons to toggle on/off. Grayed buttons are disabled.
@@ -788,89 +788,98 @@ CreateShortcutsPanel()
 	Gui, Settings:Font, s10 Norm c%lblColorOpenGHL%, Segoe UI
 	Gui, Settings:Add, Text, x255 y179 w380 BackgroundTrans vSCLabel_OpenGHL gToggleTB_OpenGHL, Open GHL  —  Open client in browser
 	
+	; Review Order button (🧾) - Dark brown/amber background
+	iconBgReviewOrder := Settings_ShowBtn_ReviewOrder ? "804000" : "444444"
+	iconFgReviewOrder := Settings_ShowBtn_ReviewOrder ? "FFFFFF" : "888888"
+	lblColorReviewOrder := Settings_ShowBtn_ReviewOrder ? labelColor : "666666"
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y210 w30 h28 Center Background%iconBgReviewOrder% c%iconFgReviewOrder% vSCIcon_ReviewOrder gToggleTB_ReviewOrder, 🧾
+	Gui, Settings:Font, s10 Norm c%lblColorReviewOrder%, Segoe UI
+	Gui, Settings:Add, Text, x255 y214 w380 BackgroundTrans vSCLabel_ReviewOrder gToggleTB_ReviewOrder, Review Order  —  Open order in ProSelect
+	
 	; Camera button (📷) - Maroon background
 	iconBgCamera := Settings_ShowBtn_Camera ? "800000" : "444444"
 	iconFgCamera := Settings_ShowBtn_Camera ? "FFFFFF" : "888888"
 	lblColorCamera := Settings_ShowBtn_Camera ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y210 w30 h28 Center Background%iconBgCamera% c%iconFgCamera% vSCIcon_Camera gToggleTB_Camera, 📷
+	Gui, Settings:Add, Text, x215 y245 w30 h28 Center Background%iconBgCamera% c%iconFgCamera% vSCIcon_Camera gToggleTB_Camera, 📷
 	Gui, Settings:Font, s10 Norm c%lblColorCamera%, Segoe UI
-	Gui, Settings:Add, Text, x255 y214 w380 BackgroundTrans vSCLabel_Camera gToggleTB_Camera, Camera  —  Room capture
+	Gui, Settings:Add, Text, x255 y249 w380 BackgroundTrans vSCLabel_Camera gToggleTB_Camera, Camera  —  Room capture
 	
 	; Sort button (🔀) - Gray background
 	iconBgSort := Settings_ShowBtn_Sort ? "808080" : "444444"
 	iconFgSort := Settings_ShowBtn_Sort ? "FFFFFF" : "888888"
 	lblColorSort := Settings_ShowBtn_Sort ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y245 w30 h28 Center Background%iconBgSort% c%iconFgSort% vSCIcon_Sort gToggleTB_Sort, 🔀
+	Gui, Settings:Add, Text, x215 y280 w30 h28 Center Background%iconBgSort% c%iconFgSort% vSCIcon_Sort gToggleTB_Sort, 🔀
 	Gui, Settings:Font, s10 Norm c%lblColorSort%, Segoe UI
-	Gui, Settings:Add, Text, x255 y249 w380 BackgroundTrans vSCLabel_Sort gToggleTB_Sort, Sort Order  —  Random / filename toggle
+	Gui, Settings:Add, Text, x255 y284 w380 BackgroundTrans vSCLabel_Sort gToggleTB_Sort, Sort Order  —  Random / filename toggle
 	
 	; Open Folder button (📂) - Dark gold/brown background
 	iconBgOpenFolder := Settings_ShowBtn_OpenFolder ? "8B6914" : "444444"
 	iconFgOpenFolder := Settings_ShowBtn_OpenFolder ? "FFFFFF" : "888888"
 	lblColorOpenFolder := Settings_ShowBtn_OpenFolder ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y280 w30 h28 Center Background%iconBgOpenFolder% c%iconFgOpenFolder% vSCIcon_OpenFolder gToggleTB_OpenFolder, 📂
+	Gui, Settings:Add, Text, x215 y315 w30 h28 Center Background%iconBgOpenFolder% c%iconFgOpenFolder% vSCIcon_OpenFolder gToggleTB_OpenFolder, 📂
 	Gui, Settings:Font, s10 Norm c%lblColorOpenFolder%, Segoe UI
-	Gui, Settings:Add, Text, x255 y284 w380 BackgroundTrans vSCLabel_OpenFolder gToggleTB_OpenFolder, Open Folder  —  Open shoot folder in Explorer
+	Gui, Settings:Add, Text, x255 y319 w380 BackgroundTrans vSCLabel_OpenFolder gToggleTB_OpenFolder, Open Folder  —  Open shoot folder in Explorer
 	
 	; Photoshop button (Ps) - Dark blue with lighter blue text
 	iconBgPhotoshop := Settings_ShowBtn_Photoshop ? "001E36" : "444444"
 	iconFgPhotoshop := Settings_ShowBtn_Photoshop ? "33A1FD" : "888888"
 	lblColorPhotoshop := Settings_ShowBtn_Photoshop ? labelColor : "666666"
 	Gui, Settings:Font, s10 Bold, Segoe UI
-	Gui, Settings:Add, Text, x215 y315 w30 h28 Center Background%iconBgPhotoshop% c%iconFgPhotoshop% vSCIcon_Photoshop gToggleTB_Photoshop, Ps
+	Gui, Settings:Add, Text, x215 y350 w30 h28 Center Background%iconBgPhotoshop% c%iconFgPhotoshop% vSCIcon_Photoshop gToggleTB_Photoshop, Ps
 	Gui, Settings:Font, s10 Norm c%lblColorPhotoshop%, Segoe UI
-	Gui, Settings:Add, Text, x255 y319 w380 BackgroundTrans vSCLabel_Photoshop gToggleTB_Photoshop, Photoshop  —  Send to Photoshop (Ctrl+T)
+	Gui, Settings:Add, Text, x255 y354 w380 BackgroundTrans vSCLabel_Photoshop gToggleTB_Photoshop, Photoshop  —  Send to Photoshop (Ctrl+T)
 	
 	; Refresh button (🔄) - Navy background
 	iconBgRefresh := Settings_ShowBtn_Refresh ? "000080" : "444444"
 	iconFgRefresh := Settings_ShowBtn_Refresh ? "FFFFFF" : "888888"
 	lblColorRefresh := Settings_ShowBtn_Refresh ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y350 w30 h28 Center Background%iconBgRefresh% c%iconFgRefresh% vSCIcon_Refresh gToggleTB_Refresh, 🔄
+	Gui, Settings:Add, Text, x215 y385 w30 h28 Center Background%iconBgRefresh% c%iconFgRefresh% vSCIcon_Refresh gToggleTB_Refresh, 🔄
 	Gui, Settings:Font, s10 Norm c%lblColorRefresh%, Segoe UI
-	Gui, Settings:Add, Text, x255 y354 w380 BackgroundTrans vSCLabel_Refresh gToggleTB_Refresh, Refresh  —  Update album (Ctrl+U)
+	Gui, Settings:Add, Text, x255 y389 w380 BackgroundTrans vSCLabel_Refresh gToggleTB_Refresh, Refresh  —  Update album (Ctrl+U)
 	
 	; Print button (🖨) - Dark gray background
 	iconBgPrint := Settings_ShowBtn_Print ? "444444" : "333333"
 	iconFgPrint := Settings_ShowBtn_Print ? "FFFFFF" : "888888"
 	lblColorPrint := Settings_ShowBtn_Print ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y385 w30 h28 Center Background%iconBgPrint% c%iconFgPrint% vSCIcon_Print gToggleTB_Print, 🖨
+	Gui, Settings:Add, Text, x215 y420 w30 h28 Center Background%iconBgPrint% c%iconFgPrint% vSCIcon_Print gToggleTB_Print, 🖨
 	Gui, Settings:Font, s10 Norm c%lblColorPrint%, Segoe UI
-	Gui, Settings:Add, Text, x255 y389 w380 BackgroundTrans vSCLabel_Print gToggleTB_Print, Quick Print  —  Auto-print with template
+	Gui, Settings:Add, Text, x255 y424 w380 BackgroundTrans vSCLabel_Print gToggleTB_Print, Quick Print  —  Auto-print with template
 	
 	; QR Code button (▣) - Teal background
 	iconBgQRCode := Settings_ShowBtn_QRCode ? "006666" : "444444"
 	iconFgQRCode := Settings_ShowBtn_QRCode ? "FFFFFF" : "888888"
 	lblColorQRCode := Settings_ShowBtn_QRCode ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y420 w30 h28 Center Background%iconBgQRCode% c%iconFgQRCode% vSCIcon_QRCode gToggleTB_QRCode, ▣
+	Gui, Settings:Add, Text, x215 y455 w30 h28 Center Background%iconBgQRCode% c%iconFgQRCode% vSCIcon_QRCode gToggleTB_QRCode, ▣
 	Gui, Settings:Font, s10 Norm c%lblColorQRCode%, Segoe UI
-	Gui, Settings:Add, Text, x255 y424 w380 BackgroundTrans vSCLabel_QRCode gToggleTB_QRCode, QR Code  —  Display QR code from text
+	Gui, Settings:Add, Text, x255 y459 w380 BackgroundTrans vSCLabel_QRCode gToggleTB_QRCode, QR Code  —  Display QR code from text
 	
 	; Cardly button (📮) - Coral/salmon background
 	iconBgCardly := Settings_ShowBtn_Cardly ? "E88D67" : "444444"
 	iconFgCardly := Settings_ShowBtn_Cardly ? "FFFFFF" : "888888"
 	lblColorCardly := Settings_ShowBtn_Cardly ? labelColor : "666666"
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y455 w30 h28 Center Background%iconBgCardly% c%iconFgCardly% vSCIcon_Cardly gToggleTB_Cardly, 📮
+	Gui, Settings:Add, Text, x215 y490 w30 h28 Center Background%iconBgCardly% c%iconFgCardly% vSCIcon_Cardly gToggleTB_Cardly, 📮
 	Gui, Settings:Font, s10 Norm c%lblColorCardly%, Segoe UI
-	Gui, Settings:Add, Text, x255 y459 w380 BackgroundTrans vSCLabel_Cardly gToggleTB_Cardly, Cardly  —  Send postcard via Cardly
+	Gui, Settings:Add, Text, x255 y494 w380 BackgroundTrans vSCLabel_Cardly gToggleTB_Cardly, Cardly  —  Send postcard via Cardly
 	
 	; SD Download button (📥) — note: managed separately in File Management
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y490 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
+	Gui, Settings:Add, Text, x215 y560 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y494 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
+	Gui, Settings:Add, Text, x255 y564 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INFO NOTE
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y545 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
+	Gui, Settings:Add, Text, x210 y615 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
 	
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }

@@ -12,6 +12,21 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.40 (2026-02-28)
+
+### New Features
+- **Review Order Toolbar Button**: New button opens ProSelect Orders > Review Order via `Alt+O` menu keystrokes. Uses Receipt font glyph (U+E762) — no PNG, same icon system as all other buttons.
+- **Review Order Settings Toggle**: Clickable icon in Toolbar settings tab (amber background) with INI persistence (`ShowBtn_ReviewOrder`)
+- **EXE Code Signing**: All compiled `.exe` files in the Release folder (SideKick_PS.exe + all Python helpers) are now digitally signed before the installer is built
+- **RFC 3161 Timestamping**: Signatures use SHA-256 with RFC 3161 timestamp — remains valid after certificate expiry
+- **Timestamp Failover**: Tries 3 timestamp servers in sequence (Certum → DigiCert → Sectigo) for reliability
+
+### Improvements
+- **Toolbar Button Position**: Review Order sits to the left of Camera in toolbar and settings tab
+- **Settings GroupBox**: Enlarged to accommodate the additional Review Order row
+
+---
+
 ## v2.5.39 (2026-02-27)
 
 ### New Features

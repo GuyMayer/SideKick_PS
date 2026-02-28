@@ -118,7 +118,7 @@ global IconFont := DetectIconFont()
 FileAppend, % A_Now . " - Icon Font: " . IconFont . "`n", %DebugLogFile%
 
 ; Set icon codepoints based on detected font
-global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_IDCard, Icon_Camera, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_QRCode, Icon_Download, Icon_Settings, Icon_FolderOpen
+global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_IDCard, Icon_Camera, Icon_ReviewOrder, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_QRCode, Icon_Download, Icon_Settings, Icon_FolderOpen
 if (InStr(IconFont, "Phosphor")) {
 	; Phosphor Icons codepoints (thin outline icons)
 	Icon_User := 0xEC28
@@ -127,6 +127,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Globe := 0xE7B6
 	Icon_IDCard := 0xE844
 	Icon_Camera := 0xE21A
+	Icon_ReviewOrder := 0xEAD4  ; Receipt
 	Icon_Refresh := 0xE074
 	Icon_Print := 0xEACC
 	Icon_PDFDoc := 0xE65E  ; FilePdf / FileText
@@ -142,6 +143,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Globe := 0xF0AC
 	Icon_IDCard := 0xF2C2
 	Icon_Camera := 0xF030
+	Icon_ReviewOrder := 0xF543  ; receipt
 	Icon_Refresh := 0xF021
 	Icon_Print := 0xF02F
 	Icon_PDFDoc := 0xF1C1  ; file-pdf
@@ -157,6 +159,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Globe := 0xE774
 	Icon_IDCard := 0xE779
 	Icon_Camera := 0xE722
+	Icon_ReviewOrder := 0xE762  ; Receipt
 	Icon_Refresh := 0xE72C
 	Icon_Print := 0xE749
 	Icon_PDFDoc := 0xE9F9  ; ReadingMode / Document with lines
@@ -289,6 +292,7 @@ global Settings_ShowBtn_Client := true
 global Settings_ShowBtn_Invoice := true
 global Settings_ShowBtn_OpenGHL := true
 global Settings_ShowBtn_Camera := true
+global Settings_ShowBtn_ReviewOrder := true
 global Settings_ShowBtn_Sort := true
 global Settings_ShowBtn_OpenFolder := true
 global Settings_ShowBtn_Photoshop := true
@@ -357,7 +361,7 @@ global ExportCancelled := false   ; Flag when user presses ESC to cancel export
 ; Hotkey settings (modifiers: ^ = Ctrl, ! = Alt, + = Shift, # = Win)
 global Hotkey_GHLLookup := "^+g"  ; Ctrl+Shift+G
 global Hotkey_PayPlan := "^+p"    ; Ctrl+Shift+P
-global Hotkey_Settings := "^+w"   ; Ctrl+Shift+W
+global Hotkey_Settings := "^+i"   ; Ctrl+Shift+I
 global Hotkey_DevReload := "^+r"  ; Ctrl+Shift+R (dev mode only)
 
 ; License settings
@@ -1551,6 +1555,8 @@ CreateFloatingToolbar()
 	if (Settings_ShowBtn_OpenGHL)
 		btnCount++
 	; -- Shortcuts Section --
+	if (Settings_ShowBtn_ReviewOrder)
+		btnCount++
 	if (Settings_ShowBtn_Camera)
 		btnCount++
 	if (Settings_ShowBtn_OpenFolder)
@@ -1578,7 +1584,7 @@ CreateFloatingToolbar()
 	
 	; Determine which sections have visible buttons (for separator logic)
 	hasGHLButtons := (Settings_ShowBtn_Client || Settings_ShowBtn_Invoice || Settings_ShowBtn_OpenGHL)
-	hasShortcutButtons := (Settings_ShowBtn_Camera || Settings_ShowBtn_OpenFolder || Settings_ShowBtn_Photoshop || Settings_ShowBtn_Refresh || Settings_ShowBtn_Sort || Settings_ShowBtn_Print || Settings_EnablePDF || Settings_ShowBtn_QRCode || Settings_SDCardEnabled)
+	hasShortcutButtons := (Settings_ShowBtn_Camera || Settings_ShowBtn_ReviewOrder || Settings_ShowBtn_OpenFolder || Settings_ShowBtn_Photoshop || Settings_ShowBtn_Refresh || Settings_ShowBtn_Sort || Settings_ShowBtn_Print || Settings_EnablePDF || Settings_ShowBtn_QRCode || Settings_SDCardEnabled)
 	hasServiceButtons := (Settings_GoCardlessEnabled || Settings_ShowBtn_Cardly)
 	separatorCount := 0
 	if (hasGHLButtons && (hasShortcutButtons || hasServiceButtons))
@@ -1691,6 +1697,14 @@ CreateFloatingToolbar()
 	}
 	
 	; ═══ Shortcuts Section ═══
+	; Review Order button - opens ProSelect Orders > Review Order
+	if (Settings_ShowBtn_ReviewOrder) {
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background%initialBgColor% c%iconColor% gToolbar_ReviewOrder vTB_ReviewOrder +HwndTB_ReviewOrder_Hwnd, % Chr(Icon_ReviewOrder)
+		ToolbarTooltips[TB_ReviewOrder_Hwnd] := "Review Order"
+		nextX += btnSpacing
+	}
+	
 	; Camera button - two versions for state indication (only one visible at a time)
 	if (Settings_ShowBtn_Camera) {
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
@@ -4323,6 +4337,24 @@ GCSearchInputGuiEscape:
 GCSearchResult := ""
 Gui, GCSearchInput:Destroy
 return
+
+Toolbar_ReviewOrder:
+; Open ProSelect Orders > Review Order via menu keystrokes
+{
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 2
+	if (ErrorLevel) {
+		DarkMsgBox("Review Order", "ProSelect is not running.", "warning", {timeout: 3})
+		return
+	}
+	Sleep, 100
+	SendInput, !o          ; Alt+O opens Orders menu
+	Sleep, 150
+	SendInput, {Down 2}    ; Navigate to Review Order
+	Sleep, 50
+	SendInput, {Enter}     ; Select it
+}
+Return
 
 Toolbar_CaptureRoom:
 ; Capture the central room view from ProSelect and save as JPG
@@ -7276,15 +7308,15 @@ CaptureHotkeyCombo() {
 Return
 
 ResetHotkeysToDefault:
-result := DarkMsgBox("Reset Hotkeys", "Reset all hotkeys to defaults?`n`nGHL Lookup: Ctrl+Shift+G`nPayPlan: Ctrl+Shift+P`nSettings: Ctrl+Shift+W", "question", {buttons: ["Yes", "No"]})
+result := DarkMsgBox("Reset Hotkeys", "Reset all hotkeys to defaults?`n`nGHL Lookup: Ctrl+Shift+G`nPayPlan: Ctrl+Shift+P`nSettings: Ctrl+Shift+I", "question", {buttons: ["Yes", "No"]})
 if (result = "Yes")
 {
 	Hotkey_GHLLookup := "^+g"
 	Hotkey_PayPlan := "^+p"
-	Hotkey_Settings := "^+w"
+	Hotkey_Settings := "^+i"
 	GuiControl, Settings:, Hotkey_GHLLookup_Edit, % FormatHotkeyDisplay("^+g")
 	GuiControl, Settings:, Hotkey_PayPlan_Edit, % FormatHotkeyDisplay("^+p")
-	GuiControl, Settings:, Hotkey_Settings_Edit, % FormatHotkeyDisplay("^+w")
+	GuiControl, Settings:, Hotkey_Settings_Edit, % FormatHotkeyDisplay("^+i")
 	if (!A_IsCompiled) {
 		Hotkey_DevReload := "^+r"
 		GuiControl, Settings:, Hotkey_DevReload_Edit, % FormatHotkeyDisplay("^+r")
@@ -7334,6 +7366,11 @@ Return
 
 ToggleTB_Camera:
 Settings_ShowBtn_Camera := !Settings_ShowBtn_Camera
+GoSub, UpdateTBButtonStates
+Return
+
+ToggleTB_ReviewOrder:
+Settings_ShowBtn_ReviewOrder := !Settings_ShowBtn_ReviewOrder
 GoSub, UpdateTBButtonStates
 Return
 
@@ -7426,6 +7463,20 @@ Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 if (!Settings_ShowBtn_OpenGHL)
 	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
 GuiControl, Settings:Font, SCLabel_OpenGHL
+
+; Review Order button
+if (Settings_ShowBtn_ReviewOrder) {
+	GuiControl, Settings:+Background804000, SCIcon_ReviewOrder
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_ReviewOrder
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_ReviewOrder
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_ReviewOrder)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_ReviewOrder
 
 ; Camera button
 if (Settings_ShowBtn_Camera) {

@@ -1058,14 +1058,31 @@ class CardPreviewGUI:
         tk.Label(crop_header_frame, text="Crop Controls", font=('Segoe UI', 10, 'bold'),
                 fg='#FFB347', bg='#1a1a1a').pack(side='left')
 
+        # Pixel-based square button helper (tkinter measures width/height in chars, not px)
+        _btn_px = tk.PhotoImage(width=1, height=1)  # 1x1 transparent pixel for compound sizing
+
         # Rotate / swap orientation button (only active when alt template exists)
         self.rotate_btn = tk.Button(crop_header_frame, text="\u21BB",
-                                    font=('Segoe UI', 14), width=2,
+                                    image=_btn_px, compound='center',
+                                    font=('Segoe UI', 16), width=32, height=32,
                                     command=self.swap_orientation,
                                     relief='flat', cursor='hand2',
                                     bg='#333333', fg='#FFB347',
                                     activebackground='#444444', activeforeground='#FFB347')
+        self.rotate_btn._btn_px = _btn_px  # prevent GC
         self.rotate_btn.pack(side='right', padx=(5, 0))
+
+        # Browse / open image from disc button
+        self.browse_btn = tk.Button(crop_header_frame, text="\U0001F4C2",
+                                    image=_btn_px, compound='center',
+                                    font=('Segoe UI', 16), width=32, height=32,
+                                    command=self.browse_image,
+                                    relief='flat', cursor='hand2',
+                                    bg='#333333', fg='#FFB347',
+                                    activebackground='#444444', activeforeground='#FFB347')
+        self.browse_btn._btn_px = _btn_px
+        self.browse_btn.pack(side='right', padx=(5, 0))
+        ToolTip(self.browse_btn, "Browse for an image file from disc.\nOpens at the album folder location.")
 
         if self.has_alt_orientation:
             ToolTip(self.rotate_btn, "Swap between Landscape and Portrait crop.\nSwitches to the matching template orientation.")
@@ -1394,6 +1411,78 @@ class CardPreviewGUI:
         """Handle zoom slider change."""
         self.zoom = int(float(value))
         self.update_preview()
+
+    def browse_image(self):
+        """Open a file dialog to select an image from disc, add it to the filmstrip, and display it."""
+        from tkinter import filedialog
+
+        # Determine initial directory: album folder, then PSA parent dir, then image_folder
+        initial_dir = ''
+        if self.album_folder and os.path.isdir(self.album_folder):
+            initial_dir = self.album_folder
+        elif self.psa_path and os.path.isdir(os.path.dirname(self.psa_path)):
+            initial_dir = os.path.dirname(self.psa_path)
+        elif self.image_folder and os.path.isdir(self.image_folder):
+            initial_dir = self.image_folder
+
+        file_path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select Image",
+            initialdir=initial_dir,
+            filetypes=[
+                ("Image files", "*.jpg *.jpeg *.png *.tif *.tiff *.bmp"),
+                ("JPEG", "*.jpg *.jpeg"),
+                ("PNG", "*.png"),
+                ("TIFF", "*.tif *.tiff"),
+                ("All files", "*.*")
+            ]
+        )
+
+        if not file_path:
+            return  # User cancelled
+
+        file_path = os.path.normpath(file_path)
+
+        # Check if this image is already in the filmstrip
+        for i, existing in enumerate(self.images):
+            if os.path.normpath(existing) == file_path:
+                self.select_image(i)
+                # Scroll filmstrip to show selected thumbnail
+                if self.thumb_labels:
+                    total = len(self.thumb_labels)
+                    if total > 1:
+                        fraction = max(0.0, (i - 1) / total)
+                        self.film_canvas.xview_moveto(fraction)
+                return
+
+        # Add new image to the list and filmstrip
+        try:
+            img = Image.open(file_path)
+            ratio = 100 / img.height
+            new_w = int(img.width * ratio)
+            thumb = img.resize((new_w, 100), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(thumb)
+            self.thumb_images.append(photo)
+
+            new_index = len(self.images)
+            self.images.append(file_path)
+
+            lbl = tk.Label(self.film_inner, image=photo, bg='#000000',
+                          cursor='hand2', borderwidth=2, relief='flat')
+            lbl.pack(side='left', padx=3, pady=5)
+            lbl.bind('<Button-1>', lambda e, idx=new_index: self.select_image(idx))
+            self.thumb_labels.append(lbl)
+
+            # Update scroll region and scroll to end
+            self.film_inner.update_idletasks()
+            self.film_canvas.configure(scrollregion=self.film_canvas.bbox('all'))
+            self.film_canvas.xview_moveto(1.0)
+
+            # Select the newly added image
+            self.select_image(new_index)
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Could not load image:\n{e}", parent=self.root)
 
     def swap_orientation(self):
         """Swap between landscape and portrait crop orientation using the alternate template."""

@@ -613,11 +613,11 @@ CreateHotkeysPanel()
 	; Settings hotkey
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y150 w180 BackgroundTrans vHKLabelSettings Hidden HwndHwndHKSettings, Open Settings:
-	RegisterSettingsTooltip(HwndHKSettings, "SETTINGS WINDOW HOTKEY`n`nOpen this Settings window from anywhere.`nQuickly access configuration, hotkeys,`nand GHL integration options.`n`nClick 'Set' then press your desired key combination.`nDefault: Ctrl+Shift+W")
+	RegisterSettingsTooltip(HwndHKSettings, "SETTINGS WINDOW HOTKEY`n`nOpen this Settings window from anywhere.`nQuickly access configuration, hotkeys,`nand GHL integration options.`n`nClick 'Set' then press your desired key combination.`nDefault: Ctrl+Shift+I")
 	displaySettings := FormatHotkeyDisplay(Hotkey_Settings)
 	Gui, Settings:Add, Edit, x400 y147 w150 h25 vHotkey_Settings_Edit ReadOnly Hidden, %displaySettings%
 	Gui, Settings:Add, Button, x560 y146 w60 h27 gCaptureHotkey_Settings vHKCaptureSettings Hidden HwndHwndHKCaptureSettings, Set
-	RegisterSettingsTooltip(HwndHKCaptureSettings, "SET HOTKEY`n`nClick this button, then press your desired`nkey combination (e.g., Ctrl+Shift+W).`n`nThe hotkey will be captured and saved automatically.")
+	RegisterSettingsTooltip(HwndHKCaptureSettings, "SET HOTKEY`n`nClick this button, then press your desired`nkey combination (e.g., Ctrl+Shift+I).`n`nThe hotkey will be captured and saved automatically.")
 	
 	; Dev Reload hotkey (only visible in dev mode - not compiled)
 	if (!A_IsCompiled) {
@@ -640,7 +640,7 @@ CreateHotkeysPanel()
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	btnY := actionsY + 30
 	Gui, Settings:Add, Button, x210 y%btnY% w150 h30 gResetHotkeysToDefault vHKResetBtn Hidden HwndHwndHKReset, Reset to Defaults
-	RegisterSettingsTooltip(HwndHKReset, "RESET TO DEFAULTS`n`nRestore all hotkeys to their original settings:`n• GHL Lookup: Ctrl+Shift+G`n• PayPlan: Ctrl+Shift+P`n• Settings: Ctrl+Shift+W`n`nUseful if you've made changes and want to start fresh.")
+	RegisterSettingsTooltip(HwndHKReset, "RESET TO DEFAULTS`n`nRestore all hotkeys to their original settings:`n• GHL Lookup: Ctrl+Shift+G`n• PayPlan: Ctrl+Shift+P`n• Settings: Ctrl+Shift+I`n`nUseful if you've made changes and want to start fresh.")
 	Gui, Settings:Add, Button, x380 y%btnY% w150 h30 gClearAllHotkeys vHKClearBtn Hidden HwndHwndHKClear, Clear All
 	RegisterSettingsTooltip(HwndHKClear, "CLEAR ALL HOTKEYS`n`nRemove all assigned keyboard shortcuts.`nHotkey fields will be empty until you set new ones.`n`nUse this if hotkeys conflict with other applications`nor if you prefer to use the tray menu/GUI instead.")
 	

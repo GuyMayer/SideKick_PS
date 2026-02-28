@@ -385,7 +385,7 @@ if (Test-Path $sourceVersionJson) {
 }
 
 # Update installer.iss version
-Write-Host "`n[8/9] Updating installer version..." -ForegroundColor Yellow
+Write-Host "`n[8/10] Updating installer version..." -ForegroundColor Yellow
 $issFile = "$ScriptDir\installer.iss"
 if (Test-Path $issFile) {
     $issContent = Get-Content $issFile -Raw
@@ -395,8 +395,48 @@ if (Test-Path $issFile) {
     Write-Host "  Updated installer.iss to v$Version" -ForegroundColor Green
 }
 
+# ============================================
+# Code-sign all EXEs in Release folder (RFC 3161 timestamp)
+# ============================================
+Write-Host "`n[9/10] Signing EXE files..." -ForegroundColor Yellow
+$signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
+$certThumbprint = "0A8665226386555FD6AE7BD4EC3A240624887AD9"
+$timestampServers = @(
+    "http://time.certum.pl",
+    "http://timestamp.digicert.com",
+    "http://timestamp.sectigo.com"
+)
+
+if (Test-Path $signtoolExe) {
+    $exesToSign = Get-ChildItem "$ReleaseDir\*.exe" -ErrorAction SilentlyContinue
+    $signedCount = 0
+    $signFailCount = 0
+    
+    foreach ($exe in $exesToSign) {
+        $signed = $false
+        foreach ($tsServer in $timestampServers) {
+            $signResult = & "$signtoolExe" sign /tr $tsServer /td sha256 /fd sha256 /sha1 $certThumbprint $exe.FullName 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  [SIGNED] $($exe.Name)" -ForegroundColor Green
+                $signedCount++
+                $signed = $true
+                break
+            }
+        }
+        if (!$signed) {
+            Write-Host "  [FAIL]   $($exe.Name) - all timestamp servers failed" -ForegroundColor Red
+            Write-BuildLog "Signing failed: $($exe.Name)" "ERROR"
+            $signFailCount++
+        }
+    }
+    Write-Host "  Summary: $signedCount signed, $signFailCount failed" -ForegroundColor $(if ($signFailCount -gt 0) { 'Yellow' } else { 'Gray' })
+} else {
+    Write-Host "  [SKIP] signtool.exe not found at: $signtoolExe" -ForegroundColor Yellow
+    Write-Host "  Install Windows SDK to enable code signing" -ForegroundColor Yellow
+}
+
 # Build Inno Setup installer
-Write-Host "`n[9/9] Building Inno Setup installer..." -ForegroundColor Yellow
+Write-Host "`n[10/10] Building Inno Setup installer..." -ForegroundColor Yellow
 
 # Check all common Inno Setup locations
 $InnoLocations = @(
