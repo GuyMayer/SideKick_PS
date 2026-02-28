@@ -1625,6 +1625,8 @@ TestGCConnection:
 	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--test-connection" . envFlag)
 	
+	FileAppend, % A_Now . " - TestGCConnection - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
+	
 	if (scriptCmd = "") {
 		ToolTip
 		DarkMsgBox("Error", "gocardless_api script not found.", "error")
@@ -1633,9 +1635,13 @@ TestGCConnection:
 	
 	; Run the script and capture output
 	tempResult := A_Temp . "\gc_test_result_" . A_TickCount . ".txt"
-	RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
+	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
+	FileAppend, % A_Now . " - TestGCConnection - fullCmd: " . fullCmd . "`n", %DebugLogFile%
+	
+	RunWait, %fullCmd%, , Hide
 	
 	FileRead, testResult, %tempResult%
+	FileAppend, % A_Now . " - TestGCConnection - testResult: [" . testResult . "]`n", %DebugLogFile%
 	FileDelete, %tempResult%
 	
 	ToolTip
@@ -5882,10 +5888,11 @@ BrowseCardlyFolder:
 DevCreateRelease:
 	; Build full release with EXE-only files (compiles AHK and Python)
 	ToolTip, Building release (compiling to EXE)...
-	buildScript := A_ScriptDir . "\build_and_archive.ps1"
+	devSourceDir := A_IsCompiled ? "C:\Stash\SideKick_PS" : A_ScriptDir
+	buildScript := devSourceDir . "\build_and_archive.ps1"
 	if FileExist(buildScript) {
 		; Open PowerShell to run build interactively
-		Run, powershell.exe -NoExit -ExecutionPolicy Bypass -Command "cd '%A_ScriptDir%'; .\build_and_archive.ps1 -Version '%ScriptVersion%'", %A_ScriptDir%
+		Run, powershell.exe -NoExit -ExecutionPolicy Bypass -Command "cd '%devSourceDir%'; .\build_and_archive.ps1 -Version '%ScriptVersion%'", %devSourceDir%
 		ToolTip
 	} else {
 		ToolTip
@@ -5919,7 +5926,7 @@ DevUpdateVersion:
 Return
 
 DevPushGitHub:
-	repoDir := A_ScriptDir
+	repoDir := A_IsCompiled ? "C:\Stash\SideKick_PS" : A_ScriptDir
 	Run, powershell.exe -NoExit -Command "cd '%repoDir%'; git status; Write-Host ''; Write-Host 'Ready to commit and push. Use:' -ForegroundColor Yellow; Write-Host 'git add . && git commit -m \"Your message\" && git push' -ForegroundColor Cyan", %repoDir%
 Return
 
@@ -5928,7 +5935,8 @@ DevRefreshGit:
 Return
 
 DevOpenFolder:
-	Run, explorer.exe "%A_ScriptDir%"
+	devSourceDir := A_IsCompiled ? "C:\Stash\SideKick_PS" : A_ScriptDir
+	Run, explorer.exe "%devSourceDir%"
 Return
 
 DevPushWebsite:
@@ -5938,8 +5946,9 @@ DevPushWebsite:
 	GuiControl, Settings:Disable, DevPushWebBtn
 	
 	; Source is sibling folder ..\SideKick_PS_Website
-	webSrc := A_ScriptDir . "\..\SideKick_PS_Website"
-	webDst := A_ScriptDir . "\docs"
+	devSourceDir := A_IsCompiled ? "C:\Stash\SideKick_PS" : A_ScriptDir
+	webSrc := devSourceDir . "\..\SideKick_PS_Website"
+	webDst := devSourceDir . "\docs"
 	
 	; Step 1: Sync files (25%)
 	GuiControl, Settings:, DevWebProgress, 25
@@ -5947,16 +5956,16 @@ DevPushWebsite:
 	
 	; Step 2: Stage files (50%)
 	GuiControl, Settings:, DevWebProgress, 50
-	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git add docs/* 2>nul", , Hide
+	RunWait, %ComSpec% /c "cd /d "%devSourceDir%" && git add docs/* 2>nul", , Hide
 	
 	; Step 3: Check for changes and commit (75%)
 	GuiControl, Settings:, DevWebProgress, 75
-	RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git diff --cached --quiet" , , Hide
+	RunWait, %ComSpec% /c "cd /d "%devSourceDir%" && git diff --cached --quiet" , , Hide
 	hasChanges := ErrorLevel
 	
 	if (hasChanges) {
 		; Step 4: Commit and push (100%)
-		RunWait, %ComSpec% /c "cd /d "%A_ScriptDir%" && git commit -m "Update website" && git push origin main" , , Hide
+		RunWait, %ComSpec% /c "cd /d "%devSourceDir%" && git commit -m "Update website" && git push origin main" , , Hide
 		pushResult := ErrorLevel
 		GuiControl, Settings:, DevWebProgress, 100
 		Sleep, 300
@@ -5984,10 +5993,21 @@ DevTestBuild:
 	; Quick test - compile AHK only
 	ToolTip, Testing AHK compilation...
 	ahkCompilers := ["C:\Program Files\AutoHotkey\Compiler\Ahk2Exe.exe", A_ProgramFiles . "\AutoHotkey\Compiler\Ahk2Exe.exe"]
+	; When running compiled exe, source is in Stash; when running .ahk, A_ScriptDir is correct
+	if (A_IsCompiled)
+		sourceDir := "C:\Stash\SideKick_PS"
+	else
+		sourceDir := A_ScriptDir
+	sourceAhk := sourceDir . "\SideKick_PS.ahk"
+	if (!FileExist(sourceAhk)) {
+		ToolTip
+		DarkMsgBox("Error", "Source file not found:`n" . sourceAhk, "error")
+		return
+	}
 	for i, compiler in ahkCompilers {
 		if FileExist(compiler) {
 			testExe := A_Temp . "\SideKick_PS_test.exe"
-			RunWait, "%compiler%" /in "%A_ScriptDir%\SideKick_PS.ahk" /out "%testExe%",, Hide
+			RunWait, "%compiler%" /in "%sourceAhk%" /out "%testExe%",, Hide
 			if FileExist(testExe) {
 				FileDelete, %testExe%
 				ToolTip
@@ -6046,7 +6066,7 @@ DevQuickPush:
 	if (commitMsg = "")
 		return
 	
-	repoDir := A_ScriptDir
+	repoDir := A_IsCompiled ? "C:\Stash\SideKick_PS" : A_ScriptDir
 	buildScript := repoDir . "\build_and_archive.ps1"
 	
 	if !FileExist(buildScript) {
