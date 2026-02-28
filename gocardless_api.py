@@ -620,7 +620,7 @@ def create_billing_request_flow(contact_data: dict, token: str, environment: str
 
 def list_mandates_without_plans(token: str, environment: str, progress_file: Optional[str] = None) -> List[Dict[str, Any]]:
     """List all active mandates that have NEVER had any payment plans.
-    
+
     This excludes mandates that have any subscriptions/plans (even finished ones),
     to find mandates where no payment arrangement was ever set up.
 
@@ -671,7 +671,7 @@ def list_mandates_without_plans(token: str, environment: str, progress_file: Opt
 
         # Check if this mandate has EVER had any plans (including finished/cancelled)
         plans = list_mandate_subscriptions(mandate_id, token, environment)
-        
+
         # Exclude if ANY subscription/plan exists (even finished ones)
         # We only want mandates where NO payment arrangement was ever set up
         if len(plans) > 0:
@@ -840,7 +840,7 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
 
     Returns:
         dict: {success: bool, schedule_id: str, error: str, payments: list, name: str}
-    
+
     Note: GoCardless automatically handles rounding - it will adjust the first payment
     to account for any rounding differences when dividing total_amount by count.
     """
@@ -858,7 +858,7 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
     name = schedule_data.get('name', 'Payment Plan')
     count = schedule_data.get('count', 1)
     day_of_month = schedule_data.get('day_of_month', 15)
-    
+
     # Support both total_amount (preferred) and amount (legacy per-payment)
     total_amount = schedule_data.get('total_amount', 0)
     if not total_amount:
@@ -920,14 +920,14 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
     # Put any remainder on the first payment
     amount_per_payment = total_amount // count
     remainder = total_amount - (amount_per_payment * count)
-    
+
     # Build instalments array with amounts
     instalments = []
     for i, d in enumerate(payment_dates):
         # First payment gets the remainder to ensure total matches exactly
         amount = amount_per_payment + remainder if i == 0 else amount_per_payment
         instalments.append({'charge_date': d, 'amount': amount})
-    
+
     # Build instalment schedule request
     schedule_request = {
         'instalment_schedules': {
@@ -1160,7 +1160,7 @@ def create_payment_plan(plan_data: dict, token: str, environment: str) -> Dict[s
 # CLI INTERFACE
 # =============================================================================
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     is_frozen = getattr(sys, 'frozen', False)
 
@@ -1223,7 +1223,7 @@ Examples:
 
     gc_token = config['gc_token']
     environment = config['environment']
-    
+
     # Override environment if --live flag is passed
     if args.live:
         environment = 'live'

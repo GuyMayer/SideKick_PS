@@ -193,6 +193,10 @@ $hiddenImports = @{
     "cardly_preview_gui" = @("cardly_send_card")
 }
 
+# GUI scripts that should use --noconsole (no terminal window).
+# All other scripts are CLI tools that communicate via stdout and MUST use --console.
+$guiScripts = @("cardly_preview_gui")
+
 $pythonFiles = @(
     "validate_license",
     "fetch_ghl_contact",
@@ -259,7 +263,9 @@ if (!$SkipPythonCompile) {
                 # Need to recompile
                 Write-Host "  Compiling: $script.py -> $outputName.exe" -ForegroundColor Gray
                 
-                # PyInstaller - single file, no console (suppress stderr output)
+                # PyInstaller - single file, console mode for CLI scripts (they output to stdout)
+                # GUI scripts use --noconsole to suppress the terminal window
+                $consoleFlag = if ($guiScripts -contains $script) { "--noconsole" } else { "--console" }
                 $extraArgs = ""
                 if ($hiddenImports.ContainsKey($script)) {
                     foreach ($hi in $hiddenImports[$script]) {
@@ -272,7 +278,7 @@ if (!$SkipPythonCompile) {
                 if (!(Test-Path $pyIconPath)) { $pyIconPath = "$SourceDir\SideKick_PS.ico" }
                 $iconArg = if (Test-Path $pyIconPath) { "--icon=`"$pyIconPath`"" } else { "" }
                 $ErrorActionPreference = "SilentlyContinue"
-                $pyCmd = "& `"$pyinstallerExe`" --onefile --noconsole --clean --noconfirm $iconArg --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
+                $pyCmd = "& `"$pyinstallerExe`" --onefile $consoleFlag --clean --noconfirm $iconArg --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
                 Invoke-Expression $pyCmd
                 $ErrorActionPreference = "Stop"
                 

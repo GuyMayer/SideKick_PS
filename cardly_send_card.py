@@ -839,27 +839,27 @@ def save_to_album_folder(processed_image: str, original_image: str, album_folder
 
     try:
         from datetime import datetime
-        
+
         # Get original filename without extension
         original_name = os.path.splitext(os.path.basename(original_image))[0]
-        
+
         # Generate filename: {filename}-Postcard-{date-sent}.jpg
         date_str = datetime.now().strftime("%Y-%m-%d")
         output_filename = f"{original_name}-Postcard-{date_str}.jpg"
         output_path = os.path.join(album_folder, output_filename)
-        
+
         # Open processed image and save to album folder at 80% quality
         with Image.open(processed_image) as img:
             # Convert to RGB if necessary (in case it's RGBA or other format)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-            
+
             # Save with 80% quality
             img.save(output_path, 'JPEG', quality=80, optimize=True)
-        
+
         debug_print(f"Saved postcard copy to: {output_path}")
         return {"success": True, "path": output_path}
-        
+
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -1126,7 +1126,7 @@ def main() -> int:
     sticker_path = args[6] if len(args) > 6 and args[6].lower() != "none" else None
     sticker_x = int(args[7]) if len(args) > 7 else 75
     sticker_y = int(args[8]) if len(args) > 8 else 75
-    
+
     # Parse album save parameters
     album_folder = args[9] if len(args) > 9 and args[9].lower() != "none" else None
     save_to_album = bool(album_folder)  # Only save if folder is provided

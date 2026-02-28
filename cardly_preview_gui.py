@@ -150,7 +150,6 @@ def is_process_running(pid: int | None) -> bool:
 def bring_existing_to_front(pid: int) -> bool:
     """Try to bring existing instance window to front."""
     try:
-        import ctypes
         from ctypes import wintypes
 
         user32 = ctypes.windll.user32
@@ -232,8 +231,8 @@ def install_dependencies() -> None:
 
 install_dependencies()
 
-from PIL import Image, ImageTk, ImageCms
 import io as _io
+from PIL import Image, ImageTk, ImageCms
 import requests
 
 # sRGB profile for display colour management
@@ -594,8 +593,8 @@ class CardPreviewGUI:
             self._temp_thumb_dir = temp_dir
 
             cursor.execute('''
-                SELECT imageID, imageData 
-                FROM Thumbnails 
+                SELECT imageID, imageData
+                FROM Thumbnails
                 WHERE thumbnailType = 1 AND imageData IS NOT NULL
             ''')
 
@@ -635,7 +634,6 @@ class CardPreviewGUI:
         Available fields in PSA OrderList: firstName, lastName, address1,
         city, state, zip, country, phone1, email.
         """
-        import sqlite3
 
         if not self.psa_path or not os.path.exists(self.psa_path):
             return None
@@ -764,8 +762,6 @@ class CardPreviewGUI:
         Also builds _psa_source_paths mapping image names to original
         full-resolution files on disk (parsed from ImageList sourceFolders).
         """
-        import sqlite3
-        import tempfile
 
         try:
             conn = sqlite3.connect(self.psa_path)
@@ -1653,7 +1649,6 @@ class CardPreviewGUI:
         much higher quality than the 21KB type-1 thumbnails.
         Returns path to extracted file, or None.
         """
-        import sqlite3
 
         if not self.psa_path or not os.path.exists(self.psa_path):
             return None
@@ -1697,7 +1692,6 @@ class CardPreviewGUI:
                 return None
 
             # Write to temp dir
-            import tempfile
             temp_dir = os.path.join(tempfile.gettempdir(), 'sidekick_ps_cardly_hires')
             os.makedirs(temp_dir, exist_ok=True)
             out_path = os.path.join(temp_dir, f"{base_name}.jpg")
@@ -1983,7 +1977,6 @@ class CardPreviewGUI:
                 clean_img.convert('RGB').save(jpg_path, 'JPEG', quality=95, optimize=True)
 
                 if self.postcard_folder and os.path.isdir(self.postcard_folder):
-                    import shutil
                     dest = os.path.join(self.postcard_folder, f"{orig_name}_postcard.jpg")
                     shutil.copy2(jpg_path, dest)
                     print(f"Postcard JPG saved to: {dest}")

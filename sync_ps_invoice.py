@@ -24,6 +24,11 @@ import sys
 import json
 import os
 import time
+import re
+import configparser
+import base64
+import ctypes
+import traceback
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -38,10 +43,10 @@ _ghl_products_cache_time: float = 0  # Last fetch timestamp
 # =============================================================================
 def _sanitize_ini_file(ini_path: str) -> bool:
     """Fix corrupted INI files with multi-line values that break configparser.
-    
+
     Args:
         ini_path: Path to the INI file.
-        
+
     Returns:
         bool: True if file was fixed, False if no fix needed or failed.
     """
@@ -49,7 +54,7 @@ def _sanitize_ini_file(ini_path: str) -> bool:
         import re
         with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        
+
         # Pattern: PaymentTypes= followed by lines that aren't key=value or [section]
         # These are orphan lines that break configparser
         fixed = re.sub(
@@ -57,7 +62,7 @@ def _sanitize_ini_file(ini_path: str) -> bool:
             lambda m: m.group(1) + '|' + '|'.join(line.strip() for line in m.group(2).strip().split('\n') if line.strip()) + '\n',
             content
         )
-        
+
         if fixed != content:
             with open(ini_path, 'w', encoding='utf-8') as f:
                 f.write(fixed)
@@ -160,7 +165,7 @@ _PII_KEYS = frozenset({
 })
 _EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
 
-def _redact_pii(obj):
+def _redact_pii(obj) -> object:
     """Return a deep copy of *obj* with personal data masked.
 
     • dict  – values whose key (lower-cased) is in _PII_KEYS are replaced
@@ -200,7 +205,6 @@ def get_auto_send_logs_setting() -> bool:
 
         for ini_path in possible_paths:
             if os.path.exists(ini_path):
-                import configparser
                 config = configparser.ConfigParser()
                 try:
                     config.read(ini_path)
@@ -267,7 +271,7 @@ def upload_debug_log_to_gist() -> str | None:
 
 def upload_error_log_to_gist() -> str | None:
     """Upload error log to private GitHub Gist for developer review.
-    
+
     This is called on critical errors to ensure error details are captured
     even when DEBUG_MODE is off.
 
@@ -321,9 +325,9 @@ def upload_error_log_to_gist() -> str | None:
         return None
 
 
-def error_log(message: str, data=None, exception: Exception = None) -> None:
+def error_log(message: str, data=None, exception: Exception | None = None) -> None:
     """Write error to error log file - ALWAYS enabled for critical errors.
-    
+
     This log is written regardless of DEBUG_MODE setting to ensure
     critical errors are always captured for diagnostics.
     """
@@ -340,19 +344,19 @@ def error_log(message: str, data=None, exception: Exception = None) -> None:
     if exception:
         log_line += f"\nException: {type(exception).__name__}: {exception}"
         log_line += f"\nTraceback:\n{traceback.format_exc()}"
-    
+
     # Always write to error log file
     try:
         with open(ERROR_LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(log_line + "\n" + "="*60 + "\n")
     except Exception:
         pass  # Don't fail if we can't write error log
-    
+
     # Also print to stderr for visibility
     print(f"ERROR: {message}", file=sys.stderr)
 
 
-def debug_log(message, data=None):
+def debug_log(message, data=None) -> None:
     """Write debug info to log file and console.
 
     PII (emails, names, addresses, phones) is automatically redacted
@@ -381,22 +385,22 @@ def debug_log(message, data=None):
         print(f"DEBUG LOG ERROR: {e}")
 
 # Helper function to get monitor info
-def get_monitor_info():
+def get_monitor_info() -> list:
     """Get information about all connected monitors including resolution and DPI scaling."""
     monitors = []
     try:
         import ctypes
         from ctypes import wintypes
-        
+
         # Enable DPI awareness to get accurate scaling info
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
-        
+
         # EnumDisplayMonitors callback
         MONITORENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(wintypes.RECT), ctypes.c_void_p)
-        
+
         def callback(hMonitor, hdcMonitor, lprcMonitor, dwData):
             try:
                 # Get monitor info
@@ -408,15 +412,15 @@ def get_monitor_info():
                         ("dwFlags", wintypes.DWORD),
                         ("szDevice", wintypes.WCHAR * 32)
                     ]
-                
+
                 mi = MONITORINFOEX()
                 mi.cbSize = ctypes.sizeof(MONITORINFOEX)
                 ctypes.windll.user32.GetMonitorInfoW(hMonitor, ctypes.byref(mi))
-                
+
                 # Calculate resolution
                 width = mi.rcMonitor.right - mi.rcMonitor.left
                 height = mi.rcMonitor.bottom - mi.rcMonitor.top
-                
+
                 # Get DPI scaling
                 dpi_x = ctypes.c_uint()
                 dpi_y = ctypes.c_uint()
@@ -425,7 +429,7 @@ def get_monitor_info():
                     scale = int(dpi_x.value / 96 * 100)
                 except Exception:
                     scale = 100
-                
+
                 is_primary = (mi.dwFlags & 1) != 0
                 monitors.append({
                     'device': mi.szDevice.strip('\x00'),
@@ -443,7 +447,7 @@ def get_monitor_info():
             except Exception:
                 pass
             return True
-        
+
         ctypes.windll.user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(callback), 0)
     except Exception:
         pass
@@ -484,12 +488,12 @@ if DEBUG_MODE:
 if sys.platform == 'win32':
     if sys.stdout is not None:
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding='utf-8')  # type: ignore[attr-defined]
         except (AttributeError, OSError):
             pass
     if sys.stderr is not None:
         try:
-            sys.stderr.reconfigure(encoding='utf-8')
+            sys.stderr.reconfigure(encoding='utf-8')  # type: ignore[attr-defined]
         except (AttributeError, OSError):
             pass
 
@@ -534,7 +538,7 @@ INI_FILE = os.path.join(SCRIPT_DIR, 'SideKick_PS.ini')
 
 # Output file goes to user-writable location (APPDATA or TEMP) to avoid permission issues
 # when running from Program Files
-def _get_output_dir():
+def _get_output_dir() -> str:
     """Get a writable directory for output files."""
     # Try APPDATA first (persists across sessions)
     appdata = os.environ.get('APPDATA')
@@ -552,7 +556,7 @@ OUTPUT_FILE = os.path.join(_get_output_dir(), 'ghl_invoice_sync_result.json')
 ENCRYPT_KEY = "ZoomPhotography2026"
 
 
-def _parse_ini_line(line: str, current_section: str, config: dict) -> str:
+def _parse_ini_line(line: str, current_section: str | None, config: dict) -> str | None:
     """Parse a single INI line and update config.
 
     Args:
@@ -584,7 +588,7 @@ def _parse_ini_file(ini_path: str) -> dict:
     """
     # Auto-fix corrupted INI files (e.g., multi-line PaymentTypes)
     _sanitize_ini_file(ini_path)
-    
+
     config = {}
     current_section = None
 
@@ -612,7 +616,7 @@ def _parse_ini_file(ini_path: str) -> dict:
     return config
 
 
-def _decode_api_key(ghl_config: dict, key_name: str = None) -> str:
+def _decode_api_key(ghl_config: dict, key_name: str | None = None) -> str:
     """Decode Base64 API key from GHL config section.
 
     Args:
@@ -644,10 +648,10 @@ def _decode_api_key(ghl_config: dict, key_name: str = None) -> str:
 
 def _find_ini_file() -> str:
     """Find the INI file with valid GHL config, checking multiple paths.
-    
+
     Returns:
         str: Path to the INI file with valid API key.
-    
+
     Raises:
         FileNotFoundError: If no valid INI file found.
     """
@@ -656,7 +660,7 @@ def _find_ini_file() -> str:
         os.path.join(os.path.dirname(SCRIPT_DIR), "SideKick_PS.ini"),  # Parent dir
         os.path.join(os.environ.get('APPDATA', ''), "SideKick_PS", "SideKick_PS.ini"),  # AppData
     ]
-    
+
     for ini_path in possible_paths:
         if os.path.exists(ini_path):
             try:
@@ -671,12 +675,12 @@ def _find_ini_file() -> str:
             except Exception as e:
                 debug_log(f"Error parsing INI {ini_path}: {e}")
                 continue
-    
+
     # If no INI with API key found, return first existing one for better error message
     for ini_path in possible_paths:
         if os.path.exists(ini_path):
             return ini_path
-    
+
     raise FileNotFoundError(f"INI file not found. Checked: {possible_paths}")
 
 
@@ -690,14 +694,12 @@ def load_config() -> dict:
     Returns:
         dict: Configuration dictionary with API_KEY and LOCATION_ID.
     """
-    import json
-    import base64
-    
+
     api_key = ""
     location_id = ""
     sync_tag = "PS Invoice"
     opportunity_tags = "ProSelect,Invoice Synced"
-    
+
     # Try to load from credentials.json (primary source)
     # Check both "credentials.json" and legacy "ghl_credentials.json" names
     credentials_paths = [
@@ -706,7 +708,7 @@ def load_config() -> dict:
         os.path.join(SCRIPT_DIR, "ghl_credentials.json"),
         os.path.join(os.environ.get('APPDATA', ''), "SideKick_PS", "ghl_credentials.json"),
     ]
-    
+
     for cred_path in credentials_paths:
         if os.path.exists(cred_path):
             try:
@@ -720,32 +722,32 @@ def load_config() -> dict:
                     break
             except Exception as e:
                 debug_log(f"Error loading credentials.json {cred_path}: {e}")
-    
+
     # Also load INI for other settings (tags, etc.) and fallback API key
     try:
         ini_path = _find_ini_file()
         config = _parse_ini_file(ini_path)
         ghl = config.get('GHL', {})
-        
+
         # Use INI API key only if credentials.json didn't have one
         if not api_key:
             api_key = _decode_api_key(ghl)
-        
+
         # Use INI location_id only if credentials.json didn't have one
         if not location_id:
             location_id = ghl.get('LocationID', '')
-        
+
         # Tag settings from INI
         # AHK writes to 'Tags' and 'OppTags'; also check legacy 'SyncTag'/'OpportunityTags'
         sync_tag = ghl.get('Tags', ghl.get('SyncTag', sync_tag))
         opportunity_tags = ghl.get('OppTags', ghl.get('OpportunityTags', opportunity_tags))
-        
+
         # Auto-add toggle settings (AHK writes 0/1)
         auto_contact_tags = ghl.get('AutoAddContactTags', '1')
         auto_opp_tags = ghl.get('AutoAddOppTags', '1')
     except Exception as e:
         debug_log(f"Error loading INI: {e}")
-    
+
     if not api_key:
         raise ValueError("No API key found in credentials.json or INI file")
 
@@ -910,16 +912,16 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
         client_id_raw = get_text(root, 'Client_ID')
         album_name = get_text(root, 'Album_Name')
         email = get_text(root, 'Email_Address')
-        
+
         # Determine GHL contact ID with multiple fallback strategies
         # GHL contact IDs are 20+ alphanumeric chars (e.g., UWge6H1hK1raUtu1nrAo)
         ghl_contact_id = None
-        
+
         # Strategy 1: If Client_ID looks like a GHL ID (20+ chars), use it directly
         if client_id_raw and len(client_id_raw) >= 15 and client_id_raw.isalnum():
             ghl_contact_id = client_id_raw
             debug_log(f"Using Client_ID as GHL contact ID", {"id": ghl_contact_id})
-        
+
         # Strategy 2: Extract GHL contact ID from Album_Name
         # Formats: "ShootNo_Name_GHLContactID" or just containing a 15+ char alphanumeric segment
         if not ghl_contact_id and album_name:
@@ -936,10 +938,9 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
                             "extracted_id": ghl_contact_id
                         })
                         break
-            
+
             # If still not found, look for any 20+ char alphanumeric sequence
             if not ghl_contact_id:
-                import re
                 matches = re.findall(r'[A-Za-z0-9]{20,}', album_name)
                 if matches:
                     ghl_contact_id = matches[-1]  # Use last match (usually the ID)
@@ -947,7 +948,7 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
                         "album_name": album_name,
                         "extracted_id": ghl_contact_id
                     })
-        
+
         # Strategy 3: If no valid ID found yet, search GHL by email
         if not ghl_contact_id and email:
             debug_log(f"No GHL ID found in Client_ID or Album_Name, searching by email", {"email": email})
@@ -955,7 +956,7 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
             if found_id:
                 ghl_contact_id = found_id
                 debug_log(f"Found GHL contact ID by email search", {"id": ghl_contact_id})
-        
+
         # Log final result
         if ghl_contact_id:
             debug_log(f"Final GHL contact ID determined", {
@@ -970,7 +971,7 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
                 "album_name": album_name,
                 "email": email
             })
-        
+
         data: dict = {
             'ghl_contact_id': ghl_contact_id,  # GHL contact ID from ProSelect
             'email': get_text(root, 'Email_Address'),
@@ -1004,13 +1005,13 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
                 tax_elem = item.find('Tax')
                 is_taxable = tax_elem.get('taxable', 'false').lower() == 'true' if tax_elem is not None else False
                 vat_amount = float(get_text(item, 'Tax', '0'))
-                
+
                 # Get detailed tax info from Tax1 element (for Xero/QuickBooks sync)
                 tax1_elem = item.find('Tax1')
                 tax_label = tax1_elem.get('label', '') if tax1_elem is not None else ''
                 tax_rate = float(tax1_elem.get('rate', '0')) if tax1_elem is not None else 0.0
                 price_includes_tax = tax1_elem.get('priceIncludesTax', 'false').lower() == 'true' if tax1_elem is not None else False
-                
+
                 # Get ProductLineName for product categorization
                 product_line_elem = item.find('ProductLineName')
                 product_line = get_text(item, 'ProductLineName')
@@ -1117,27 +1118,27 @@ def _get_ghl_headers() -> dict:
 
 def fetch_ghl_products(force_refresh: bool = False) -> dict:
     """Fetch all products from GHL and cache them by SKU.
-    
+
     Products are cached for 5 minutes to avoid repeated API calls.
     The cache maps product names (lowercased) and variant SKUs to product data.
-    
+
     Args:
         force_refresh: If True, bypass cache and fetch fresh data.
-    
+
     Returns:
         dict: Map of SKU/name -> product data, empty dict on failure.
     """
     global _ghl_products_cache, _ghl_products_cache_time
-    
+
     # Return cached data if still fresh (5 minutes)
     cache_age = time.time() - _ghl_products_cache_time
     if not force_refresh and _ghl_products_cache and cache_age < 300:
         debug_log(f"Using cached GHL products ({len(_ghl_products_cache)} items, {int(cache_age)}s old)")
         return _ghl_products_cache
-    
+
     debug_log("Fetching GHL products...")
     products_map = {}
-    
+
     try:
         # Fetch all products (paginated)
         url = f"https://services.leadconnectorhq.com/products/"
@@ -1145,7 +1146,7 @@ def fetch_ghl_products(force_refresh: bool = False) -> dict:
         all_products = []
         offset = 0
         limit = 100
-        
+
         while True:
             params = {
                 "locationId": LOCATION_ID,
@@ -1153,38 +1154,38 @@ def fetch_ghl_products(force_refresh: bool = False) -> dict:
                 "offset": offset
             }
             response = requests.get(url, headers=headers, params=params, timeout=30)
-            
+
             if response.status_code != 200:
                 debug_log(f"GHL Products API error: {response.status_code}")
                 break
-            
+
             data = response.json()
             products = data.get("products", [])
             all_products.extend(products)
-            
+
             # Check if more pages
             if len(products) < limit:
                 break
             offset += limit
-        
+
         debug_log(f"Fetched {len(all_products)} products from GHL")
-        
+
         # Build lookup map by name and variant SKUs
         for product in all_products:
             product_name = product.get("name", "").lower().strip()
             product_id = product.get("_id", "")
-            
+
             product_data = {
                 "id": product_id,
                 "name": product.get("name", ""),
                 "description": product.get("description", ""),
                 "productType": product.get("productType", ""),
             }
-            
+
             # Map by product name (lowercased)
             if product_name:
                 products_map[product_name] = product_data
-            
+
             # Also map by variant SKUs/names
             for variant in product.get("variants", []):
                 variant_sku = variant.get("sku", "").lower().strip()
@@ -1200,7 +1201,7 @@ def fetch_ghl_products(force_refresh: bool = False) -> dict:
                     products_map[variant_sku] = variant_data
                 if variant_name and variant_name != product_name:
                     products_map[variant_name] = variant_data
-            
+
             # Fetch prices for this product to get SKUs (SKUs are on price level, not product)
             try:
                 prices_url = f"https://services.leadconnectorhq.com/products/{product_id}/price"
@@ -1222,50 +1223,50 @@ def fetch_ghl_products(force_refresh: bool = False) -> dict:
                             debug_log(f"Found SKU '{price_sku}' -> '{product_data['name']}'")
             except Exception as price_err:
                 debug_log(f"Error fetching prices for product {product_id}: {price_err}")
-        
+
         # Update cache
         _ghl_products_cache = products_map
         _ghl_products_cache_time = time.time()
         debug_log(f"Cached {len(products_map)} product/variant lookup keys")
-        
+
     except Exception as e:
         debug_log(f"Error fetching GHL products: {e}")
-    
+
     return products_map
 
 
 def lookup_ghl_product(sku_or_name: str) -> dict | None:
     """Look up a product in GHL by SKU or name.
-    
+
     First tries exact SKU match, then name match (case-insensitive).
     Fetches products if cache is empty.
-    
+
     Args:
         sku_or_name: Product SKU code or name to look up.
-    
+
     Returns:
         dict: Product data with name, description, id or None if not found.
     """
     if not sku_or_name:
         return None
-    
+
     # Ensure products are cached
     products = fetch_ghl_products()
     if not products:
         return None
-    
+
     # Try exact match (lowercased)
     key = sku_or_name.lower().strip()
     if key in products:
         debug_log(f"GHL product found for '{sku_or_name}': {products[key].get('name', 'Unknown')}")
         return products[key]
-    
+
     # Try partial match (contains)
     for product_key, product_data in products.items():
         if key in product_key or product_key in key:
             debug_log(f"GHL product partial match for '{sku_or_name}': {product_data.get('name', 'Unknown')}")
             return product_data
-    
+
     debug_log(f"No GHL product found for '{sku_or_name}'")
     return None
 
@@ -1399,27 +1400,27 @@ def add_tags_to_opportunity(opportunity_id: str, tags: list[str]) -> bool:
 
     # First get current opportunity to preserve existing tags
     url = f"https://services.leadconnectorhq.com/opportunities/{opportunity_id}"
-    
+
     try:
         response = requests.get(url, headers=_get_ghl_headers(), timeout=30)
         if response.status_code != 200:
             debug_log(f"GET OPPORTUNITY FAILED: {response.status_code}")
             return False
-        
+
         opportunity = response.json().get('opportunity', {})
         existing_tags = opportunity.get('tags', [])
-        
+
         # Merge tags (avoid duplicates)
         all_tags = list(set(existing_tags + tags))
-        
+
         # Update opportunity with merged tags
         update_payload = {"tags": all_tags}
         response = requests.put(url, headers=_get_ghl_headers(), json=update_payload, timeout=30)
-        
+
         debug_log(f"UPDATE OPPORTUNITY TAGS RESPONSE: Status={response.status_code}", {
             "body": response.text[:500] if response.text else "EMPTY"
         })
-        
+
         if response.status_code == 200:
             new_tags = [t for t in tags if t not in existing_tags]
             if new_tags:
@@ -1428,7 +1429,7 @@ def add_tags_to_opportunity(opportunity_id: str, tags: list[str]) -> bool:
         else:
             print(f"   ⚠️ Failed to update opportunity tags: {response.status_code}")
             return False
-            
+
     except Exception as e:
         debug_log(f"ADD OPPORTUNITY TAGS FAILED: {e}")
         print(f"   ⚠️ Failed to add opportunity tags: {e}")
@@ -1499,7 +1500,7 @@ def _search_ghl_contacts(filters: list, search_type: str) -> str | None:
     return None
 
 
-def find_ghl_contact(email: str, client_id: str) -> dict | None:
+def find_ghl_contact(email: str, client_id: str | None) -> str | None:
     """Find GHL contact by email or client_id.
 
     Args:
@@ -1669,22 +1670,22 @@ def has_payment_provider_transactions(invoice: dict) -> tuple[bool, list]:
         tuple[bool, list]: (has_provider_payments, list of transaction details)
     """
     provider_payments = []
-    
+
     # Check for transactions in the invoice data
     transactions = invoice.get('transactions', [])
     if not transactions:
         # Also check under 'paymentTransactions' or nested structures
         invoice_inner = invoice.get('invoice', invoice)
         transactions = invoice_inner.get('transactions', [])
-    
+
     for txn in transactions:
         # Provider transactions have a paymentProvider field or specific source
         provider = txn.get('paymentProvider', txn.get('provider', ''))
         source = txn.get('source', '')
-        
+
         # GoCardless, Stripe, or other payment providers
         is_provider = bool(provider) or source in ['gocardless', 'stripe', 'square', 'paypal']
-        
+
         if is_provider and txn.get('status') == 'succeeded':
             provider_payments.append({
                 'transaction_id': txn.get('_id', txn.get('id', '')),
@@ -1692,7 +1693,7 @@ def has_payment_provider_transactions(invoice: dict) -> tuple[bool, list]:
                 'provider': provider or source,
                 'date': txn.get('createdAt', txn.get('date', ''))
             })
-    
+
     return (len(provider_payments) > 0, provider_payments)
 
 
@@ -1715,23 +1716,23 @@ def analyze_invoices_for_problems(invoices: list) -> dict:
         'already_void': [],     # Already voided
         'problem_invoice_numbers': []  # For display to user
     }
-    
+
     for inv in invoices:
         inv_id = inv.get('_id', inv.get('id', ''))
         inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
         inv_status = inv.get('status', 'unknown')
         amount_paid = inv.get('amountPaid', 0)
-        
+
         if inv_status == 'void':
             result['already_void'].append(inv_id)
             continue
-        
+
         # Fetch full invoice details to check transactions
         invoice_data = get_ghl_invoice(inv_id)
         if invoice_data:
             invoice_inner = invoice_data.get('invoice', invoice_data)
             has_provider, provider_txns = has_payment_provider_transactions(invoice_inner)
-            
+
             if has_provider:
                 result['need_manual_refund'].append({
                     'id': inv_id,
@@ -1745,14 +1746,14 @@ def analyze_invoices_for_problems(invoices: list) -> dict:
         else:
             # Can't check, assume it's deletable
             result['can_delete'].append(inv_id)
-    
+
     debug_log("INVOICE ANALYSIS COMPLETE", {
         "total": result['total'],
         "can_delete": len(result['can_delete']),
         "need_manual_refund": len(result['need_manual_refund']),
         "already_void": len(result['already_void'])
     })
-    
+
     return result
 
 
@@ -1880,7 +1881,6 @@ def delete_client_invoices(xml_path: str) -> dict:
     # Strategy 1: Extract GHL contact ID from album name first (most reliable)
     contact_id = None
     if album_name:
-        import re
         # Look for 20+ char alphanumeric ID in album name
         matches = re.findall(r'[A-Za-z0-9]{20,}', album_name)
         if matches:
@@ -1939,20 +1939,20 @@ def delete_client_invoices(xml_path: str) -> dict:
     print(f"  Analyzing invoices for payment provider transactions...")
     analysis = analyze_invoices_for_problems(invoices)
     problem_invoices = analysis.get('problem_invoice_numbers', [])
-    
+
     if analysis.get('need_manual_refund'):
         print(f"  ⚠ {len(analysis['need_manual_refund'])} invoice(s) have payment provider transactions")
         for prob in analysis['need_manual_refund']:
             print(f"    • #{prob['number']} - £{prob['amount_paid']:.2f} via provider")
         print(f"  These require manual refund in GHL before API can void them.")
-    
+
     # Delete/void all invoices
     invoices_deleted = 0
     invoices_voided = 0
     invoices_failed = 0
     failed_invoice_numbers = []
     needs_manual_refund = False
-    
+
     for inv in invoices:
         inv_id = inv.get('_id', inv.get('id', ''))
         inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
@@ -2005,7 +2005,7 @@ def delete_client_invoices(xml_path: str) -> dict:
         "invoices_failed": invoices_failed,
         "schedules_cancelled": schedules_cancelled
     })
-    
+
     if invoices_failed > 0:
         print(f"\n⚠ Done with errors: {invoices_deleted} deleted, {invoices_voided} voided, {invoices_failed} failed, {schedules_cancelled} schedules")
     else:
@@ -2013,12 +2013,12 @@ def delete_client_invoices(xml_path: str) -> dict:
 
     # Success only if no failures
     all_success = invoices_failed == 0 and (invoices_deleted > 0 or invoices_voided > 0 or len(invoices) == 0)
-    
+
     # Build problem invoice details for UI (id|number format for parsing)
     problem_invoice_details = []
     for prob in analysis.get('need_manual_refund', []):
         problem_invoice_details.append(f"{prob['id']}|#{prob['number']}")
-    
+
     return {
         'success': all_success,
         'client_name': client_name,
@@ -2053,7 +2053,7 @@ def void_ghl_invoice(invoice_id: str, try_draft_first: bool = True) -> dict:
         draft_result = update_invoice_to_draft(invoice_id)
         if draft_result.get('success'):
             debug_log(f"INVOICE UPDATED TO DRAFT - now attempting void")
-    
+
     url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/void"
     # GHL requires altId/altType in request body for void endpoint
     payload = {"altId": CONFIG.get('LOCATION_ID', ''), "altType": "location"}
@@ -2072,7 +2072,7 @@ def void_ghl_invoice(invoice_id: str, try_draft_first: bool = True) -> dict:
             if 'refunded first' in response.text.lower() or 'payment provider' in response.text.lower():
                 debug_log("VOID BLOCKED - Payment provider refund required")
                 return {
-                    'success': False, 
+                    'success': False,
                     'error': 'Invoice has payment provider transactions. Refund in GHL Payments first.',
                     'needs_provider_refund': True
                 }
@@ -2121,15 +2121,15 @@ def cancel_ghl_schedule(schedule_id: str) -> dict:
             debug_log("DELETE SCHEDULE FAILED, trying to disable via PATCH")
             patch_url = f"https://services.leadconnectorhq.com/invoices/schedule/{schedule_id}"
             patch_response = requests.patch(
-                patch_url, 
-                headers=_get_ghl_headers(), 
+                patch_url,
+                headers=_get_ghl_headers(),
                 json={"liveMode": False},
                 timeout=30
             )
             debug_log(f"PATCH SCHEDULE RESPONSE: Status={patch_response.status_code}", {
                 "body": patch_response.text[:1000] if patch_response.text else "EMPTY"
             })
-            
+
             if patch_response.status_code in [200, 204]:
                 debug_log(f"SCHEDULE DISABLED VIA PATCH: {schedule_id}")
                 print(f"    ✓ Schedule disabled")
@@ -2166,10 +2166,10 @@ def void_recorded_payments(invoice_id: str, invoice: dict) -> int:
     payments = invoice.get('recordPayment', [])
     if not payments:
         payments = invoice.get('payments', [])
-    
+
     total_paid = invoice.get('amountPaid', 0)
     voided_count = 0
-    
+
     debug_log("VOID RECORDED PAYMENTS", {
         "invoice_id": invoice_id,
         "total_paid": total_paid,
@@ -2181,16 +2181,16 @@ def void_recorded_payments(invoice_id: str, invoice: dict) -> int:
         pay_id = payment.get('_id', payment.get('id', ''))
         if not pay_id:
             continue
-            
+
         url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/record-payment/{pay_id}"
         debug_log(f"DELETE PAYMENT RECORD: {url}")
-        
+
         try:
             response = requests.delete(url, headers=_get_ghl_headers(), timeout=30)
             debug_log(f"DELETE PAYMENT RESPONSE: Status={response.status_code}", {
                 "body": response.text[:500] if response.text else "EMPTY"
             })
-            
+
             if response.status_code in [200, 204]:
                 debug_log(f"PAYMENT RECORD REMOVED: {pay_id}")
                 print(f"    ✓ Payment record {pay_id} removed")
@@ -2218,13 +2218,13 @@ def void_recorded_payments(invoice_id: str, invoice: dict) -> int:
             "notes": "Refund - Invoice deletion",
         }
         debug_log(f"RECORD REFUND PAYMENT: {url}", payload)
-        
+
         try:
             response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
             debug_log(f"RECORD REFUND RESPONSE: Status={response.status_code}", {
                 "body": response.text[:500] if response.text else "EMPTY"
             })
-            
+
             if response.status_code in [200, 201]:
                 debug_log(f"REFUND RECORDED SUCCESSFULLY: £{total_paid:.2f}")
                 print(f"    ✓ Refund of £{total_paid:.2f} recorded")
@@ -2237,7 +2237,7 @@ def void_recorded_payments(invoice_id: str, invoice: dict) -> int:
     return voided_count
 
 
-def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
+def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dict:
     """Delete/void an invoice from GHL.
 
     This will:
@@ -2265,11 +2265,11 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
                 cancel_result = cancel_ghl_schedule(sid)
                 if cancel_result.get('success'):
                     schedules_cancelled += 1
-    
+
     # Step 1: Get invoice details
     print("  Fetching invoice details...")
     invoice_data = get_ghl_invoice(invoice_id)
-    
+
     if not invoice_data:
         debug_log(f"INVOICE NOT FOUND: {invoice_id} (may already be deleted)")
         print(f"  ⚠ Invoice not found (may already be deleted)")
@@ -2278,7 +2278,7 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
     invoice = invoice_data.get('invoice', invoice_data)
     status = invoice.get('status', 'unknown')
     total_paid = invoice.get('amountPaid', 0)
-    
+
     debug_log(f"INVOICE DETAILS", {"invoice_id": invoice_id, "status": status, "amountPaid": total_paid})
     print(f"  Invoice status: {status}")
     print(f"  Amount paid: £{total_paid:.2f}")
@@ -2288,10 +2288,10 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
         debug_log(f"INVOICE HAS PAYMENTS - voiding before deletion", {"invoice_id": invoice_id, "total_paid": total_paid})
         print(f"  Invoice has £{total_paid:.2f} in recorded payments")
         print(f"  Voiding payments before deletion...")
-        
+
         payments_voided = void_recorded_payments(invoice_id, invoice)
         debug_log(f"PAYMENTS VOIDED: {payments_voided}")
-        
+
         if payments_voided > 0:
             print(f"  ✓ {payments_voided} payment(s) voided/refunded")
             # Re-fetch invoice to check updated status
@@ -2308,8 +2308,8 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
                         debug_log(f"INVOICE VOIDED SUCCESSFULLY (with remaining payments)", {"invoice_id": invoice_id})
                         print(f"  ✓ Invoice voided")
                         return {
-                            'success': True, 
-                            'invoice_id': invoice_id, 
+                            'success': True,
+                            'invoice_id': invoice_id,
                             'voided': True,
                             'deleted': False,
                             'payments_voided': payments_voided,
@@ -2325,8 +2325,8 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
                 debug_log(f"INVOICE VOIDED SUCCESSFULLY (individual payments not voidable)", {"invoice_id": invoice_id})
                 print(f"  ✓ Invoice voided")
                 return {
-                    'success': True, 
-                    'invoice_id': invoice_id, 
+                    'success': True,
+                    'invoice_id': invoice_id,
                     'voided': True,
                     'deleted': False,
                     'schedules_cancelled': schedules_cancelled,
@@ -2354,7 +2354,7 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
             print(f"  ✗ API key lacks permission to delete invoices")
             print(f"    Enable 'invoices.write' scope in GHL Private Integrations")
             return {
-                'success': False, 
+                'success': False,
                 'error': 'API key lacks invoice delete permission - update GHL Private Integration scopes',
                 'invoice_id': invoice_id,
                 'permission_error': True
@@ -2367,7 +2367,7 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list = None) -> dict:
                 print(f"  ✗ Cannot delete - payments must be refunded first")
                 print(f"    Go to GHL Payments → Invoices → Refund all payments, then try again")
                 return {
-                    'success': False, 
+                    'success': False,
                     'error': 'Payments must be refunded in GHL before invoice can be deleted',
                     'invoice_id': invoice_id,
                     'needs_refund': True
@@ -2944,7 +2944,7 @@ def _create_invoice_item(item: dict) -> dict:
     description = item.get('description', '')
     template = item.get('template', '')
     item_type = item.get('type', '')
-    
+
     # Build the best possible name for GHL invoice display
     # Priority: Product_Name > Template_Name + Description > Description alone
     if product_name:
@@ -2958,7 +2958,7 @@ def _create_invoice_item(item: dict) -> dict:
         display_name = template
     else:
         display_name = item_type or "Item"
-    
+
     return {
         # GHL invoice line item fields
         # Use rich display name for GHL invoice (combines available fields)
@@ -3024,30 +3024,30 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
         list: GHL-formatted items with amounts in pounds (invoice API uses pounds, not pence).
     """
     ghl_items = []
-    
+
     # Pre-fetch GHL products if enabled (caches for 5 minutes)
     if use_ghl_products:
         products_cache = fetch_ghl_products()
         debug_log(f"GHL products cache has {len(products_cache)} lookup keys")
         if products_cache:
             debug_log(f"Sample keys: {list(products_cache.keys())[:10]}")
-    
+
     for item in invoice_items:
         item_price = float(item['price'])
         item_qty = int(item['quantity'])
-        
+
         # Skip items with qty <= 0 (bundled free items like Mat/Frame included with main product)
         # GHL API rejects items with qty < 0.1
         if item_qty <= 0:
             debug_log(f"Skipping item with qty={item_qty}: {item.get('name', 'Unknown')}")
             continue
-        
+
         item_name = str(item['name'])
         item_description = str(item['description'])
         item_sku = item.get('sku', '')
-        
+
         debug_log(f"Processing item: name='{item_name}', sku='{item_sku}'")
-        
+
         # Try to look up GHL product by SKU if enabled and SKU exists
         if use_ghl_products and item_sku:
             debug_log(f"Looking up GHL product for SKU: '{item_sku}'")
@@ -3065,7 +3065,7 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
                 ghl_description = ghl_product.get('description', '')
                 if ghl_description:
                     item_description = ghl_description
-        
+
         ghl_item = {
             "name": item_name,
             "description": item_description,
@@ -3073,12 +3073,12 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
             "qty": int(item['quantity']),
             "currency": "GBP",
         }
-        
+
         # Only include tax fields for items with price >= £0.01
         # GHL rejects taxes on zero-price items, and taxInclusive can trigger location defaults
         if item_price >= 0.01:
             ghl_item["taxInclusive"] = item.get('price_includes_tax', True)
-        
+
         # Add tax if item is taxable, has a tax rate, AND has a meaningful price (>= 1p)
         # GHL API error: "taxes allowed only on items with price greater than 0"
         if item.get('taxable', True) and item.get('tax_rate', 0) > 0 and item_price >= 0.01:
@@ -3090,9 +3090,9 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
                 "_id": f"tax_{int(tax_rate)}"  # GHL requires an ID
             }]
             debug_log(f"Added tax to item: {tax_label} @ {tax_rate}%")
-        
+
         ghl_items.append(ghl_item)
-    
+
     return ghl_items
 
 
@@ -3129,7 +3129,7 @@ def _build_invoice_payload(
     phone: str,
     address: dict,
     total_discounts_credits: float,
-    payments: list = None
+    payments: list | None = None
 ) -> dict:
     """Build the invoice payload for GHL V2 API.
 
@@ -3149,7 +3149,7 @@ def _build_invoice_payload(
     Returns:
         dict: Complete payload for GHL API.
     """
-    contact_details = {
+    contact_details: dict = {
         "id": contact_id,
         "name": client_name,
         "email": email
@@ -3157,7 +3157,7 @@ def _build_invoice_payload(
     # Only include phone if provided (GHL requires E.164 format)
     if phone:
         contact_details["phoneNo"] = phone
-    
+
     # Build address object if we have address data
     if address:
         addr_obj = {}
@@ -3277,21 +3277,21 @@ def _send_invoice(invoice_id: str) -> bool:
     """
     url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}/send"
     headers = _get_ghl_headers()
-    
+
     payload = {
         "altId": CONFIG.get('LOCATION_ID', ''),
         "altType": "location",
         "liveMode": True
     }
-    
+
     debug_log(f"SEND INVOICE REQUEST: {url}", payload)
-    
+
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         debug_log(f"SEND INVOICE RESPONSE: Status={response.status_code}", {
             "body": response.text[:1000] if response.text else "EMPTY"
         })
-        
+
         if response.status_code in [200, 201]:
             print(f"  ✓ Invoice published - now visible in GHL")
             return True
@@ -3334,8 +3334,8 @@ def _handle_invoice_success(
     payments: list,
     balance_due: float,
     order: dict,
-    ps_data: dict = None,
-    contact_id: str = None,
+    ps_data: dict | None = None,
+    contact_id: str | None = None,
     rounding_in_deposit: bool = True,
     open_browser: bool = True
 ) -> dict:
@@ -3392,7 +3392,7 @@ def _handle_invoice_success(
 
             client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
             email = ps_data.get('email', '')
-            
+
             # Extract shoot number from album name for invoice naming
             album_name = ps_data.get('album_name', '')
             shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
@@ -3489,7 +3489,7 @@ def _handle_invoice_success(
     }
     if schedule_ids:
         result['schedule_ids'] = schedule_ids
-    
+
     # Include future payment info for GoCardless integration
     if payments:
         today = datetime.now().strftime('%Y-%m-%d')
@@ -3500,7 +3500,7 @@ def _handle_invoice_success(
                 'total': sum(p.get('amount', 0) for p in future_payments),
                 'payments': future_payments
             }
-    
+
     return result
 
 
@@ -3529,19 +3529,19 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     balance_due = ps_order_total
 
     client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
-    
+
     # Build invoice name: "Client Name - ShootNo" (if shoot number available)
     album_name = ps_data.get('album_name', '')
     shoot_no = ''
     if album_name and '_' in album_name:
         # Album format: ShootNo_Name_GHLContactID - extract first part
         shoot_no = album_name.split('_')[0]
-    
+
     if shoot_no:
         invoice_name = f"{client_name} - {shoot_no}"
     else:
         invoice_name = client_name
-    
+
     issue_date = _normalize_date(order.get('date', ''))
     today = datetime.now().strftime('%Y-%m-%d')
     due_date = today if issue_date < today else issue_date
@@ -3555,7 +3555,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     # Get email and phone - fetch from GHL if not in ProSelect data
     email = ps_data.get('email', '')
     phone = ps_data.get('phone', '')
-    
+
     # Build address from ProSelect data
     address = {
         'street': ps_data.get('street', ''),
@@ -3757,7 +3757,7 @@ def update_ghl_contact(contact_id: str, ps_data: dict) -> dict | None:
         print(f"✗ Error updating contact: {error_msg}")
         return {'success': False, 'error': error_msg, 'contact_id': contact_id}
 
-def list_ghl_folders():
+def list_ghl_folders() -> None:
     """List all folders in GHL Media - outputs ID|Name format for AHK parsing"""
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -3803,7 +3803,7 @@ def list_ghl_folders():
         print(f"ERROR|{str(e)}")
 
 
-def list_email_templates():
+def list_email_templates() -> None:
     """List all email templates from GHL - outputs ID|Name format for AHK parsing."""
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -3851,7 +3851,7 @@ def list_email_templates():
         print(f"ERROR|{str(e)}")
 
 
-def list_sms_templates():
+def list_sms_templates() -> None:
     """List all SMS templates from GHL - outputs ID|Name format for AHK parsing."""
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -3895,7 +3895,7 @@ def list_sms_templates():
         print(f"ERROR|{str(e)}")
 
 
-def _list_snippets_fallback(headers: dict, location_id: str):
+def _list_snippets_fallback(headers: dict, location_id: str) -> None:
     """Fallback to snippets API if templates endpoint not available."""
     try:
         url = "https://services.leadconnectorhq.com/snippets/"
@@ -3942,7 +3942,6 @@ def _generate_contact_sheet_path(cs_data: dict, xml_path: str = '') -> str:
     Returns:
         str: Full path to JPG file.
     """
-    import ctypes
     try:
         LOCALE_SSHORTDATE = 0x1F
         buffer = ctypes.create_unicode_buffer(80)
@@ -4017,18 +4016,18 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
 
         # Extract thumbnails directly from .psa file
         thumb_folder = None
-        
+
         if psa_path and os.path.exists(psa_path):
             print(f"   ℹ Extracting thumbnails from album...")
             debug_log("CONTACT SHEET - Extracting from PSA", {"psa_path": psa_path})
-            
+
             try:
                 from read_psa_images import extract_thumbnails
                 import tempfile
-                
+
                 temp_thumb_folder = tempfile.mkdtemp(prefix="psa_thumbs_")
                 result = extract_thumbnails(psa_path, temp_thumb_folder)
-                
+
                 if result.get("success") and result.get("count", 0) > 0:
                     thumb_folder = temp_thumb_folder
                     print(f"   ✓ Extracted {result['count']} thumbnails")
@@ -4097,7 +4096,6 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
         # Clean up temp thumbnail folder if we created one
         if temp_thumb_folder and os.path.isdir(temp_thumb_folder):
             try:
-                import shutil
                 shutil.rmtree(temp_thumb_folder)
                 debug_log("CONTACT SHEET - Cleaned up temp folder", {"temp_thumb_folder": temp_thumb_folder})
             except Exception as cleanup_err:
@@ -4322,6 +4320,8 @@ def _process_sync(
     current_step += 1
     write_progress(current_step, total_steps, f"Updating GHL contact...")
     result = update_ghl_contact(contact_id, ps_data)
+    if result is None:
+        result = {'success': False, 'error': 'Contact update returned no result'}
 
     # Step 4: Create invoice (optional)
     if create_invoice and result.get('success'):
@@ -4344,7 +4344,7 @@ def _process_sync(
                 add_tags_to_contact(contact_id, [sync_tag])
         else:
             debug_log("Skipping contact tags (AutoAddContactTags disabled)")
-        
+
         # Add tags to any opportunities for this contact (configurable via INI: OppTags / legacy OpportunityTags)
         if CONFIG.get('AUTO_ADD_OPP_TAGS', True):
             opp_tags = CONFIG.get('OPPORTUNITY_TAGS', [])
@@ -4441,23 +4441,22 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         # Catch any unhandled exception and log it
-        import traceback
         error_log("UNHANDLED EXCEPTION IN MAIN", {
             "args": sys.argv,
             "exception": str(e),
             "type": type(e).__name__
         }, exception=e)
-        
+
         # Write to progress file so AHK knows there was an error
         write_progress(0, 1, f"Critical error: {e}", 'error')
-        
+
         # Also upload error log to gist if enabled
         if GIST_ENABLED:
             try:
                 upload_error_log_to_gist()
             except Exception:
                 pass
-        
+
         print(f"\nCRITICAL ERROR: {e}")
         print(f"Error log saved to: {ERROR_LOG_FILE}")
         traceback.print_exc()

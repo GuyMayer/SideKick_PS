@@ -47,7 +47,7 @@ def _load_credentials():
         os.path.join(os.path.dirname(script_dir), "ghl_credentials.json"),
         os.path.join(os.environ.get('APPDATA', ''), "SideKick_PS", "ghl_credentials.json"),
     ]
-    
+
     for cred_path in possible_paths:
         if os.path.exists(cred_path):
             try:

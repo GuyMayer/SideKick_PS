@@ -54,7 +54,7 @@ KNOWN_METHOD_IDS = {
 }
 
 
-def get_method_id(method_name, existing_methods):
+def get_method_id(method_name, existing_methods) -> int:
     """
     Resolve a payment method name to its ProSelect methodID.
 
@@ -79,7 +79,7 @@ def get_method_id(method_name, existing_methods):
     return 1
 
 
-def parse_payment_arg(arg):
+def parse_payment_arg(arg) -> dict:
     """
     Parse a payment argument string: day,month,year,methodName,amount
     Returns dict with parsed values or raises ValueError.
@@ -113,7 +113,7 @@ def parse_payment_arg(arg):
     }
 
 
-def format_amount(amount):
+def format_amount(amount) -> str:
     """
     Format amount to match ProSelect convention.
     Whole numbers: "250", decimals: "200.05"
@@ -124,7 +124,7 @@ def format_amount(amount):
         return f"{amount:.2f}"
 
 
-def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_group=1):
+def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_group=1) -> str:
     """
     Write payment lines into a .psa SQLite database file.
 
@@ -291,7 +291,8 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
         return f"ERROR|{str(e)}"
 
 
-def main():
+def main() -> None:
+    """CLI entry point — parse arguments and write payments into a .psa file."""
     if len(sys.argv) < 3:
         print("ERROR|Usage: write_psa_payments.py <psa_path> <payment1> [payment2] ...")
         print("  Payment format: day,month,year,methodName,amount")

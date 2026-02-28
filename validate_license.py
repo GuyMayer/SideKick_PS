@@ -19,7 +19,7 @@ STORE_ID = "zoomphoto"
 PRODUCT_ID = "077d6b76-ca2a-42df-a653-86f7aa186895"
 
 
-def _get_data_dir():
+def _get_data_dir() -> str:
     """Get a writable directory for data files (trial data, etc.)."""
     appdata = os.environ.get('APPDATA')
     if appdata:
@@ -533,7 +533,7 @@ def _handle_license_action(action: str) -> dict:
     return actions.get(action, lambda: {"error": f"Unknown action: {action}"})()
 
 
-def main():
+def main() -> None:
     """CLI interface for license operations."""
     if len(sys.argv) < 2:
         _print_usage_error("Invalid arguments")

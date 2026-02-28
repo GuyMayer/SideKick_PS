@@ -12,6 +12,14 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.41 (2026-02-28)
+
+### Bug Fixes
+- **GoCardless Button No Output**: All CLI Python helper EXEs (`_gca.exe`, `_sps.exe`, `_fgc.exe`, `_ugc.exe`, etc.) were compiled with PyInstaller `--noconsole`, which disconnects stdout. On systems where AHK runs the EXE via `RunWait ... Hide` with no console allocated, `print()` output was silently discarded — causing the GoCardless button to always return "script returned no output". Fixed by compiling CLI scripts with `--console` instead. GUI scripts (`cardly_preview_gui`) remain `--noconsole`.
+- **Build Script Console Flag**: `build_and_archive.ps1` now uses a `$guiScripts` list to apply `--noconsole` only to GUI scripts. All other scripts get `--console` so stdout piping works reliably.
+
+---
+
 ## v2.5.40 (2026-02-28)
 
 ### New Features
