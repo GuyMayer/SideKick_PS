@@ -780,8 +780,8 @@ def place_cardly_order(artwork_id: str, recipient: dict, message: str = "",
     if 'return_address' in CARDLY_CONFIG:
         payload['returnAddress'] = CARDLY_CONFIG['return_address']
 
-    debug_print(f"Recipient: {cardly_recipient}")
-    debug_print(f"Payload: {json.dumps(payload, indent=2)}")
+    debug_print(f"Recipient: [redacted for privacy]")
+    debug_print(f"Payload: [redacted for privacy]")
 
     try:
         url = f"{CARDLY_BASE_URL}/orders/place"

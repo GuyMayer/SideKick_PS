@@ -753,7 +753,7 @@ class CardPreviewGUI:
                 "_source": "GHL"
             }
         except Exception as e:
-            print(f"GHL recipient lookup failed: {e}")
+            print(f"GHL recipient lookup failed (see debug log)")
             return None
 
     def _load_psa_all_thumbnails(self):
@@ -1934,7 +1934,7 @@ class CardPreviewGUI:
 
             q.put(('status', 'Preparing to send...'))
 
-            print(f"Using recipient from {recipient_source}: {recipient.get('name', '')}")
+            print(f"Using recipient from {recipient_source}: [redacted]")
 
             # Create artwork — pass current template_id as media override
             # (after orientation swap, self.template_id holds the alternate template)

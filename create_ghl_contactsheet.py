@@ -685,7 +685,7 @@ def main() -> None:
     print("\n1. Parsing XML...")
     data = parse_xml(xml_path)
     print(f"   Shoot No: {data['shoot_no']}")
-    print(f"   Client: {data['first_name']} {data['last_name']}")
+    print(f"   Client: [redacted]")
     print(f"   Order Date: {data['order_date']}")
     print(f"   Contact ID: {data['contact_id']}")
 
@@ -775,7 +775,7 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"""
     print("✓ SUCCESS!")
     print(f"  JPG: {jpg_filename}")
     print(f"  Images: {image_count}")
-    print(f"  Contact: {data['first_name']} {data['last_name']}")
+    print(f"  Contact: [redacted]")
     print("=" * 60)
 
     # Save result

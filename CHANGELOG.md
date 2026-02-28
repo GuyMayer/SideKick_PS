@@ -20,10 +20,17 @@ AI INSTRUCTIONS - When publishing a new version:
 - **EXE Code Signing**: All compiled `.exe` files in the Release folder (SideKick_PS.exe + all Python helpers) are now digitally signed before the installer is built
 - **RFC 3161 Timestamping**: Signatures use SHA-256 with RFC 3161 timestamp — remains valid after certificate expiry
 - **Timestamp Failover**: Tries 3 timestamp servers in sequence (Certum → DigiCert → Sectigo) for reliability
+- **Cardly Browse Image Button**: New browse button (📂) in card preview crop controls — select any image from disc, adds to filmstrip and displays it. Opens at the album folder by default.
+- **GoCardless Diagnostics**: New `gc_diagnose.bat` and `gc_fix_connection.bat` tools for troubleshooting GoCardless connectivity issues
 
 ### Improvements
 - **Toolbar Button Position**: Review Order sits to the left of Camera in toolbar and settings tab
 - **Settings GroupBox**: Enlarged to accommodate the additional Review Order row
+- **Settings Hotkey Default**: Default Settings hotkey changed from `Ctrl+Shift+W` to `Ctrl+Shift+I` to avoid conflicts
+- **Hotkey Passthrough**: When ProSelect/SideKick is not the active window, hotkeys are now passed through to the target application instead of being silently consumed
+- **Cardly Rotate Button Sizing**: Orientation swap button now uses pixel-based sizing (32×32) for consistent appearance across systems
+- **PII Redaction in Logs**: All `debug_log()` and `error_log()` calls now pass data through `_redact_pii()` before writing — emails, names, addresses, and phone numbers are automatically masked. Prevents personal data leaking into Gist-uploaded debug logs.
+- **PII Redaction in Console Output**: Status `print()` messages no longer include client emails, names, or addresses — replaced with `[redacted]` or generic descriptions
 
 ---
 

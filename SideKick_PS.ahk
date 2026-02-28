@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.39
-; Build Date:  2026-02-27
+; Version:     2.5.40
+; Build Date:  2026-02-28
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -4249,14 +4249,14 @@ GC_SearchMandateByNameOrEmail(contactData) {
 	else
 		scriptCmd := GetScriptCommand("gocardless_api", "--check-mandate-by-name """ . searchTerm . """" . envFlag)
 	
-	FileAppend, % A_Now . " - GC_SearchMandateByNameOrEmail - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
+	FileAppend, % A_Now . " - GC_SearchMandateByNameOrEmail - scriptCmd: [redacted for privacy]`n", %DebugLogFile%
 	
 	tempResult := A_Temp . "\gc_mandate_search_" . A_TickCount . ".txt"
 	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
 	RunWait, %fullCmd%, , Hide
 	
 	FileRead, scriptOutput, %tempResult%
-	FileAppend, % A_Now . " - GC_SearchMandateByNameOrEmail - output: " . scriptOutput . "`n", %DebugLogFile%
+	FileAppend, % A_Now . " - GC_SearchMandateByNameOrEmail - result received (details redacted for privacy)`n", %DebugLogFile%
 	FileDelete, %tempResult%
 	
 	ToolTip

@@ -148,6 +148,36 @@ def write_progress(step: int, total: int, message: str, status: str = 'running')
     except Exception:
         pass  # Don't fail if progress file can't be written
 
+# ── PII redaction ──────────────────────────────────────────────────────────
+# Keys whose *values* are personal data and must never appear in log files
+# that may be uploaded to GitHub Gists or other external services.
+_PII_KEYS = frozenset({
+    'email', 'contact_email', 'customer_email', 'to',
+    'first_name', 'last_name', 'name', 'customer_name', 'client_name', 'contact_name',
+    'phone', 'cell_phone', 'home_phone', 'work_phone',
+    'street', 'street2', 'address', 'address1', 'address2', 'address3',
+    'city', 'state', 'zip_code', 'postcode', 'postal_code', 'country',
+})
+_EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
+
+def _redact_pii(obj):
+    """Return a deep copy of *obj* with personal data masked.
+
+    • dict  – values whose key (lower-cased) is in _PII_KEYS are replaced
+              with '[REDACTED]'.
+    • list  – each item is recursively redacted.
+    • str   – email-address patterns are replaced with '[REDACTED_EMAIL]'.
+    • other – returned unchanged.
+    """
+    if isinstance(obj, dict):
+        return {k: '[REDACTED]' if k.lower() in _PII_KEYS else _redact_pii(v)
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_pii(item) for item in obj]
+    if isinstance(obj, str):
+        return _EMAIL_RE.sub('[REDACTED_EMAIL]', obj)
+    return obj
+
 # GitHub Gist for auto-uploading debug logs (assembled from parts to avoid secret scanning)
 GIST_TOKEN = "ghp" + "_" + "5iyc62vax5VllMndhvrRzk" + "ItNRJeom3cShIM"
 
@@ -299,12 +329,14 @@ def error_log(message: str, data=None, exception: Exception = None) -> None:
     """
     import traceback
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    log_line = f"[{timestamp}] ERROR: {message}"
+    safe_message = _redact_pii(message) if isinstance(message, str) else message
+    log_line = f"[{timestamp}] ERROR: {safe_message}"
     if data is not None:
-        if isinstance(data, (dict, list)):
-            log_line += f"\n{json.dumps(data, indent=2, default=str)}"
+        safe_data = _redact_pii(data)
+        if isinstance(safe_data, (dict, list)):
+            log_line += f"\n{json.dumps(safe_data, indent=2, default=str)}"
         else:
-            log_line += f"\n{data}"
+            log_line += f"\n{safe_data}"
     if exception:
         log_line += f"\nException: {type(exception).__name__}: {exception}"
         log_line += f"\nTraceback:\n{traceback.format_exc()}"
@@ -321,16 +353,23 @@ def error_log(message: str, data=None, exception: Exception = None) -> None:
 
 
 def debug_log(message, data=None):
-    """Write debug info to log file and console"""
+    """Write debug info to log file and console.
+
+    PII (emails, names, addresses, phones) is automatically redacted
+    before writing to the log file to prevent personal data leaking
+    into externally-uploaded Gist logs.
+    """
     if not DEBUG_MODE:
         return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    log_line = f"[{timestamp}] {message}"
+    safe_message = _redact_pii(message) if isinstance(message, str) else message
+    log_line = f"[{timestamp}] {safe_message}"
     if data is not None:
-        if isinstance(data, (dict, list)):
-            log_line += f"\n{json.dumps(data, indent=2, default=str)}"
+        safe_data = _redact_pii(data)
+        if isinstance(safe_data, (dict, list)):
+            log_line += f"\n{json.dumps(safe_data, indent=2, default=str)}"
         else:
-            log_line += f"\n{data}"
+            log_line += f"\n{safe_data}"
 
     # Don't print to console - it breaks stdout parsing for commands like --list-email-templates
 
@@ -1477,7 +1516,7 @@ def find_ghl_contact(email: str, client_id: str) -> dict | None:
         filters = [{"field": "email", "operator": "eq", "value": email}]
         contact_id = _search_ghl_contacts(filters, "EMAIL")
         if contact_id:
-            print(f"✓ Found contact by email: {email}")
+            print(f"✓ Found contact by email")
             return contact_id
 
     # Fallback: search by client_id in custom field (session_job_no)
@@ -1493,7 +1532,7 @@ def find_ghl_contact(email: str, client_id: str) -> dict | None:
             return contact_id
 
     debug_log(f"CONTACT NOT FOUND", {"client_id": client_id, "email": email})
-    print(f"✗ Contact not found - Email: {email}, Client ID: {client_id}")
+    print(f"✗ Contact not found - Client ID: {client_id}")
     return None
 
 
@@ -1867,7 +1906,7 @@ def delete_client_invoices(xml_path: str) -> dict:
         "client_name": client_name, "shoot_no": shoot_no,
         "contact_id": contact_id, "album_name": album_name, "email": email
     })
-    print(f"\n🗑️ Delete invoices for: {client_name} ({shoot_no})")
+    print(f"\n🗑️ Delete invoices for shoot: {shoot_no}")
     print(f"  Contact ID: {contact_id}")
 
     if not contact_id:
@@ -2783,7 +2822,7 @@ def send_room_capture_email(contact_id: str, image_path: str, subject: str = '',
         )
 
     # Step 5: Send email via GHL Conversations API
-    print(f"  Sending email to {contact_email}...")
+    print(f"  Sending email to contact...")
     url = "https://services.leadconnectorhq.com/conversations/messages"
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -2814,7 +2853,7 @@ def send_room_capture_email(contact_id: str, image_path: str, subject: str = '',
         if response.status_code in [200, 201]:
             result_data = response.json()
             msg_id = result_data.get('messageId') or result_data.get('id', '')
-            print(f"  ✓ Email sent to {contact_email}")
+            print(f"  ✓ Email sent successfully")
             return {
                 'success': True,
                 'message_id': msg_id,
@@ -3691,7 +3730,7 @@ def update_ghl_contact(contact_id: str, ps_data: dict) -> dict | None:
 
         print(f"\n✓ Successfully updated GHL contact")
         print(f"  Contact ID: {contact_id}")
-        print(f"  Client: {ps_data['first_name']} {ps_data['last_name']}")
+        print(f"  Client: [redacted]")
         print(f"  Order Total: £{payment_summary['total']:.2f}")
         print(f"  Payments: {payment_summary['payment_count']}")
         print(f"  Status: {payment_summary['status']}")
@@ -4241,8 +4280,8 @@ def _process_sync(
     client_name = f"{ps_data.get('first_name')} {ps_data.get('last_name')}"
     album_name = ps_data.get('album_name', '')
     shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
-    print(f"Client: {client_name}")
-    print(f"Email: {ps_data.get('email')}")
+    print(f"Client: [redacted]")
+    print(f"Email: [redacted]")
 
     contact_id = ps_data.get('ghl_contact_id')
     print(f"GHL Contact ID: {contact_id}")
