@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.41
+; Version:     2.5.42
 ; Build Date:  2026-02-28
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -1509,6 +1509,25 @@ GetScriptCommand(scriptName, args := "") {
 		return """" . pythonPath . """ """ . scriptPath . """ " . args
 	else
 		return pythonPath . " """ . scriptPath . """ " . args
+}
+
+; Run a command and capture its stdout output reliably
+; Uses WScript.Shell.Exec which works correctly from compiled GUI AHK exes
+; (cmd.exe /c with > redirect fails when paths contain spaces due to quote stripping)
+RunCaptureOutput(command) {
+	global DebugLogFile
+	try {
+		shell := ComObjCreate("WScript.Shell")
+		exec := shell.Exec(ComSpec . " /c " . command)
+		output := ""
+		while !exec.StdOut.AtEndOfStream
+			output .= exec.StdOut.ReadLine() . "`n"
+		output := Trim(output, " `t`r`n")
+		return output
+	} catch e {
+		FileAppend, % A_Now . " - RunCaptureOutput ERROR: " . e.Message . "`n", %DebugLogFile%
+		return ""
+	}
 }
 
 ShowAbout:
@@ -4089,10 +4108,7 @@ Toolbar_GoCardless:
 	}
 	
 	; Check if GoCardless is configured
-	if (Settings_GoCardlessToken = "") {
-		DarkMsgBox("GoCardless Not Configured", "Please configure your GoCardless API token in Settings > GoCardless first.", "warning")
-		return
-	}
+	; Token is loaded from credentials.json by the Python script directly
 	
 	; Check if we have a GHL contact loaded - if not, try to auto-fetch from album name
 	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {

@@ -1,5 +1,5 @@
 ﻿{
-  "version": "2.5.41",
+  "version": "2.5.42",
   "build_date": "2026-02-28",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
   "release_notes": "Fix GoCardless and all Python helper EXEs producing no output on some systems (PyInstaller --console)",
@@ -108,7 +108,7 @@
   ],
   "versions": [
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
@@ -120,7 +120,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
@@ -148,7 +148,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
@@ -160,7 +160,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
@@ -173,7 +173,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
@@ -189,7 +189,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
@@ -203,7 +203,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
@@ -212,7 +212,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
@@ -232,7 +232,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
@@ -246,7 +246,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
@@ -257,7 +257,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
@@ -269,7 +269,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
@@ -280,7 +280,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
@@ -291,7 +291,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
@@ -300,7 +300,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
@@ -312,7 +312,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
@@ -322,7 +322,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
@@ -334,7 +334,7 @@
       ]
     },
     {
-      "version": "2.5.41",
+      "version": "2.5.42",
       "build_date": "2026-02-28",
       "release_notes": "Major GHL integration release",
       "changelog": [

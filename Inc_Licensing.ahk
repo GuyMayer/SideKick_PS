@@ -1614,11 +1614,7 @@ EditGCToken:
 return
 
 TestGCConnection:
-	if (Settings_GoCardlessToken = "") {
-		DarkMsgBox("Error", "No API token configured.`n`nPlease enter your GoCardless API token first.", "error")
-		return
-	}
-	
+	FileAppend, % A_Now . " - TestGCConnection ENTERED`n", %DebugLogFile%
 	ToolTip, Testing GoCardless connection...
 	
 	; Use Python script for GoCardless API test
@@ -1633,16 +1629,9 @@ TestGCConnection:
 		return
 	}
 	
-	; Run the script and capture output
-	tempResult := A_Temp . "\gc_test_result_" . A_TickCount . ".txt"
-	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
-	FileAppend, % A_Now . " - TestGCConnection - fullCmd: " . fullCmd . "`n", %DebugLogFile%
-	
-	RunWait, %fullCmd%, , Hide
-	
-	FileRead, testResult, %tempResult%
+	; Run the script and capture output via WScript.Shell (avoids cmd.exe quote issues)
+	testResult := RunCaptureOutput(scriptCmd)
 	FileAppend, % A_Now . " - TestGCConnection - testResult: [" . testResult . "]`n", %DebugLogFile%
-	FileDelete, %tempResult%
 	
 	ToolTip
 	
@@ -1914,12 +1903,8 @@ GCWizard_RunTest:
 		return
 	}
 	
-	; Run the script and capture output
-	tempResult := A_Temp . "\gc_wizard_test_" . A_TickCount . ".txt"
-	RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
-	
-	FileRead, testResult, %tempResult%
-	FileDelete, %tempResult%
+	; Run the script and capture output via WScript.Shell
+	testResult := RunCaptureOutput(scriptCmd)
 	
 	if (InStr(testResult, "SUCCESS|")) {
 		parts := StrSplit(testResult, "|")
@@ -1965,11 +1950,6 @@ ListEmptyMandates:
 	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment, GC_EmptyMandatesList, GC_EmptyMandatesArray, Settings_ShootArchivePath
 	global GC_ProgressFile, GC_ResultFile, GC_FetchInProgress
 	
-	if (Settings_GoCardlessToken = "") {
-		DarkMsgBox("Error", "No API token configured.`n`nPlease enter your GoCardless API token first.", "error")
-		return
-	}
-	
 	GuiControl, Settings:, GCProgressBar, 0
 	GuiControl, Settings:Show, GCProgressBar
 	GuiControl, Settings:, GCProgressText, Fetching mandates from GoCardless...
@@ -1992,8 +1972,8 @@ ListEmptyMandates:
 	; Add progress file argument
 	scriptCmd := scriptCmd . " --progress-file """ . GC_ProgressFile . """"
 	
-	; Run Python in background (not RunWait)
-	Run, %ComSpec% /c %scriptCmd% > "%GC_ResultFile%" 2>&1, , Hide
+	; Run Python in background (not RunWait) - wrap in extra quotes for cmd.exe /c
+	Run, %ComSpec% /c ""%scriptCmd% > "%GC_ResultFile%" 2>&1"", , Hide
 	
 	; Start timer to poll progress
 	SetTimer, GC_FetchProgressTimer, 200
@@ -2629,11 +2609,6 @@ GC_CheckCustomerMandate(customerEmail) {
 	
 	result := {hasMandate: false, mandateId: "", mandateStatus: "", bankName: "", customerId: "", plans: "", error: ""}
 	
-	if (Settings_GoCardlessToken = "") {
-		result.error := "No API token configured"
-		return result
-	}
-	
 	; Use Python script for GoCardless API calls
 	envFlag := " --live"  ; Always live
 	scriptCmd := GetScriptCommand("gocardless_api", "--check-mandate """ . customerEmail . """" . envFlag)
@@ -2645,16 +2620,9 @@ GC_CheckCustomerMandate(customerEmail) {
 		return result
 	}
 	
-	; Run the script and capture output
-	tempResult := A_Temp . "\gc_check_result_" . A_TickCount . ".txt"
-	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
-	FileAppend, % A_Now . " - GC_CheckCustomerMandate - fullCmd: " . fullCmd . "`n", %DebugLogFile%
-	
-	RunWait, %fullCmd%, , Hide
-	
-	FileRead, scriptOutput, %tempResult%
+	; Run the script and capture output via WScript.Shell (avoids cmd.exe quote issues)
+	scriptOutput := RunCaptureOutput(scriptCmd)
 	FileAppend, % A_Now . " - GC_CheckCustomerMandate - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
-	FileDelete, %tempResult%
 	
 	scriptOutput := Trim(scriptOutput)
 	
@@ -2828,12 +2796,8 @@ GC_SendMandateRequest(contactData, sendEmail, sendSMS) {
 		return
 	}
 	
-	; Run the script and capture output
-	tempResult := A_Temp . "\gc_br_result_" . A_TickCount . ".txt"
-	RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
-	
-	FileRead, scriptOutput, %tempResult%
-	FileDelete, %tempResult%
+	; Run the script and capture output via WScript.Shell
+	scriptOutput := RunCaptureOutput(scriptCmd)
 	
 	scriptOutput := Trim(scriptOutput)
 	
@@ -3725,10 +3689,7 @@ GC_PP_CreateSingles:
 		FileAppend, % A_Now . " - GC_PP_CreateSingles - paymentJson: " . paymentJson . "`n", %DebugLogFile%
 		
 		scriptCmd := GetScriptCommand("gocardless_api", "--create-payment """ . paymentJson . """" . envFlag)
-		tempResult := A_Temp . "\gc_payment_result_" . A_TickCount . ".txt"
-		RunWait, %ComSpec% /c %scriptCmd% > "%tempResult%" 2>&1, , Hide
-		FileRead, scriptOutput, %tempResult%
-		FileDelete, %tempResult%
+		scriptOutput := RunCaptureOutput(scriptCmd)
 		
 		scriptOutput := Trim(scriptOutput)
 		FileAppend, % A_Now . " - GC_PP_CreateSingles - output: " . scriptOutput . "`n", %DebugLogFile%
@@ -3784,10 +3745,7 @@ GC_PP_Create:
 	ToolTip, Checking for existing plans...
 	envFlag := " --live"  ; Always live
 	checkCmd := GetScriptCommand("gocardless_api", "--list-plans """ . mandateId . """" . envFlag)
-	tempCheck := A_Temp . "\gc_check_plans_" . A_TickCount . ".txt"
-	RunWait, %ComSpec% /c %checkCmd% > "%tempCheck%" 2>&1, , Hide
-	FileRead, subsOutput, %tempCheck%
-	FileDelete, %tempCheck%
+	subsOutput := RunCaptureOutput(checkCmd)
 	ToolTip
 	
 	; Check if plan name already exists
@@ -4641,6 +4599,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, SCIcon_OpenGHL
 	GuiControl, Settings:Hide, SCLabel_OpenGHL
 	GuiControl, Settings:Hide, Toggle_ShowBtn_OpenGHL
+	GuiControl, Settings:Hide, SCIcon_ReviewOrder
+	GuiControl, Settings:Hide, SCLabel_ReviewOrder
 	GuiControl, Settings:Hide, SCIcon_Camera
 	GuiControl, Settings:Hide, SCLabel_Camera
 	GuiControl, Settings:Hide, Toggle_ShowBtn_Camera
@@ -5119,6 +5079,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, SCIcon_OpenGHL
 		GuiControl, Settings:Show, SCLabel_OpenGHL
 		GuiControl, Settings:Show, Toggle_ShowBtn_OpenGHL
+		GuiControl, Settings:Show, SCIcon_ReviewOrder
+		GuiControl, Settings:Show, SCLabel_ReviewOrder
 		GuiControl, Settings:Show, SCIcon_Camera
 		GuiControl, Settings:Show, SCLabel_Camera
 		GuiControl, Settings:Show, Toggle_ShowBtn_Camera
