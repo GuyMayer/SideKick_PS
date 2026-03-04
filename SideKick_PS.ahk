@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.44
+; Version:     2.5.45
 ; Build Date:  2026-03-04
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -2787,13 +2787,14 @@ if ErrorLevel {
 	Return
 }
 ; Use keyboard menu navigation to open Print dialog (avoids triggering other hotkeys)
-Sleep, 1000
+delay := Settings_MenuDelay
+Sleep, %delay%
 Send, !f        ; Alt+F to open File menu
-Sleep, 300
+Sleep, %delay%
 Send, p         ; P to highlight Print submenu
-Sleep, 300
+Sleep, %delay%
 Send, {Right}   ; Open the submenu
-Sleep, 300
+Sleep, %delay%
 Send, {Enter}   ; Select first item (Order/Invoice Report...)
 Sleep, 1000
 ; Wait for the Print dialog to appear
@@ -2859,18 +2860,19 @@ if (IsWindows10) {
 } else {
 	; Windows 11: Modern dialog - use tab navigation
 	; 6 tabs from Printer dropdown to reach Print button
+	tabDelay := Settings_MenuDelay
 	Send, {Tab}
-	Sleep, 300
+	Sleep, %tabDelay%
 	Send, {Tab}
-	Sleep, 300
+	Sleep, %tabDelay%
 	Send, {Tab}
-	Sleep, 300
+	Sleep, %tabDelay%
 	Send, {Tab}
-	Sleep, 300
+	Sleep, %tabDelay%
 	Send, {Tab}
-	Sleep, 300
+	Sleep, %tabDelay%
 	Send, {Tab}
-	Sleep, 300
+	Sleep, %tabDelay%
 	
 	; Send Enter to activate Print button
 	Send, {Enter}
@@ -2949,13 +2951,14 @@ Toolbar_PrintToPDF:
 			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",,Hide
 		Return
 	}
-	Sleep, 300
+	delay := Settings_MenuDelay
+	Sleep, %delay%
 	Send, !f        ; Alt+F to open File menu
-	Sleep, 300
+	Sleep, %delay%
 	Send, p         ; P to highlight Print submenu
-	Sleep, 300
+	Sleep, %delay%
 	Send, {Right}   ; Open the submenu
-	Sleep, 300
+	Sleep, %delay%
 	Send, {Enter}   ; Select first item (Order/Invoice Report...)
 	Sleep, 1000
 	
@@ -4561,17 +4564,19 @@ return
 Toolbar_ReviewOrder:
 ; Open ProSelect Orders > Review Order via menu keystrokes
 {
+	global Settings_MenuDelay
+	delay := Settings_MenuDelay
 	WinActivate, ahk_exe ProSelect.exe
 	WinWaitActive, ahk_exe ProSelect.exe, , 2
 	if (ErrorLevel) {
 		DarkMsgBox("Review Order", "ProSelect is not running.", "warning", {timeout: 3})
 		return
 	}
-	Sleep, 100
+	Sleep, %delay%
 	SendInput, !o          ; Alt+O opens Orders menu
-	Sleep, 150
+	Sleep, %delay%
 	SendInput, {Down 2}    ; Navigate to Review Order
-	Sleep, 50
+	Sleep, %delay%
 	SendInput, {Enter}     ; Select it
 }
 Return
@@ -8991,12 +8996,13 @@ RefreshPrintTemplatesSilent:
 	WinActivate, ahk_exe ProSelect.exe
 	WinWaitActive, ahk_exe ProSelect.exe,, 2
 	
+	delay := Settings_MenuDelay
 	Send, !f
-	Sleep, 300
+	Sleep, %delay%
 	Send, p
-	Sleep, 300
+	Sleep, %delay%
 	Send, {Right}
-	Sleep, 300
+	Sleep, %delay%
 	Send, {Enter}
 	Sleep, 1000
 	
@@ -10102,17 +10108,18 @@ PrintOrders:
 IfWinNotExist, ahk_exe ProSelect.exe
 	return
 
+delay := Settings_MenuDelay
 ;Acc copy
 ;ToolTip, Printing Accounts copy
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe
-Sleep, 1000
+Sleep, %delay%
 Send, !f        ; Alt+F to open File menu
-Sleep, 300
+Sleep, %delay%
 Send, p         ; P to highlight Print submenu
-Sleep, 300
+Sleep, %delay%
 Send, {Right}   ; Open the submenu
-Sleep, 300
+Sleep, %delay%
 Send, {Enter}   ; Select first item (Order/Invoice Report...)
 sleep, 2000
 WinActivate, Print Order Report
@@ -10141,13 +10148,13 @@ SoundPlay %A_ScriptDir%\KbdSpacebar.wav
 WinActivate, ahk_exe ProSelect.exe
 WinWaitActive, ahk_exe ProSelect.exe
 WinActivate, ahk_exe ProSelect.exe
-Sleep, 1000
+Sleep, %delay%
 Send, !f        ; Alt+F to open File menu
-Sleep, 300
+Sleep, %delay%
 Send, p         ; P to highlight Print submenu
-Sleep, 300
+Sleep, %delay%
 Send, {Right}   ; Open the submenu
-Sleep, 300
+Sleep, %delay%
 Send, {Enter}   ; Select first item (Order/Invoice Report...)
 sleep, 2000
 WinActivate, Print Order Report
@@ -10171,13 +10178,13 @@ WinWaitClose, Task in Progress...,10
 ; Production copy
 
 WinActivate, ahk_exe ProSelect.exe
-Sleep, 1000
+Sleep, %delay%
 Send, !f        ; Alt+F to open File menu
-Sleep, 300
+Sleep, %delay%
 Send, p         ; P to highlight Print submenu
-Sleep, 300
+Sleep, %delay%
 Send, {Right}   ; Open the submenu
-Sleep, 300
+Sleep, %delay%
 Send, {Enter}   ; Select first item (Order/Invoice Report...)
 sleep, 2000
 WinActivate, Print Order Report

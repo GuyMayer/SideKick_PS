@@ -413,9 +413,26 @@ QTabBar::tab:hover {
 # Helper – locate the gocardless_api companion script
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Sentinel returned by _find_gc_script when the unified CLI is found.
+_UNIFIED_CLI_TAG = '__unified_cli__'
+
+
 def _find_gc_script() -> str:
-    """Return the path to gocardless_api (.exe or .py) in SCRIPT_DIR."""
-    # Cryptic production name first, then dev name
+    """Return the path to gocardless_api (.exe or .py) in SCRIPT_DIR.
+
+    Checks (in order):
+      1. Unified CLI  – SideKick_PS_CLI.exe  (ships since v3.x)
+      2. Legacy individual exe/py files
+    When the unified CLI is found the returned string is
+    ``'<path>|__unified_cli__'`` so that ``_build_gc_command`` can
+    insert the ``gocardless`` subcommand automatically.
+    """
+    # Prefer the unified CLI that replaced individual exes
+    unified = os.path.join(SCRIPT_DIR, 'SideKick_PS_CLI.exe')
+    if os.path.isfile(unified):
+        return f'{unified}|{_UNIFIED_CLI_TAG}'
+
+    # Legacy: individual exes / .py files
     for name in ('_gca.exe', 'gocardless_api.exe', '_gca.py', 'gocardless_api.py'):
         path = os.path.join(SCRIPT_DIR, name)
         if os.path.isfile(path):
@@ -443,7 +460,16 @@ def _find_python() -> str:
 
 
 def _build_gc_command(gc_script: str, args: list) -> list:
-    """Build a command list for running gocardless_api."""
+    """Build a command list for running gocardless_api.
+
+    Handles three cases:
+      - Unified CLI tag  → ``SideKick_PS_CLI.exe gocardless <args>``
+      - Legacy .exe      → ``<exe> <args>``
+      - Legacy .py       → ``python <script> <args>``
+    """
+    if _UNIFIED_CLI_TAG in gc_script:
+        exe_path = gc_script.split('|')[0]
+        return [exe_path, 'gocardless'] + args
     if gc_script.lower().endswith('.exe'):
         return [gc_script] + args
     return [_find_python(), gc_script] + args

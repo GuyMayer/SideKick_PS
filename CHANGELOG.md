@@ -12,6 +12,13 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.45 (2026-03-04)
+
+### Bug Fixes
+- **Stale Mandates 'script not found'**: Fixed `gocardless_api script not found` error when Stale Mandates GUI is launched via the unified `SideKick_PS_CLI.exe`. The individual `_gca.exe` no longer ships — `_find_gc_script()` now discovers `SideKick_PS_CLI.exe` and routes GoCardless API calls through the `gocardless` subcommand automatically. Legacy standalone exe/py fallback preserved for backwards compatibility and dev mode.
+
+---
+
 ## v2.5.44 (2026-03-04)
 
 ### New Features
