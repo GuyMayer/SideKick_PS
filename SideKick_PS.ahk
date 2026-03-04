@@ -1338,27 +1338,40 @@ LogHelperInfo() {
 	global DebugLogFile, HelperPath, HelperVersion, HelperModified, ScriptVersion
 	
 	; Use the same path resolution as GetScriptPath() - _sps.exe in production
+	; Also check for SideKick_PS_CLI.exe (unified build)
 	if (A_IsCompiled) {
 		exePath := A_ScriptDir . "\_sps.exe"
+		cliPath := A_ScriptDir . "\SideKick_PS_CLI.exe"
 		pyPath := A_ScriptDir . "\_sps.py"
 	} else {
 		exePath := A_ScriptDir . "\sync_ps_invoice.exe"
+		cliPath := A_ScriptDir . "\SideKick_PS_CLI.exe"
 		pyPath := A_ScriptDir . "\sync_ps_invoice.py"
 	}
 	
-	if (FileExist(exePath)) {
-		HelperPath := exePath
+	; Prefer individual exe, then unified CLI, then .py
+	helperFile := ""
+	if (FileExist(exePath))
+		helperFile := exePath
+	else if (FileExist(cliPath))
+		helperFile := cliPath
+	else if (FileExist(pyPath))
+		helperFile := pyPath
+	
+	if (helperFile != "" && SubStr(helperFile, -3) != ".py") {
+		HelperPath := helperFile
 		; Get file modification time
-		FileGetTime, modTime, %exePath%, M
+		FileGetTime, modTime, %helperFile%, M
 		FormatTime, HelperModified, %modTime%, yyyy-MM-dd HH:mm:ss
 		; Version matches main app (same version.json)
 		HelperVersion := ScriptVersion
-		FileAppend, % A_Now . " - Helper EXE: " . exePath . "`n", %DebugLogFile%
+		SplitPath, helperFile, helperName
+		FileAppend, % A_Now . " - Helper EXE: " . helperFile . "`n", %DebugLogFile%
 		FileAppend, % A_Now . " - Helper Modified: " . HelperModified . "`n", %DebugLogFile%
 		FileAppend, % A_Now . " - Helper Version: " . HelperVersion . "`n", %DebugLogFile%
 		
 		; Get file size for additional verification
-		FileGetSize, fileSize, %exePath%, K
+		FileGetSize, fileSize, %helperFile%, K
 		FileAppend, % A_Now . " - Helper Size: " . fileSize . " KB`n", %DebugLogFile%
 	} else if (FileExist(pyPath)) {
 		HelperPath := pyPath
@@ -1572,16 +1585,26 @@ GetScriptCommand(scriptName, args := "") {
 }
 
 ; Run a command and capture its stdout output reliably
-; Uses WScript.Shell.Exec which works correctly from compiled GUI AHK exes
-; (cmd.exe /c with > redirect fails when paths contain spaces due to quote stripping)
+; Uses a temp .cmd file to avoid cmd.exe /c quoting issues with paths
+; containing spaces (e.g. "C:\Program Files (x86)\...").
+; WScript.Shell.Exec + ComSpec /c treats first and last quotes as a pair,
+; which breaks when the exe path AND an argument are both quoted.
 RunCaptureOutput(command) {
 	global DebugLogFile
 	try {
-		shell := ComObjCreate("WScript.Shell")
-		exec := shell.Exec(ComSpec . " /c " . command)
+		tempCmd := A_Temp . "\sk_capture_" . A_TickCount . ".cmd"
+		tempOut := A_Temp . "\sk_capture_" . A_TickCount . ".txt"
+		FileDelete, %tempCmd%
+		FileDelete, %tempOut%
+		cmdContent := "@echo off`r`n@chcp 65001 >nul`r`n" . command . " > """ . tempOut . """ 2>&1`r`n"
+		FileAppend, %cmdContent%, %tempCmd%
+		RunWait, %ComSpec% /c "%tempCmd%", , Hide
+		FileDelete, %tempCmd%
 		output := ""
-		while !exec.StdOut.AtEndOfStream
-			output .= exec.StdOut.ReadLine() . "`n"
+		if (FileExist(tempOut)) {
+			FileRead, output, %tempOut%
+			FileDelete, %tempOut%
+		}
 		output := Trim(output, " `t`r`n")
 		return output
 	} catch e {
