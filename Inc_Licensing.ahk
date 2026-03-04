@@ -2670,7 +2670,7 @@ GC_CheckCustomerMandate(customerEmail) {
 	
 	; Check for empty output
 	if (scriptOutput = "") {
-		result.error := "GoCardless script returned no output - this may be caused by antivirus blocking the exe"
+		result.error := "GoCardless script returned no output - this may be caused by antivirus blocking the exe`n`nDEBUG:`nCmd: " . scriptCmd . "`nA_IsCompiled: " . A_IsCompiled . "`nA_ScriptDir: " . A_ScriptDir
 		return result
 	}
 	
