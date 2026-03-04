@@ -164,6 +164,19 @@ if (Test-Path $Ahk2Exe) {
         exit 1
     }
     Write-Host "  [OK] Compiled: SideKick_PS.exe" -ForegroundColor Green
+    
+    # Compile CardlyLoader helper (lightweight — no icon needed)
+    $loaderSource = "$SourceDir\CardlyLoader.ahk"
+    $loaderExe = "$ReleaseDir\CardlyLoader.exe"
+    if (Test-Path $loaderSource) {
+        & $Ahk2Exe /in $loaderSource /out $loaderExe 2>&1 | Out-Null
+        Start-Sleep -Milliseconds 300
+        if (Test-Path $loaderExe) {
+            Write-Host "  [OK] Compiled: CardlyLoader.exe" -ForegroundColor Green
+        } else {
+            Write-Host "  [WARN] CardlyLoader.exe not created - Cardly loading animation will be unavailable" -ForegroundColor Yellow
+        }
+    }
 } else {
     Write-BuildLog "Ahk2Exe not found at: $Ahk2Exe" "ERROR"
     exit 1

@@ -12,6 +12,24 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.51 (2026-03-04)
+
+### Bug Fixes
+- **GoCardless RunCmdToFile migration**: All 6 `RunCaptureOutput` callers (mandate check, connection test, wizard test, billing request, create payment, list plans) switched to proven `RunCmdToFile` — eliminates the `RunCaptureOutput ERROR: 1` exception that caused empty output.
+- **Cardly preview unified CLI**: Cardly button used `GetScriptPath` which returned the old individual `_cpg.exe` (missing in unified build). Now uses `GetScriptCommand` which routes through `SideKick_PS_CLI.exe cardly-preview`.
+- **Write PSA payments unified CLI**: Payment Calculator used `GetScriptPath` + manual `cmd /c` for `write_psa_payments`. Now uses `GetScriptCommand` + `RunCmdToFile`.
+- **DevUpdateVersion writes to source**: "Update Version" button was writing `version.json` to the install folder (`Program Files`) instead of the source repo (`C:\Stash`). Same fix applied to QuickPush's `SideKick_PS.ahk` and `version.json` updates.
+- **Build --clean removed**: PyInstaller `--clean` flag caused a confirmation prompt that blocked automated builds waiting for keypress. Removed from both unified CLI and individual exe builds.
+
+### New Features
+- **Cardly loading GUI**: Animated dark-themed progress bar appears immediately on Cardly button press, with status updates at each preparation step (checking ProSelect, reading images, fetching client, loading message, finding exports, building preview, launching). Stays visible with pulsing animation until the PySide6 preview window appears.
+
+### Improvements
+- **No console flash**: Cardly preview exe launched with `Hide` flag and async polling instead of `RunWait` — eliminates the 2-second console window flash.
+- **Seamless loading**: Single continuous loading experience from button press to preview window, replacing the old sequence of brief tooltip → console flash → frozen startup.
+
+---
+
 ## v2.5.47 (2026-03-04)
 
 ### Bug Fixes

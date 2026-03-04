@@ -67,6 +67,9 @@ Name: "startupicon"; Description: "Start with Windows"; GroupDescription: "Start
 ; Main executable (compiled AHK)
 Source: "Release\SideKick_PS.exe"; DestDir: "{app}"; Flags: ignoreversion
 
+; Cardly loading animation (separate process for responsive GUI)
+Source: "Release\CardlyLoader.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+
 ; App icon
 Source: "Release\SideKick_PS.ico"; DestDir: "{app}"; Flags: ignoreversion
 

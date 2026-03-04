@@ -32,7 +32,7 @@ Payment plan calculator, client sync, and workflow automation for photographers.
 
 14-day free trial, then requires license purchase.
 
-**[Purchase License](https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c)**
+**[Purchase License](https://zoomphoto.lemonsqueezy.com/checkout/buy/077d6b76-ca2a-42df-a653-86f7aa186895)**
 
 ## Support
 

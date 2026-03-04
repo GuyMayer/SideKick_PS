@@ -862,7 +862,7 @@ SideKick PS includes a **14-day free trial** with full functionality. No credit 
 ### Purchasing a License
 
 1. Click **Buy License** in Settings → License, or visit:
-   [https://zoomphoto.lemonsqueezy.com](https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c)
+   [https://zoomphoto.lemonsqueezy.com](https://zoomphoto.lemonsqueezy.com/checkout/buy/077d6b76-ca2a-42df-a653-86f7aa186895)
 2. Complete the purchase
 3. You'll receive a license key by email
 
