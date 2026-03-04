@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.50
+; Version:     2.5.51
 ; Build Date:  2026-03-04
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -5796,13 +5796,36 @@ Toolbar_Cardly:
 		cmdArgs .= " --save-to-album --album-folder """ . albumDir . """"
 	}
 	
-	; Launch Card Preview GUI
-	GuiControl, CardlyLoading:, CardlyLoadingBar, 95
+	; Launch Card Preview GUI - keep loading bar visible until Python window appears
+	GuiControl, CardlyLoading:, CardlyLoadingBar, 90
 	GuiControl, CardlyLoading:, CardlyLoadingStatus, Launching preview window...
-	Sleep, 200
-	Gui, CardlyLoading:Destroy
 	cardPreviewCmd := GetScriptCommand("cardly_preview_gui", cmdArgs)
-	RunWait, %cardPreviewCmd%, %A_ScriptDir%, UseErrorLevel
+	Run, %cardPreviewCmd%, %A_ScriptDir%, Hide, cardlyPID
+	
+	; Animate progress bar while waiting for the PySide6 window to appear
+	cardlyWinTitle := "SideKick - Send Greeting Card"
+	cardlyProgress := 90
+	Loop, 60  ; up to ~30 seconds
+	{
+		if WinExist(cardlyWinTitle)
+			break
+		; Pulse the progress bar and update status dots
+		cardlyProgress := 90 + Mod(A_Index, 10)
+		cardlyDots := ""
+		Loop, % Mod(A_Index, 4)
+			cardlyDots .= "."
+		GuiControl, CardlyLoading:, CardlyLoadingBar, %cardlyProgress%
+		GuiControl, CardlyLoading:, CardlyLoadingStatus, % "Loading card preview" . cardlyDots
+		Sleep, 500
+	}
+	Gui, CardlyLoading:Destroy
+	
+	; Wait for the preview window to close
+	if WinExist(cardlyWinTitle)
+		WinWaitClose, %cardlyWinTitle%
+	
+	; Get exit code from process
+	Process, WaitClose, %cardlyPID%, 5
 	exitCode := ErrorLevel
 	
 	if (exitCode = 0) {
