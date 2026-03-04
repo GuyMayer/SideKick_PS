@@ -66,7 +66,7 @@
                 "url": "https://ps.ghl-sidekick.com/",
                 "image": "https://ps.ghl-sidekick.com/images/Toolbar_PS.webp",
                 "screenshot": "https://ps.ghl-sidekick.com/images/Toolbar_PS.webp",
-                "softwareVersion": "2.5.23",
+                "softwareVersion": "2.5.51",
                 "author": {
                     "@id": "https://ps.ghl-sidekick.com/#organization"
                 },
@@ -80,11 +80,13 @@
                 },
                 "featureList": [
                     "One-click client data import from GoHighLevel to ProSelect",
-                    "Automatic invoice sync from ProSelect to GHL",
-                    "Smart payment plan calculator with auto-entry",
+                    "Automatic invoice sync from ProSelect to GHL with update and resync",
+                    "30-second payment plan calculator with automatic ProSelect entry",
                     "GoCardless Direct Debit integration (UK, USA, EU, Australia, Canada, NZ)",
-                    "Cardly greeting card integration — send physical postcards to clients",
-                    "Session timer and workflow tracking",
+                    "Cardly greeting card integration — send physical postcards in 30 seconds",
+                    "Invoice update, replace, and resync — change orders without losing payments",
+                    "GHL auto-tagging, opportunity updates, and workflow triggers",
+                    "Room capture and wall-art preview email",
                     "Product SKU matching for Xero and QuickBooks integration"
                 ],
                 "keywords": "ProSelect, GoHighLevel, GHL, GoCardless, Direct Debit, Cardly, greeting cards, postcards, photographer automation, invoice sync, CRM integration, photography business"
@@ -362,7 +364,7 @@
                 <div>
                     <div class="inline-flex items-center gap-2 bg-brand-accent/10 border border-brand-accent/30 rounded-full px-4 py-1.5 text-sm text-brand-accent mb-6">
                         <span class="w-2 h-2 rounded-full bg-brand-accent animate-pulse"></span>
-                        v2.4.70 — Now Available
+                        v2.5 — Now Available
                     </div>
                     <h1 class="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white leading-tight mb-6">
                         You Became a Photographer<br>
@@ -410,6 +412,28 @@
         </div>
     </section>
 
+    <!-- Speed Strip — benefit-first numbers -->
+    <section class="py-12 px-6 bg-gradient-to-r from-brand-dark via-brand-mid/80 to-brand-dark border-y border-white/5">
+        <div class="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+            <div>
+                <div class="text-3xl md:text-4xl font-extrabold text-brand-accent">30s</div>
+                <div class="text-sm text-gray-400 mt-1">Payment plan entered</div>
+            </div>
+            <div>
+                <div class="text-3xl md:text-4xl font-extrabold text-brand-accent">30s</div>
+                <div class="text-sm text-gray-400 mt-1">Thank-you card sent</div>
+            </div>
+            <div>
+                <div class="text-3xl md:text-4xl font-extrabold text-brand-accent">1 click</div>
+                <div class="text-sm text-gray-400 mt-1">Invoice synced to GHL</div>
+            </div>
+            <div>
+                <div class="text-3xl md:text-4xl font-extrabold text-brand-accent">0</div>
+                <div class="text-sm text-gray-400 mt-1">Evenings lost to admin</div>
+            </div>
+        </div>
+    </section>
+
     <!-- Problem → Solution -->
     <section class="py-20 px-6">
         <div class="max-w-6xl mx-auto">
@@ -441,11 +465,11 @@
                 <!-- Pain 3 -->
                 <div class="bg-brand-mid/60 border border-white/5 rounded-2xl p-8 card-hover">
                     <div class="text-3xl mb-4">🤯</div>
-                    <h3 class="text-lg font-semibold text-white mb-2">Forgetting Payment Setups</h3>
-                    <p class="text-gray-400 text-sm mb-4">Agreed a payment plan but forgot to set up the Direct Debit later? Lost revenue and awkward conversations.</p>
+                    <h3 class="text-lg font-semibold text-white mb-2">Buyer's Remorse Kills Revenue</h3>
+                    <p class="text-gray-400 text-sm mb-4">Client walks out excited — then doubt creeps in. By the time you send payment details tomorrow, the magic has faded. Hesitation. Cancellations. Lost income.</p>
                     <div class="border-t border-white/10 pt-4 mt-4">
                         <div class="text-brand-accent font-medium text-sm mb-1">With SideKick</div>
-                        <p class="text-gray-300 text-sm">Set up DD payments right there in the sale — never forget, never chase.</p>
+                        <p class="text-gray-300 text-sm">Payment plan locked in 30 seconds. DD set up before they leave. A thank-you card sent to their doormat. Remorse never gets a chance.</p>
                     </div>
                 </div>
                 <!-- Pain 4 -->
@@ -475,7 +499,7 @@
                 <div>
                     <div class="feature-icon bg-green-500/10 text-green-400 mb-4">📋</div>
                     <h3 class="text-2xl font-bold text-white mb-3">Invoice Sync</h3>
-                    <p class="text-gray-300 mb-6">Export an order from ProSelect and it becomes a complete GHL invoice in seconds. Line items, payment schedules, contact sheets — everything.</p>
+                    <p class="text-gray-300 mb-6">Export an order from ProSelect and it becomes a complete GHL invoice in seconds. Line items, payment schedules, contact sheets — everything. Changed the order? Just re-export — SideKick detects the existing invoice and lets you update it in place (keeping payments), replace it entirely, or create a new one alongside.</p>
                     <ul class="space-y-3">
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
@@ -497,6 +521,10 @@
                             <span class="text-brand-accent mt-0.5">✓</span>
                             Auto-tags contact in GHL — triggers your follow-up workflows instantly
                         </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <span class="text-brand-accent mt-0.5">✓</span>
+                            Duplicate detection with Update, Replace, or New invoice options
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -506,30 +534,30 @@
                 <div class="order-2 md:order-1">
                     <div class="feature-icon bg-blue-500/10 text-blue-400 mb-4">🧮</div>
                     <div class="flex items-center gap-3 mb-3">
-                        <h3 class="text-2xl font-bold text-white">Payment Plan Calculator</h3>
+                        <h3 class="text-2xl font-bold text-white">30-Second Payment Plans</h3>
                         <span class="px-2 py-0.5 text-xs font-semibold bg-blue-500/20 text-blue-400 rounded-full">Done For You</span>
                     </div>
-                    <p class="text-gray-300 mb-6">Tell it the balance and schedule — SideKick enters every payment line into ProSelect automatically. No typing, no mistakes, no forgetting.</p>
+                    <p class="text-gray-300 mb-6">Your client just said yes — don't let that moment fade. Pick a schedule, hit go, and SideKick enters every payment line into ProSelect in seconds. The plan is locked in before they've put their coat on. No spreadsheet. No "I'll send you the details later." No chance for buyer's remorse.</p>
                     <ul class="space-y-3">
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Weekly, bi-weekly, 4-weekly, and monthly schedules
+                            Weekly, bi-weekly, 4-weekly, or monthly — you choose, SideKick types
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Optional deposit with separate payment method
+                            Take a deposit on card, schedule the rest on Direct Debit — mixed methods in one click
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Automatic rounding correction — no penny discrepancies
+                            Penny-perfect rounding — no awkward "you owe 1p" conversations
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Direct Debit date validation (enforces setup window)
+                            GoCardless DD setup on the spot — payments collected automatically, nothing to remember
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Set up GoCardless DD payments on the spot — never forget
+                            Client leaves with a plan in place and a Direct Debit live — you sleep easy
                         </li>
                     </ul>
                 </div>
@@ -544,30 +572,30 @@
                 <div>
                     <div class="feature-icon bg-teal-500/10 text-teal-400 mb-4">🏦</div>
                     <div class="flex items-center gap-3 mb-3">
-                        <h3 class="text-2xl font-bold text-white">GoCardless Direct Debit</h3>
-                        <span class="px-2 py-0.5 text-xs font-semibold bg-teal-500/20 text-teal-400 rounded-full">🌍 International</span>
+                        <h3 class="text-2xl font-bold text-white">Never Chase a Payment Again</h3>
+                        <span class="px-2 py-0.5 text-xs font-semibold bg-teal-500/20 text-teal-400 rounded-full">🌍 GoCardless Direct Debit</span>
                     </div>
-                    <p class="text-gray-300 mb-6">Ever agreed a payment plan then forgotten to set up the Direct Debit? It leads to lost revenue and awkward chasing. With SideKick, you set up DD payments right there during the sale — before the client leaves. Payments collected automatically across UK, USA, EU, Australia, Canada & New Zealand.</p>
+                    <p class="text-gray-300 mb-6">The sale is done. The client's excited. But if you wait until tomorrow to "send the payment link" — doubt creeps in. SideKick lets you set up the Direct Debit right there, during the sale, while they're still buzzing. Payments start collecting automatically. No chasing. No forgotten setups. No lost revenue. Works across UK, USA, EU, Australia, Canada & New Zealand.</p>
                     <ul class="space-y-3">
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Set up recurring payments during the sale — never forget
+                            Lock in recurring payments before they leave — buyer's remorse can't touch a live DD
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Check if client has existing Direct Debit mandate
+                            Check existing mandates instantly — no duplicate setup embarrassment
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Send mandate setup link via GHL email or SMS templates
+                            Send mandate link via email or SMS — client signs on their phone right there
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Auto-populate payment schedule from your PayPlan
+                            Schedule auto-populates from your payment plan — no re-typing dates and amounts
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Low fees — get paid on autopilot without credit card costs
+                            Fraction of credit card fees — more profit on every payment
                         </li>
                     </ul>
                     <div class="mt-6 p-4 bg-teal-500/10 rounded-lg border border-teal-500/20">
@@ -586,36 +614,36 @@
                 <div>
                     <div class="feature-icon bg-pink-500/10 text-pink-400 mb-4">💌</div>
                     <div class="flex items-center gap-3 mb-3">
-                        <h3 class="text-2xl font-bold text-white">Cardly Greeting Cards</h3>
-                        <span class="px-2 py-0.5 text-xs font-semibold bg-pink-500/20 text-pink-400 rounded-full">🌍 International</span>
+                        <h3 class="text-2xl font-bold text-white">Send a Thank-You Card in 30 Seconds</h3>
+                        <span class="px-2 py-0.5 text-xs font-semibold bg-pink-500/20 text-pink-400 rounded-full">🌍 Cardly International</span>
                     </div>
-                    <p class="text-gray-300 mb-6">Turn your favourite session image into a real printed postcard — sent directly to your client's doorstep. A personal touch that keeps you top-of-mind long after the shoot. Thank-you cards, birthday wishes, or seasonal marketing — all from one click on the toolbar.</p>
+                    <p class="text-gray-300 mb-6">Your client just spent thousands on wall art. In 30 seconds you can send a real, printed thank-you postcard featuring their favourite image — it lands on their doormat days later, right when buyer's remorse might creep in. Instead of doubt, they feel valued. That postcard becomes a talking point with friends, a referral trigger, and a reminder that choosing you was the right call. Birthday cards, seasonal marketing, or just a "thank you" — one click on the toolbar.</p>
                     <ul class="space-y-3">
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Select any image from the session — pre-selects from ProSelect
+                            30 seconds — pick image, add message, hit send. Done before the session ends
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Crop, zoom & reposition — WYSIWYG preview before sending
+                            Their image, their card — crop, zoom & preview exactly what they'll receive
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Add sticker overlays (Thank You, Happy Birthday, etc.)
+                            Sticker overlays — "Thank You", "Happy Birthday", your branding
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Client address auto-filled from PSA album, XML, or GHL contact
+                            Address auto-filled — no asking "what's your postcode again?"
                         </li>
                         <li class="flex items-start gap-3 text-sm text-gray-300">
                             <span class="text-brand-accent mt-0.5">✓</span>
-                            Real printed card posted by Cardly — arrives in days
+                            Real printed card posted internationally — arrives when it matters most
                         </li>
                     </ul>
                     <div class="mt-6 p-4 bg-pink-500/10 rounded-lg border border-pink-500/20">
                         <p class="text-sm text-pink-300 mb-2">💳 <strong>Pay per card — no subscription required</strong></p>
                         <p class="text-xs text-gray-400 mb-3">Create a free Cardly account, add your API key in SideKick settings, and you're ready to go.</p>
-                        <a href="https://www.cardly.net/" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-4 py-2 bg-pink-500 hover:bg-pink-400 text-white text-sm font-semibold rounded-lg transition-colors">
+                        <a href="https://www.cardly.net/business" target="_blank" rel="noopener" class="inline-flex items-center gap-2 px-4 py-2 bg-pink-500 hover:bg-pink-400 text-white text-sm font-semibold rounded-lg transition-colors">
                             Visit Cardly →
                         </a>
                     </div>
@@ -876,31 +904,31 @@
                 <p class="text-gray-500 text-sm mb-8">Billed annually at £149/year — save 17%</p>
                 <ul class="space-y-3 text-left mb-10">
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> Invoice sync with payment schedules
+                        <span class="text-brand-accent">✓</span> One-click invoice sync — order to GHL in seconds
                     </li>
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> Payment plan calculator
+                        <span class="text-brand-accent">✓</span> 30-second payment plans — lock it in before they leave
                     </li>
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> GHL client import
+                        <span class="text-brand-accent">✓</span> GoCardless Direct Debit — set up during the sale
                     </li>
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> Room capture
+                        <span class="text-brand-accent">✓</span> Cardly greeting cards — 30 seconds to send a real postcard
                     </li>
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> SD card download & file management
+                        <span class="text-brand-accent">✓</span> Invoice update & resync — change orders without losing payments
                     </li>
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> Contact sheet generation
+                        <span class="text-brand-accent">✓</span> GHL client import & auto-tagging
                     </li>
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> GHL auto-tagging & workflow triggers
+                        <span class="text-brand-accent">✓</span> Room capture — close the wall-art sale on the spot
                     </li>
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> Automatic updates
+                        <span class="text-brand-accent">✓</span> Workflow triggers — automate follow-ups, reminders, pipeline
                     </li>
                     <li class="flex items-center gap-3 text-gray-300">
-                        <span class="text-brand-accent">✓</span> Email support
+                        <span class="text-brand-accent">✓</span> Automatic updates & email support
                     </li>
                 </ul>
                 <a href="https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c" class="btn-primary text-white px-8 py-4 rounded-xl font-semibold text-lg block mb-3">
@@ -974,6 +1002,14 @@
                     </summary>
                     <div class="px-6 pb-6 text-gray-400">Yes. Cancel your subscription at any time through your LemonSqueezy account. Your license remains active until the end of the current billing period.</div>
                 </details>
+                <!-- FAQ 8 -->
+                <details class="bg-brand-mid/40 border border-white/5 rounded-xl group">
+                    <summary class="flex items-center justify-between p-6 cursor-pointer text-white font-medium hover:text-brand-accent transition">
+                        What if I need to change an order after syncing?
+                        <svg class="w-5 h-5 text-gray-500 group-open:rotate-45 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    </summary>
+                    <div class="px-6 pb-6 text-gray-400">Just re-export from ProSelect. SideKick detects the existing invoice and asks whether to Update (change items in-place, preserve payments), Replace (delete old, create new), or create a New separate invoice. Existing GoCardless and Stripe payments are never affected.</div>
+                </details>
             </div>
         </div>
     </section>
@@ -981,8 +1017,8 @@
     <!-- Final CTA -->
     <section class="py-20 px-6 gradient-hero">
         <div class="max-w-3xl mx-auto text-center">
-            <h2 class="text-3xl md:text-4xl font-bold text-white mb-6">Ready to Save Hours Every Week?</h2>
-            <p class="text-gray-300 text-lg mb-10">Join photographers who've automated their ProSelect workflow. Try free for 14 days.</p>
+            <h2 class="text-3xl md:text-4xl font-bold text-white mb-6">Close the Sale. Walk Away. Everything's Done.</h2>
+            <p class="text-gray-300 text-lg mb-10">Payment plan locked in 30 seconds. Direct Debit live before they leave. Thank-you card on its way to their doormat. No admin tonight — just the creative work you actually love.</p>
             <div class="flex flex-wrap justify-center gap-4">
                 <a href="https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c" class="btn-primary text-white px-10 py-4 rounded-xl font-semibold text-lg inline-flex items-center gap-2">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>

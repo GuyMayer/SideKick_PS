@@ -129,6 +129,7 @@ h<!DOCTYPE html>
                         <a href="#xero">Xero Integration</a>
                         <a href="#quickbooks">QuickBooks Integration</a>
                         <a href="#best-practices">Best Practices</a>
+                        <a href="#update-resync">Update &amp; Resync</a>
                         <a href="#troubleshooting">Troubleshooting</a>
                     </div>
                 </div>
@@ -726,6 +727,74 @@ ProSelect Product_Name → GHL Name → QuickBooks Item Name</pre>
                         </ul>
                     </div>
 
+                    <!-- Update & Resync -->
+                    <div id="update-resync" class="doc-section">
+                        <h2>Invoice Update &amp; Resync</h2>
+                        <p class="text-gray-300 mb-4">When you re-export an order that has already been synced, SideKick detects the existing GHL invoice and gives you three options:</p>
+
+                        <h3>Duplicate Detection</h3>
+                        <p class="text-gray-300 mb-4">SideKick automatically checks for an existing invoice matching the shoot number before creating a new one. If a match is found, you'll see a prompt with the existing invoice details (number, status, amount paid) and four choices:</p>
+
+                        <div class="overflow-x-auto mt-4 mb-6">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>Option</th>
+                                        <th>What It Does</th>
+                                        <th>When To Use</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Replace</strong></td>
+                                        <td>Deletes the old invoice and creates a brand new one from scratch</td>
+                                        <td>Major order changes, or when the old invoice has issues</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Update</strong></td>
+                                        <td>Updates line items in-place, records new payments, refreshes schedules</td>
+                                        <td>Client added items or changed quantities — existing payments are preserved</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>New</strong></td>
+                                        <td>Creates a second invoice alongside the existing one</td>
+                                        <td>Separate orders for the same client (e.g. reorder session)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Cancel</strong></td>
+                                        <td>Aborts the sync</td>
+                                        <td>Accidental export</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3>How Update Works</h3>
+                        <ol class="list-decimal list-inside space-y-2 text-gray-300 mt-4">
+                            <li>Fetches the existing invoice to check current payment state</li>
+                            <li>Rebuilds all line items from the new ProSelect export</li>
+                            <li>Updates the invoice items and totals via the GHL API</li>
+                            <li>Records any <strong>new</strong> past payments not already on the invoice</li>
+                            <li>Cancels old recurring schedules and creates new ones for future payments</li>
+                        </ol>
+
+                        <div class="tip-box mt-6">
+                            <strong>Provider Payments Preserved</strong>
+                            <p class="text-gray-300 text-sm mt-2">Payments collected through GoCardless or Stripe are never touched during an update. Only the line items, totals, and future schedules are changed.</p>
+                        </div>
+
+                        <h3>How Replace Works</h3>
+                        <ol class="list-decimal list-inside space-y-2 text-gray-300 mt-4">
+                            <li>Voids or deletes the existing invoice (handles payments and schedules)</li>
+                            <li>Runs a full fresh sync — identical to a first-time export</li>
+                        </ol>
+
+                        <div class="warning-box mt-6">
+                            <strong>Total Less Than Amount Paid?</strong>
+                            <p class="text-gray-300 text-sm mt-2">If the new order total is less than what's already been paid, GHL will reject the update. Use <strong>Replace</strong> instead, or refund the difference in GHL Payments first.</p>
+                        </div>
+                    </div>
+
                     <!-- Troubleshooting -->
                     <div id="troubleshooting" class="doc-section">
                         <h2>Troubleshooting</h2>
@@ -751,6 +820,14 @@ ProSelect Product_Name → GHL Name → QuickBooks Item Name</pre>
                             <li>Ensure taxable flag is correctly set per item</li>
                         </ol>
 
+                        <h3>Invoice Update Fails with "Total Less Than Amount Paid"</h3>
+                        <ol class="list-decimal list-inside space-y-2 text-gray-300 mt-4">
+                            <li>The new ProSelect order total is lower than what's already been paid in GHL</li>
+                            <li>Use <strong>Replace</strong> instead of Update on the duplicate prompt</li>
+                            <li>Or refund the difference in GHL Payments → then re-export</li>
+                            <li>Or correct the order total in ProSelect before exporting</li>
+                        </ol>
+
                         <div class="tip-box mt-6">
                             <strong>Need Help?</strong>
                             <p class="text-gray-300 text-sm mt-2">Check the SideKick PS debug logs in <code>%APPDATA%\SideKick_PS\Logs</code>. Enable Debug Logging in Settings → About and contact <a href="mailto:guy@zoom-photo.co.uk" class="text-brand-accent hover:underline">guy@zoom-photo.co.uk</a> with the log file attached.</p>
@@ -759,7 +836,7 @@ ProSelect Product_Name → GHL Name → QuickBooks Item Name</pre>
 
                     <!-- Version Info -->
                     <div class="text-sm text-gray-500 mt-8 pt-8 border-t border-white/5">
-                        <p>Last updated: February 17, 2026 • SideKick PS v2.5.7</p>
+                        <p>Last updated: March 4, 2026 • SideKick PS v2.5.46</p>
                     </div>
 
                 </div>

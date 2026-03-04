@@ -6,20 +6,24 @@
 
 SideKick PS eliminates manual data entry between ProSelect and GoHighLevel:
 
-- **Invoice Sync**: One-click export from ProSelect creates a complete GHL invoice with all line items, payments, and contact sheet image
-- **Client Import**: Pull client data from GHL into ProSelect instantly
-- **Payment Calculator (Done For You)**: Auto-generate and enter payment plans into ProSelect — no typing, no mistakes, no forgetting
-- **GoCardless Integration**: Set up Direct Debit payments during the sale so you never forget — available in UK, USA, EU, Australia, Canada, New Zealand
+- **Invoice Sync**: One-click export from ProSelect creates a complete GHL invoice with all line items, payments, and contact sheet image. Duplicate detection lets you Update (preserve payments), Replace, or create a New invoice when re-exporting
+- **30-Second Payment Plans**: Auto-generate and enter payment plans into ProSelect — lock in the deal before buyer's remorse sets in
+- **GoCardless Direct Debit**: Set up recurring payments during the sale, before the client leaves — available in UK, USA, EU, Australia, Canada, New Zealand
+- **30-Second Thank-You Cards**: Send a real printed postcard featuring the client's image via Cardly — lands on their doormat when it matters most
+- **Client Import**: Pull client data from GHL into ProSelect instantly — no switching between apps
+- **Room Capture**: Email the ProSelect room view to clients so they see their artwork in their space — close the wall-art sale on the spot
+- **GHL Workflow Triggers**: Auto-tag contacts, update opportunities, and trigger email/SMS sequences on every sync
 - **Xero/QuickBooks**: SKU matching for accounting software integration
 
 ## The Problem It Solves
 
-Photographers often agree payment plans with clients but forget to set up the Direct Debit later. This leads to:
-- Lost revenue
-- Awkward chasing conversations
-- Complicated accounting
+Photographers lose revenue to buyer's remorse and forgotten follow-ups:
+- Client says yes, walks out, doubt creeps in — the sale is lost
+- Payment plan agreed but Direct Debit never set up — awkward chasing later
+- No thank-you touchpoint — the excitement fades and referrals don't happen
+- Hours of data entry every evening instead of doing what they love
 
-With SideKick, you set up DD payments right there during the sale — before the client leaves. Payments are collected automatically.
+With SideKick, you lock in the payment plan in 30 seconds, set up the Direct Debit before they leave, and send a printed thank-you card to their doormat — all from one click on the toolbar. Buyer's remorse doesn't stand a chance.
 
 ## Target Users
 
@@ -43,12 +47,13 @@ With SideKick, you set up DD payments right there during the sale — before the
 
 ## Key Benefits
 
-1. Save 5+ hours per week on admin
-2. No more copy-paste between systems
-3. Automatic workflow triggers in GHL
-4. Payment plans entered in seconds, not minutes
-5. Never forget to set up Direct Debit — do it during the sale
-6. Get paid on autopilot
+1. Close the sale and walk away — everything syncs automatically
+2. 30-second payment plans — locked in before the client puts their coat on
+3. Direct Debit set up during the sale — never chase, never forget
+4. 30-second thank-you cards — arrive when buyer's remorse would
+5. Change an order? Update the invoice without losing existing payments
+6. GHL workflows triggered automatically — follow-ups, reminders, pipeline
+7. Get your evenings back — zero data entry
 
 ## Company
 
