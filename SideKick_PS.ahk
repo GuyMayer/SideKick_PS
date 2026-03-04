@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.42
-; Build Date:  2026-02-28
+; Version:     2.5.44
+; Build Date:  2026-03-04
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -277,6 +277,9 @@ global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black,
 global Settings_ToolbarAutoBG := true         ; Auto-detect background color for toolbar (default ON)
 global Settings_ToolbarLastBGColor := "333333" ; Last known good toolbar background color
 global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
+global Settings_ToolbarScale := 0.9   ; Toolbar scale factor (0.5 = 50%, 1.0 = 100%)
+global Settings_ToolbarAutoScale := 0 ; Auto-scale toolbar based on ProSelect window size
+global Toolbar_AutoScaleCooldown := 0 ; Tick count of last auto-scale rebuild (debounce)
 global Settings_ToolbarOffsetX := 0  ; Toolbar X offset from default position (Ctrl+Click grab handle to adjust)
 global Settings_ToolbarOffsetY := 0  ; Toolbar Y offset from default position
 global Toolbar_IsDragging := false   ; True when user is dragging the toolbar
@@ -992,6 +995,53 @@ if (customColor != "") {
 }
 Return
 
+; Handle toolbar scale change (manual DDL)
+ToolbarScaleChanged:
+Gui, Settings:Submit, NoHide
+GuiControlGet, selectedScale,, Settings_ToolbarScale_DDL
+if (selectedScale = "50%")
+	Settings_ToolbarScale := 0.5
+else if (selectedScale = "60%")
+	Settings_ToolbarScale := 0.6
+else if (selectedScale = "70%")
+	Settings_ToolbarScale := 0.7
+else if (selectedScale = "75%")
+	Settings_ToolbarScale := 0.75
+else if (selectedScale = "80%")
+	Settings_ToolbarScale := 0.8
+else if (selectedScale = "90%")
+	Settings_ToolbarScale := 0.9
+else
+	Settings_ToolbarScale := 1.0
+; Manual selection disables auto-scale
+Settings_ToolbarAutoScale := 0
+IniWrite, %Settings_ToolbarAutoScale%, %IniFilename%, Toolbar, AutoScale
+IniWrite, %Settings_ToolbarScale%, %IniFilename%, Toolbar, Scale
+; Update auto-scale checkbox if visible
+GuiControl, Settings:, HKAutoScaleCheck, 0
+; Re-enable the manual DDL since auto is off
+GuiControl, Settings:Enable, Settings_ToolbarScale_DDL
+Gui, Toolbar:Destroy
+CreateFloatingToolbar()
+Return
+
+; Handle auto-scale toggle
+ToolbarAutoScaleChanged:
+; Read the checkbox value
+GuiControlGet, _autoScaleVal,, HKAutoScaleCheck
+Settings_ToolbarAutoScale := _autoScaleVal
+IniWrite, %Settings_ToolbarAutoScale%, %IniFilename%, Toolbar, AutoScale
+if (Settings_ToolbarAutoScale) {
+	; Disable the manual DDL
+	GuiControl, Settings:Disable, Settings_ToolbarScale_DDL
+	; Reset cooldown so auto-scale kicks in immediately
+	Toolbar_AutoScaleCooldown := 0
+} else {
+	; Re-enable manual DDL
+	GuiControl, Settings:Enable, Settings_ToolbarScale_DDL
+}
+Return
+
 ; Reset toolbar position to default
 HKResetToolbarPos:
 Settings_ToolbarOffsetX := 0
@@ -1464,7 +1514,7 @@ GetPythonPath() {
 ; Returns: full path to .exe if exists, otherwise full path to .py
 GetScriptPath(scriptName) {
 	; Script name mapping - internal names to cryptic filenames (for exe distribution)
-	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc", "gocardless_api": "_gca", "cardly_preview_gui": "_cpg", "cardly_send_card": "_csc", "write_psa_payments": "_wpp", "read_psa_payments": "_rpp", "read_psa_images": "_rpi"}
+	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc", "gocardless_api": "_gca", "cardly_preview_gui": "_cpg", "cardly_send_card": "_csc", "write_psa_payments": "_wpp", "read_psa_payments": "_rpp", "read_psa_images": "_rpi", "stale_mandates_gui": "_smg"}
 	
 	; Get the actual filename (use mapped name for production, original for dev)
 	if (A_IsCompiled && scriptMap.HasKey(scriptName)) {
@@ -1495,6 +1545,16 @@ GetScriptPath(scriptName) {
 ; args: command line arguments to pass
 ; Returns: the command string to run
 GetScriptCommand(scriptName, args := "") {
+	; ── Unified CLI mapping (internal name → kebab-case subcommand) ──
+	; When SideKick_PS_CLI.exe exists it replaces the 11+ individual exes.
+	static subcommandMap := {"sync_ps_invoice": "sync-invoice", "validate_license": "validate-license", "create_ghl_contactsheet": "create-contactsheet", "upload_ghl_media": "upload-media", "gocardless_api": "gocardless", "cardly_preview_gui": "cardly-preview", "cardly_send_card": "cardly-send", "write_psa_payments": "write-psa", "read_psa_payments": "read-psa", "read_psa_images": "read-psa-images", "stale_mandates_gui": "stale-mandates"}
+	
+	unifiedExe := A_ScriptDir . "\SideKick_PS_CLI.exe"
+	if (A_IsCompiled && FileExist(unifiedExe) && subcommandMap.HasKey(scriptName)) {
+		return """" . unifiedExe . """ " . subcommandMap[scriptName] . " " . args
+	}
+	
+	; ── Fallback: individual exe / .py (legacy or dev mode) ──
 	scriptPath := GetScriptPath(scriptName)
 	
 	; If it's an .exe, run it directly
@@ -1530,6 +1590,49 @@ RunCaptureOutput(command) {
 	}
 }
 
+; ============================================================================
+; Foolproof command execution helpers
+; These use a temp .cmd file to completely avoid cmd.exe /c quoting madness.
+; Works correctly with both .exe and .py paths containing spaces (e.g. Program Files).
+; Sets UTF-8 codepage (chcp 65001) so Python output encoding is correct.
+; ============================================================================
+
+; Synchronous: Run a command, redirect stdout+stderr to outputFile, wait for completion.
+; command  - the full command string (e.g. from GetScriptCommand with args)
+; outputFile - path to write stdout+stderr into
+; Returns: process exit code (ErrorLevel)
+RunCmdToFile(command, outputFile) {
+	global DebugLogFile
+	tempCmd := A_Temp . "\sk_run_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileDelete, %outputFile%
+	cmdContent := "@echo off`r`n@chcp 65001 >nul`r`n" . command . " > """ . outputFile . """ 2>&1`r`n"
+	FileAppend, %cmdContent%, %tempCmd%
+	FileAppend, % A_Now . " - RunCmdToFile: " . command . "`n", %DebugLogFile%
+	RunWait, %ComSpec% /c "%tempCmd%", , Hide
+	exitCode := ErrorLevel
+	FileDelete, %tempCmd%
+	return exitCode
+}
+
+; Asynchronous: Run a command in background, redirect stdout+stderr to outputFile.
+; Returns immediately. Caller must poll outputFile for results.
+; command    - the full command string
+; outputFile - path to write stdout+stderr into
+; Returns: path to temp .cmd file (self-deletes when done)
+RunCmdToFileAsync(command, outputFile) {
+	global DebugLogFile
+	tempCmd := A_Temp . "\sk_run_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileDelete, %outputFile%
+	; Self-delete the .cmd file after the command finishes
+	cmdContent := "@echo off`r`n@chcp 65001 >nul`r`n" . command . " > """ . outputFile . """ 2>&1`r`ndel ""%~f0""`r`n"
+	FileAppend, %cmdContent%, %tempCmd%
+	FileAppend, % A_Now . " - RunCmdToFileAsync: " . command . "`n", %DebugLogFile%
+	Run, %ComSpec% /c "%tempCmd%", , Hide
+	return tempCmd
+}
+
 ShowAbout:
 ; Open settings to About tab
 Settings_CurrentTab := "About"
@@ -1543,10 +1646,13 @@ Return
 ; Toolbar tooltip data (hwnd => tooltip text)
 global ToolbarTooltips := {}
 global ToolbarLastHoveredButton := 0
+global ToolbarHoverStartTick := 0       ; A_TickCount when mouse entered current button
+global ToolbarTooltipShown := false     ; whether tooltip is currently displayed
 
 ; Toolbar tooltip timer
 ToolbarTooltipOff:
 ToolTip
+ToolbarTooltipShown := false
 return
 
 CreateFloatingToolbar()
@@ -1611,23 +1717,24 @@ CreateFloatingToolbar()
 	if (hasShortcutButtons && hasServiceButtons)
 		separatorCount++
 	
-	; Scale button dimensions for DPI
+	; Scale button dimensions for DPI and user toolbar scale
 	; Make buttons fill entire toolbar with NO gaps - eliminates click-blocking transparent areas
-	btnW := Round(44 * DPI_Scale)
-	btnH := Round(40 * DPI_Scale)  ; Match toolbar height
+	tbScale := DPI_Scale * Settings_ToolbarScale  ; Combined DPI + user scale factor
+	btnW := Round(44 * tbScale)
+	btnH := Round(40 * tbScale)  ; Match toolbar height
 	btnSpacing := btnW  ; No gaps - buttons are adjacent
 	btnMargin := 0  ; No left margin
 	btnY := 0  ; Buttons at top edge
 	btnY1 := 0  ; Camera button also at top
-	fontSize := Round(16 * DPI_Scale)
-	fontSizeSmall := Round(14 * DPI_Scale)
-	separatorW := Round(12 * DPI_Scale)  ; Width of section dividers
+	fontSize := Round(16 * tbScale)
+	fontSizeSmall := Round(14 * tbScale)
+	separatorW := Round(12 * tbScale)  ; Width of section dividers
 	
 	toolbarWidth := btnMargin + (btnCount * btnSpacing) + (separatorCount * separatorW)
 	toolbarHeight := btnH  ; Exact button height - no padding
 	
 	; Add width for grab handle on the left
-	grabHandleWidth := Round(16 * DPI_Scale)
+	grabHandleWidth := Round(16 * tbScale)
 	toolbarWidth := toolbarWidth + grabHandleWidth
 	
 	; Calculate toolbar position and sample background color BEFORE creating GUI
@@ -1914,15 +2021,19 @@ CreateFloatingToolbar()
 	SetTimer, CheckToolbarTooltip, 100  ; Check for tooltip hover every 100ms
 }
 
-; Timer-based tooltip check for toolbar (backup for WM_MOUSEMOVE)
+; Timer-based tooltip check for toolbar
+; Tooltips only appear after mouse hovers the same button for 2 seconds
 CheckToolbarTooltip:
 	global ToolbarTooltips, ToolbarLastHoveredButton, ToolbarHwnd
+	global ToolbarHoverStartTick, ToolbarTooltipShown
 	
 	; Only process when mouse is over toolbar window
 	MouseGetPos, , , mouseWin, controlHwnd, 2
 	if (mouseWin != ToolbarHwnd) {
 		if (ToolbarLastHoveredButton) {
 			ToolbarLastHoveredButton := 0
+			ToolbarHoverStartTick := 0
+			ToolbarTooltipShown := false
 			ToolTip
 		}
 		return
@@ -1931,13 +2042,24 @@ CheckToolbarTooltip:
 	; Check if mouse is over a tooltip-enabled button
 	if (ToolbarTooltips.HasKey(controlHwnd)) {
 		if (controlHwnd != ToolbarLastHoveredButton) {
+			; Mouse moved to a new button — start hover timer
 			ToolbarLastHoveredButton := controlHwnd
-			ToolTip, % ToolbarTooltips[controlHwnd]
-			SetTimer, ToolbarTooltipOff, -2000
+			ToolbarHoverStartTick := A_TickCount
+			ToolbarTooltipShown := false
+			ToolTip  ; hide any previous tooltip
+		} else if (!ToolbarTooltipShown && ToolbarHoverStartTick > 0) {
+			; Same button — check if 2 seconds have elapsed
+			if (A_TickCount - ToolbarHoverStartTick >= 2000) {
+				ToolbarTooltipShown := true
+				ToolTip, % ToolbarTooltips[controlHwnd]
+				SetTimer, ToolbarTooltipOff, -3000
+			}
 		}
 	} else if (ToolbarLastHoveredButton) {
 		; Mouse is on toolbar but not a button
 		ToolbarLastHoveredButton := 0
+		ToolbarHoverStartTick := 0
+		ToolbarTooltipShown := false
 		ToolTip
 	}
 return
@@ -2299,6 +2421,30 @@ if (!TB_CalibShowing) {
 ; === END ROOM DETECTION CODE ===
 */
 
+; Auto-scale toolbar based on ProSelect window width in pixels
+; Compensates for DPI so icons don't double-inflate on high-DPI screens
+; At 100% DPI: 1920px → 100%, 1440px → 75%, 960px → 50%
+; At 125% DPI: 1536px → 65%, 1200px → 50%  (DPI already enlarges icons)
+if (Settings_ToolbarAutoScale) {
+	_asScaleRaw := psW / (1920 * DPI_Scale)
+	; Clamp 0.5 – 1.0
+	if (_asScaleRaw < 0.5)
+		_asScaleRaw := 0.5
+	if (_asScaleRaw > 1.0)
+		_asScaleRaw := 1.0
+	; Quantize to nearest 5% to avoid constant rebuilds
+	_asScale := Round(_asScaleRaw * 20) / 20
+	if (_asScale != Round(Settings_ToolbarScale, 2)) {
+		_asNow := A_TickCount
+		if (!Toolbar_AutoScaleCooldown || (_asNow - Toolbar_AutoScaleCooldown) > 800) {
+			Toolbar_AutoScaleCooldown := _asNow
+			Settings_ToolbarScale := _asScale
+			Gui, Toolbar:Destroy
+			CreateFloatingToolbar()
+		}
+	}
+}
+
 ; Position inline with window close X button - adjust for toolbar width
 ; Scale the offset for high-DPI displays (200 is the base offset at 100% scaling)
 ; Offset accounts for window close/maximize/minimize buttons to avoid overlap
@@ -2330,7 +2476,7 @@ psCenterY := psY + (psH // 2)
 foundMonitor := false
 
 ; Check each monitor to find which one contains the ProSelect window
-tbHeight := Round(43 * DPI_Scale)
+tbHeight := Round(43 * DPI_Scale * Settings_ToolbarScale)
 Loop, %monitorCount% {
 	SysGet, mon, MonitorWorkArea, %A_Index%
 	if (psCenterX >= monLeft && psCenterX <= monRight && psCenterY >= monTop && psCenterY <= monBottom) {
@@ -2547,16 +2693,30 @@ Return
 
 Toolbar_Photoshop:
 ; Transfer to Photoshop, wait for edit, then refresh
-; Only works when ProSelect is in focus
-IfWinNotActive, ahk_exe ProSelect.exe
+; Ensure ProSelect is running and focused before sending shortcut
+IfWinNotExist, ahk_exe ProSelect.exe
 	Return
+WinActivate, ahk_exe ProSelect.exe
+WinWaitActive, ahk_exe ProSelect.exe, , 3
+if ErrorLevel {
+	DarkMsgBox("Photoshop", "Could not activate ProSelect window.", "warning")
+	Return
+}
+Sleep, 300
 Send, ^t
-Sleep, 500
+Sleep, 1500
 ; Show popup and wait for user to finish editing
 DarkMsgBox("Edit Preview", "Edit preview file and save.`n`n" . Chr(0x1F504) . " Return to ProSelect and refresh.", "info", {timeout: 5})
 ; Return to ProSelect and refresh
 WinActivate, ahk_exe ProSelect.exe
-WinWaitActive, ahk_exe ProSelect.exe, , 2
+WinWaitActive, ahk_exe ProSelect.exe, , 5
+if ErrorLevel {
+	; Try one more time
+	Sleep, 500
+	WinActivate, ahk_exe ProSelect.exe
+	WinWaitActive, ahk_exe ProSelect.exe, , 3
+}
+Sleep, 300
 Send, ^u
 Return
 
@@ -2591,9 +2751,14 @@ Return
 
 Toolbar_Refresh:
 ; Refresh/Update album
-; Only works when ProSelect is in focus
-IfWinNotActive, ahk_exe ProSelect.exe
+; Ensure ProSelect is running and focused before sending shortcut
+IfWinNotExist, ahk_exe ProSelect.exe
 	Return
+WinActivate, ahk_exe ProSelect.exe
+WinWaitActive, ahk_exe ProSelect.exe, , 3
+if ErrorLevel
+	Return
+Sleep, 300
 Send, ^u
 Return
 
@@ -3537,11 +3702,12 @@ CalibrateRoomsButton() {
 	
 	psCmd := "powershell.exe -ExecutionPolicy Bypass -File """ . ocrScript . """ -x " . scanX . " -y " . scanY . " -width " . scanW . " -height " . scanH . " -searchText ""Rooms"""
 	
-	; Run and capture output
-	RunWait, %ComSpec% /c %psCmd% > "%A_Temp%\ocr_result.json" 2>&1, , Hide
+	; Run and capture output (uses temp .cmd file to avoid quoting issues)
+	ocrOutFile := A_Temp . "\ocr_result.json"
+	RunCmdToFile(psCmd, ocrOutFile)
 	
 	; Read result
-	FileRead, ocrJson, %A_Temp%\ocr_result.json
+	FileRead, ocrJson, %ocrOutFile%
 	if (ocrJson = "") {
 		FileAppend, % A_Now . " - OCR returned empty result`n", %DebugLogFile%
 		return false
@@ -4112,14 +4278,53 @@ Toolbar_GoCardless:
 	
 	; Check if we have a GHL contact loaded - if not, try to auto-fetch from album name
 	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {
-		; Try to extract Client ID from ProSelect album name
+		global PsConsolePath, Settings_ShootArchivePath
+		; Try to extract Client ID from ProSelect album name (reuse psTitle from above)
 		albumContactId := ""
-		if WinExist("ProSelect ahk_exe ProSelect.exe")
-		{
-			WinGetTitle, psTitle, ahk_exe ProSelect.exe
-			; Look for GHL Client ID pattern in album name (20+ alphanumeric chars after underscore)
-			if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch))
-				albumContactId := idMatch1
+		
+		; Strategy 1: Split by underscore, check parts from end (most reliable)
+		if InStr(psTitle, "_") {
+			StringSplit, parts, psTitle, _
+			Loop, % parts0 {
+				idx := parts0 - A_Index + 1   ; iterate in reverse
+				thisPart := parts%idx%
+				; Strip any file extension (.psa etc) and " - ProSelect" suffix
+				thisPart := RegExReplace(thisPart, "\.\w+$", "")
+				thisPart := RegExReplace(thisPart, "\s*-\s*ProSelect.*$", "")
+				thisPart := Trim(thisPart)
+				if (StrLen(thisPart) >= 15 && RegExMatch(thisPart, "^[A-Za-z0-9]+$") && !RegExMatch(thisPart, "^P\d+P$"))
+				{
+					albumContactId := thisPart
+					break
+				}
+			}
+		}
+		
+		; Strategy 2: Regex fallback - look for 15+ alphanumeric chars after underscore
+		if (albumContactId = "") {
+			if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
+				if (!RegExMatch(idMatch1, "^P\d+P$"))
+					albumContactId := idMatch1
+			}
+		}
+		
+		; Strategy 3: Read clientCode from the .psa SQLite file via PSConsole
+		if (albumContactId = "") {
+			psaPath := GetAlbumPath()
+			if (psaPath != "" && FileExist(psaPath)) {
+				ToolTip, Reading client ID from album file...
+				tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
+				FileDelete, %tempFile%
+				pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); m=re.search(r'<clientCode>([^<]+)</clientCode>',str(r[0])) if r else None; open(sys.argv[2],'w').write(m.group(1) if m else '')"" """ . psaPath . """ """ . tempFile . """"
+				RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
+				FileRead, psaClientCode, %tempFile%
+				FileDelete, %tempFile%
+				psaClientCode := Trim(psaClientCode, " `t`r`n")
+				; Must be 15+ alphanum AND not a shoot number (P26020P)
+				if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
+					albumContactId := psaClientCode
+				ToolTip
+			}
 		}
 		
 		if (albumContactId != "") {
@@ -4133,7 +4338,7 @@ Toolbar_GoCardless:
 				return
 			}
 		} else {
-			DarkMsgBox("No Client Found", "No GHL Client ID in album name.`n`nPlease fetch a client from GHL first using the Client button,`nor ensure the album name contains a GHL Client ID.", "warning")
+			DarkMsgBox("No Client Found", "No GHL Client ID found in album name or PSA file.`n`nPlease fetch a client from GHL first using the Client button,`nor ensure the album contains a GHL Client ID.", "warning")
 			return
 		}
 	}
@@ -4268,8 +4473,7 @@ GC_SearchMandateByNameOrEmail(contactData) {
 	FileAppend, % A_Now . " - GC_SearchMandateByNameOrEmail - scriptCmd: [redacted for privacy]`n", %DebugLogFile%
 	
 	tempResult := A_Temp . "\gc_mandate_search_" . A_TickCount . ".txt"
-	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
-	RunWait, %fullCmd%, , Hide
+	RunCmdToFile(scriptCmd, tempResult)
 	
 	FileRead, scriptOutput, %tempResult%
 	FileAppend, % A_Now . " - GC_SearchMandateByNameOrEmail - result received (details redacted for privacy)`n", %DebugLogFile%
@@ -5112,7 +5316,7 @@ Toolbar_Cardly:
 	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {
 		; Try to extract Client ID from ProSelect album title
 		albumContactId := ""
-		if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch)) {
+		if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
 			; Verify it's a GHL ID, not a shoot number (e.g. P26020P)
 			if (!RegExMatch(idMatch1, "^P\d+P$"))
 				albumContactId := idMatch1
@@ -5128,8 +5332,8 @@ Toolbar_Cardly:
 			FileRead, psaClientCode, %tempFile%
 			FileDelete, %tempFile%
 			psaClientCode := Trim(psaClientCode, " `t`r`n")
-			; Must be 20+ alphanum AND not a shoot number (P26020P)
-			if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{20,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
+			; Must be 15+ alphanum AND not a shoot number (P26020P)
+			if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
 				albumContactId := psaClientCode
 			ToolTip
 		}
@@ -5234,7 +5438,7 @@ Toolbar_Cardly:
 		albumGhlId := ""
 		if (albumFilename != "") {
 			RegExMatch(albumFilename, "^(P\d+P)", shootMatch), albumShootNo := shootMatch1
-			RegExMatch(albumFilename, "_([A-Za-z0-9]{20,})\.", ghlMatch), albumGhlId := ghlMatch1
+			RegExMatch(albumFilename, "_([A-Za-z0-9]{15,})(?:\.|_|$)", ghlMatch), albumGhlId := ghlMatch1
 		}
 		
 		; Find matching export folder - prioritise shoot number, fall back to GHL ID
@@ -5263,26 +5467,11 @@ Toolbar_Cardly:
 			}
 		}
 		
-		; Pass 3: fall back to most recent folder for images only (no XML - wrong album)
-		exportMatched := (latestFolder != "")
-		if (latestFolder = "") {
-			Loop, Files, %orderExportsDir%\*, D
-			{
-				if (A_LoopFileTimeModified > latestTime) {
-					latestTime := A_LoopFileTimeModified
-					latestFolder := A_LoopFileFullPath
-				}
-			}
-		}
-		
 		if (latestFolder != "") {
-			; Only use XML if the export folder actually matched the album
-			if (exportMatched) {
-				; XML is a sibling file with same name as the folder + .xml extension
-				xmlSibling := latestFolder . ".xml"
-				if (FileExist(xmlSibling))
-					xmlPath := xmlSibling
-			}
+			; XML is a sibling file with same name as the folder + .xml extension
+			xmlSibling := latestFolder . ".xml"
+			if (FileExist(xmlSibling))
+				xmlPath := xmlSibling
 			imageFolder := latestFolder
 		}
 	}
@@ -6143,7 +6332,9 @@ RefundDlg_VoidInvoices:
 			
 			; Call Python to void this invoice using --void-invoice
 			voidCmd := GetScriptCommand("sync_ps_invoice", "--void-invoice """ . invId . """")
-			RunWait, %ComSpec% /c %voidCmd%, , Hide
+			voidTmpOut := A_Temp . "\sk_void_" . A_TickCount . ".txt"
+			RunCmdToFile(voidCmd, voidTmpOut)
+			FileDelete, %voidTmpOut%
 			
 			; Check result file
 			resultFile := A_Temp . "\ghl_sync_result.json"
@@ -7078,7 +7269,7 @@ CheckMonthlyLicenseValidation() {
 	tempFile := A_Temp . "\license_check.json"
 	checkCmd := GetScriptCommand("validate_license", "check """ . License_ValidatedAt . """")
 	
-	RunWait, %ComSpec% /c "%checkCmd% > "%tempFile%"", , Hide
+	RunCmdToFile(checkCmd, tempFile)
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%
@@ -7086,7 +7277,7 @@ CheckMonthlyLicenseValidation() {
 	if InStr(resultJson, """needs_validation"": true") {
 		; Validate license
 		validateCmd := GetScriptCommand("validate_license", "validate """ . License_Key . """ """ . GHL_LocationID . """")
-		RunWait, %ComSpec% /c "%validateCmd% > "%tempFile%"", , Hide
+		RunCmdToFile(validateCmd, tempFile)
 		
 		FileRead, validateResult, %tempFile%
 		FileDelete, %tempFile%
@@ -7120,7 +7311,7 @@ CheckTrialStatus() {
 	tempFile := A_Temp . "\trial_result.json"
 	trialCmd := GetScriptCommand("validate_license", "trial """ . GHL_LocationID . """")
 	
-	RunWait, %ComSpec% /c "%trialCmd% > "%tempFile%"", , Hide
+	RunCmdToFile(trialCmd, tempFile)
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%
@@ -8396,8 +8587,7 @@ RoomEmailRefresh:
 	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
 	
 	tempOutput := A_Temp . "\ghl_templates_" . A_TickCount . ".txt"
-	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempOutput . """ 2>&1"""
-	RunWait, %fullCmd%, , Hide
+	RunCmdToFile(scriptCmd, tempOutput)
 	ToolTip
 	
 	FileRead, tplOutput, %tempOutput%

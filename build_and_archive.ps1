@@ -186,16 +186,19 @@ $scriptNameMap = @{
     "write_psa_payments" = "_wpp"
     "read_psa_payments" = "_rpp"
     "read_psa_images" = "_rpi"
+    "stale_mandates_gui" = "_smg"
 }
 
 # Hidden imports: scripts that import other local modules at runtime
+# PySide6 Qt plugins must be explicitly listed for PyInstaller --onefile to bundle them
 $hiddenImports = @{
     "cardly_preview_gui" = @("cardly_send_card")
+    "stale_mandates_gui" = @("PySide6.QtWidgets", "PySide6.QtCore", "PySide6.QtGui")
 }
 
 # GUI scripts that should use --noconsole (no terminal window).
 # All other scripts are CLI tools that communicate via stdout and MUST use --console.
-$guiScripts = @("cardly_preview_gui")
+$guiScripts = @("cardly_preview_gui", "stale_mandates_gui")
 
 $pythonFiles = @(
     "validate_license",
@@ -209,7 +212,8 @@ $pythonFiles = @(
     "create_ghl_contactsheet",
     "write_psa_payments",
     "read_psa_payments",
-    "read_psa_images"
+    "read_psa_images",
+    "stale_mandates_gui"
 )
 
 $compiledCount = 0
@@ -226,6 +230,18 @@ if (!$SkipPythonCompile) {
             exit 1
         }
         Write-Host "  [OK] PyInstaller installed" -ForegroundColor Green
+    }
+    
+    # Check if PySide6 is installed (required by stale_mandates_gui)
+    $pyside6Check = & pip show PySide6 2>$null
+    if (!$pyside6Check) {
+        Write-Host "  PySide6 not found. Installing..." -ForegroundColor Yellow
+        & pip install PySide6
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ERROR: Failed to install PySide6!" -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "  [OK] PySide6 installed" -ForegroundColor Green
     }
     
     # Find PyInstaller executable (check multiple locations)
@@ -300,6 +316,53 @@ if (!$SkipPythonCompile) {
     $cachedHashes | ConvertTo-Json | Set-Content $HashFile -Force
     
     Write-Host "  Summary: $compiledCount compiled, $cachedCount from cache" -ForegroundColor Gray
+
+    # ── Unified CLI build ────────────────────────────────────────────────
+    # Compile a single-exe CLI dispatcher that replaces the 11+ individual
+    # Python exes.  AHK prefers SideKick_PS_CLI.exe when it exists and falls
+    # back to the legacy per-script exes automatically.
+    $cliLauncher = "$SourceDir\SideKick_PS_CLI.py"
+    if (Test-Path $cliLauncher) {
+        Write-Host "`n  Building unified CLI exe (SideKick_PS_CLI.exe)..." -ForegroundColor Yellow
+
+        # Every script module must be listed as a hidden-import so PyInstaller
+        # includes it in the single bundle.
+        $allHiddenImports = @(
+            "sync_ps_invoice",
+            "validate_license",
+            "create_ghl_contactsheet",
+            "upload_ghl_media",
+            "gocardless_api",
+            "cardly_preview_gui",
+            "cardly_send_card",
+            "write_psa_payments",
+            "read_psa_payments",
+            "read_psa_images",
+            "stale_mandates_gui",
+            "PySide6.QtWidgets",
+            "PySide6.QtCore",
+            "PySide6.QtGui"
+        )
+        $hiArgs = ($allHiddenImports | ForEach-Object { "--hidden-import=$_" }) -join " "
+
+        $pyIconPath = "$ScriptDir\media\SideKick_PS.ico"
+        if (!(Test-Path $pyIconPath)) { $pyIconPath = "$SourceDir\SideKick_PS.ico" }
+        $iconArg = if (Test-Path $pyIconPath) { "--icon=`"$pyIconPath`"" } else { "" }
+
+        $ErrorActionPreference = "SilentlyContinue"
+        $cliCmd = "& `"$pyinstallerExe`" --onefile --console --clean --noconfirm $iconArg " +
+                  "--distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" " +
+                  "--specpath `"$env:TEMP\pyinstaller_spec`" --name `"SideKick_PS_CLI`" " +
+                  "--paths `"$SourceDir`" $hiArgs `"$cliLauncher`" 2>`$null | Out-Null"
+        Invoke-Expression $cliCmd
+        $ErrorActionPreference = "Stop"
+
+        if (Test-Path "$ReleaseDir\SideKick_PS_CLI.exe") {
+            Write-Host "    [OK] SideKick_PS_CLI.exe" -ForegroundColor Green
+        } else {
+            Write-BuildLog "PyInstaller failed: SideKick_PS_CLI.py -> SideKick_PS_CLI.exe" "ERROR"
+        }
+    }
 } else {
     Write-Host '  Skipped (-SkipPythonCompile flag)' -ForegroundColor Gray
 }

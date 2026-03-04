@@ -649,7 +649,7 @@ CreateHotkeysPanel()
 	; ═══════════════════════════════════════════════════════════════════════════
 	toolbarY := A_IsCompiled ? 315 : 355
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y%toolbarY% w480 h135 vHotkeysToolbarGroup Hidden, Toolbar Appearance
+	Gui, Settings:Add, GroupBox, x195 y%toolbarY% w480 h170 vHotkeysToolbarGroup Hidden, Toolbar Appearance
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	iconLabelY := toolbarY + 30
@@ -693,10 +693,37 @@ CreateHotkeysPanel()
 	autoBgToggleY := autoBgY - 3
 	CreateToggleSlider("Settings", "ToolbarAutoBG", autoBgToggleX, autoBgToggleY, Settings_ToolbarAutoBG)
 	
+	; --- Scale ---
+	scaleY := autoBgY + 30
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y%scaleY% w80 BackgroundTrans vHKScaleLabel Hidden HwndHwndHKScale, Scale
+	RegisterSettingsTooltip(HwndHKScale, "TOOLBAR SCALE`n`nShrink the toolbar for smaller screens.`nChoose 50% for half-size or 100% for full-size.")
+	; Build DDL selection list – mark the current scale value
+	scaleDDLOptions := ""
+	scaleChoices := "50,60,70,75,80,90,100"
+	Loop, Parse, scaleChoices, `,
+	{
+		pct := A_LoopField
+		val := pct / 100
+		; AHK float compare – round to avoid precision noise
+		isSel := (Round(val, 2) = Round(Settings_ToolbarScale, 2)) ? "|" : ""
+		scaleDDLOptions .= pct "%" isSel "|"
+	}
+	StringTrimRight, scaleDDLOptions, scaleDDLOptions, 1   ; remove trailing |
+	Gui, Settings:Add, DDL, x340 y%scaleY% w80 vSettings_ToolbarScale_DDL gToolbarScaleChanged Hidden, %scaleDDLOptions%
+	; Auto-scale checkbox — disables DDL when active
+	autoScaleX := 430
+	Gui, Settings:Font, s9 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Checkbox, x%autoScaleX% y%scaleY% w120 vHKAutoScaleCheck gToolbarAutoScaleChanged Checked%Settings_ToolbarAutoScale% Hidden HwndHwndHKAutoScale, Auto (fit window)
+	RegisterSettingsTooltip(HwndHKAutoScale, "AUTO-SCALE`n`nWhen enabled, the toolbar automatically shrinks or grows to match how much of the screen ProSelect occupies.`n`nFull-screen = 100%, half-screen = 50%.")
+	; If auto-scale is on, grey out the manual DDL
+	if (Settings_ToolbarAutoScale)
+		GuiControl, Settings:Disable, Settings_ToolbarScale_DDL
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INSTRUCTIONS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
-	instructY := A_IsCompiled ? 455 : 495
+	instructY := A_IsCompiled ? 490 : 530
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y%instructY% w480 h130 vHotkeysInstructGroup Hidden, How to Set Hotkeys
 	

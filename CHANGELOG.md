@@ -12,6 +12,37 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.44 (2026-03-04)
+
+### New Features
+- **SideKick_GC Payments Tab**: New "Payments" tab in SideKick_GC for creating single payments and recurring subscriptions — mirrors GoCardless dashboard functionality
+- **Single Payments via GC**: Create one-off payments against an active mandate with amount, charge date, description, reference, and metadata
+- **Subscriptions via GC**: Create recurring subscriptions with configurable frequency (weekly/monthly/yearly), interval, day-of-month, and end condition (indefinite / fixed count / end date)
+- **Inline Name Prefix**: Plan name and subscription name inputs now show the Statement Label prefix inline as a non-editable label — user sees the full bank statement name but can only edit the suffix
+
+### Improvements
+- **SideKick_GC v1.1.0**: Subscription API (`create_subscription`, `cancel_subscription`), new worker threads, mandate ID forwarding to Payments tab
+- **Python Package v1.1.0**: `sidekick_ps` package version bumped to 1.1.0
+
+---
+
+## v2.5.43 (2026-03-02)
+
+### New Features
+- **Stale Mandates Qt6 GUI**: New standalone PySide6 dark-themed window for finding and cancelling expired GoCardless mandates. Sortable table with checkboxes, last payment date, total collected, customer name, email, and mandate ID. Batch cancel with two-stage safety warnings (irreversible). Singleton — prevents duplicate windows.
+- **Stale Mandates Button**: New button in GoCardless settings panel launches the Qt6 GUI
+- **Toolbar Auto-Scale**: New checkbox in Toolbar settings auto-links toolbar size to ProSelect window width using `psW / (1920 × DPI_Scale)` with 5% quantization and 800ms cooldown
+- **Toolbar Manual Scale**: New dropdown (50%–100%) for manually sizing the toolbar on smaller screens
+
+### Improvements
+- **cmd.exe Robustness**: `RunCmdToFile()` and `RunCmdToFileAsync()` helpers replace all 17+ vulnerable `%ComSpec% /c` call sites with temp `.cmd` file pattern — safe with spaces and quotes in paths
+- **Build Pipeline**: PySide6 auto-installed at build time; `stale_mandates_gui` compiled to `_smg.exe` with `--noconsole`, code-signed, and included in Inno Setup installer
+
+### Bug Fixes
+- **GoCardless 'No Plans' Hang**: Fixed cmd.exe quoting issue with paths containing spaces causing the button to hang indefinitely
+
+---
+
 ## v2.5.41 (2026-02-28)
 
 ### Bug Fixes

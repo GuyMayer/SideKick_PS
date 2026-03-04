@@ -59,7 +59,7 @@ ValidateLicenseSilent() {
 	tempFile := A_Temp . "\license_validate.json"
 	validateCmd := GetScriptCommand("validate_license", "validate """ . License_Key . """ """ . GHL_LocationID . """")
 	
-	RunWait, %ComSpec% /c "%validateCmd% > "%tempFile%"", , Hide
+	RunCmdToFile(validateCmd, tempFile)
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%
@@ -85,7 +85,7 @@ ValidateLicenseOnline() {
 	tempFile := A_Temp . "\license_validate_check.json"
 	validateCmd := GetScriptCommand("validate_license", "validate """ . License_Key . """ """ . GHL_LocationID . """")
 	
-	RunWait, %ComSpec% /c "%validateCmd% > "%tempFile%"", , Hide
+	RunCmdToFile(validateCmd, tempFile)
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%
@@ -112,7 +112,7 @@ CheckForUpdates() {
 	; Use PowerShell to fetch from GitHub API
 	psCmd := "powershell -NoProfile -Command ""try { $r = Invoke-RestMethod -Uri '" . Update_GitHubReleaseURL . "' -TimeoutSec 10; @{tag=$r.tag_name;url=$r.assets[0].browser_download_url;body=$r.body} | ConvertTo-Json } catch { Write-Output '{''error'': true}' }"""
 	
-	RunWait, %ComSpec% /c "%psCmd% > "%tempFile%"", , Hide
+	RunCmdToFile(psCmd, tempFile)
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%
@@ -644,7 +644,7 @@ CreateAboutPanel()
 	; UPDATES GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y180 w480 h120 vAboutUpdatesGroup Hidden, Updates
+	Gui, Settings:Add, GroupBox, x195 y180 w480 h150 vAboutUpdatesGroup Hidden, Updates
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y205 w100 BackgroundTrans vAboutLatestLabel Hidden, Latest Version:
@@ -658,8 +658,8 @@ CreateAboutPanel()
 	GuiControl, Settings:Hide, Toggle_AutoUpdate
 	
 	; Download progress bar (hidden by default, shown during update)
-	Gui, Settings:Add, Progress, x210 y260 w120 h20 vAboutDownloadProgress Hidden Range0-100 c4FC3F7, 0
-	Gui, Settings:Add, Text, x210 y260 w120 BackgroundTrans vAboutDownloadStatus Hidden,
+	Gui, Settings:Add, Progress, x210 y290 w320 h18 vAboutDownloadProgress Hidden Range0-100 c4FC3F7, 0
+	Gui, Settings:Add, Text, x210 y290 w320 BackgroundTrans vAboutDownloadStatus Hidden,
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Button, x210 y255 w110 h28 gShowWhatsNew vAboutWhatsNewButton Hidden HwndHwndAboutWhatsNew, 📋 What's New
@@ -673,51 +673,51 @@ CreateAboutPanel()
 	; SUPPORT GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y305 w480 h60 vAboutSupportGroup Hidden, Support
+	Gui, Settings:Add, GroupBox, x195 y335 w480 h60 vAboutSupportGroup Hidden, Support
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y330 w60 BackgroundTrans vAboutAuthorLabel Hidden, Author:
-	Gui, Settings:Add, Text, x275 y330 w100 BackgroundTrans vAboutAuthorValue Hidden HwndHwndAboutAuthor, GuyMayer
+	Gui, Settings:Add, Text, x210 y360 w60 BackgroundTrans vAboutAuthorLabel Hidden, Author:
+	Gui, Settings:Add, Text, x275 y360 w100 BackgroundTrans vAboutAuthorValue Hidden HwndHwndAboutAuthor, GuyMayer
 	RegisterSettingsTooltip(HwndAboutAuthor, "DEVELOPER`n`nSideKick_PS is developed and maintained by GuyMayer.`nBuilt specifically for professional photographers`nusing ProSelect and GoHighLevel CRM.")
 	
 	Gui, Settings:Font, s10 Norm c%linkColor%, Segoe UI
-	Gui, Settings:Add, Text, x380 y330 w170 BackgroundTrans gOpenSupportEmail vAboutEmailLink Hidden HwndHwndAboutEmail, guy@zoom-photo.co.uk
+	Gui, Settings:Add, Text, x380 y360 w170 BackgroundTrans gOpenSupportEmail vAboutEmailLink Hidden HwndHwndAboutEmail, guy@zoom-photo.co.uk
 	RegisterSettingsTooltip(HwndAboutEmail, "SUPPORT EMAIL`n`nClick to send an email for technical support.`n`nPlease include:`n• Your SideKick version (shown above)`n• ProSelect version`n• Description of the issue`n• Steps to reproduce the problem`n`nFor faster resolution, use 'Send Logs' in Diagnostics.")
 	
 	Gui, Settings:Font, s9 Norm c%linkColor%, Segoe UI
-	Gui, Settings:Add, Text, x560 y330 w100 BackgroundTrans gOpenUserManual vAboutManualLink Hidden HwndHwndAboutManual, 📖 User Manual
+	Gui, Settings:Add, Text, x560 y360 w100 BackgroundTrans gOpenUserManual vAboutManualLink Hidden HwndHwndAboutManual, 📖 User Manual
 	RegisterSettingsTooltip(HwndAboutManual, "USER MANUAL`n`nOpen the full user manual in your browser.`n`nIncludes:`n• Getting started guide`n• Feature documentation`n• Keyboard shortcuts`n• Troubleshooting tips")
 	
 	Gui, Settings:Font, s9 Norm c%linkColor%, Segoe UI
-	Gui, Settings:Add, Text, x560 y350 w100 BackgroundTrans gOpenDocsPage vAboutDocsLink Hidden HwndHwndAboutDocs, 📚 Docs
+	Gui, Settings:Add, Text, x560 y380 w100 BackgroundTrans gOpenDocsPage vAboutDocsLink Hidden HwndHwndAboutDocs, 📚 Docs
 	RegisterSettingsTooltip(HwndAboutDocs, "DOCUMENTATION`n`nOpen the ProSelect to GHL field mapping guide.`n`nIncludes:`n• Invoice line item mapping`n• SKU/Product Code sync`n• Xero integration fields`n• QuickBooks integration fields`n• Tax configuration checklist")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; DIAGNOSTICS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y370 w480 h125 vAboutDiagnostics Hidden, Diagnostics
+	Gui, Settings:Add, GroupBox, x195 y400 w480 h125 vAboutDiagnostics Hidden, Diagnostics
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y395 w300 BackgroundTrans vAboutAutoSendText Hidden HwndHwndAboutAutoSend, Auto-send activity logs
+	Gui, Settings:Add, Text, x210 y425 w300 BackgroundTrans vAboutAutoSendText Hidden HwndHwndAboutAutoSend, Auto-send activity logs
 	RegisterSettingsTooltip(HwndAboutAutoSend, "AUTO-SEND ACTIVITY LOGS`n`nWhen enabled, sync activity logs are automatically`nsent to support after every invoice sync.`n`nThis helps track successful syncs AND identify issues.`nNo personal data is included - only sync details`nand script state information.`n`nRecommended: Keep enabled for proactive support.")
-	CreateToggleSlider("Settings", "AutoSendLogs", 630, 393, Settings_AutoSendLogs)
+	CreateToggleSlider("Settings", "AutoSendLogs", 630, 423, Settings_AutoSendLogs)
 	GuiControl, Settings:Hide, Toggle_AutoSendLogs
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y425 w300 BackgroundTrans vAboutDebugText Hidden HwndHwndAboutDebug, Enable debug logging
+	Gui, Settings:Add, Text, x210 y455 w300 BackgroundTrans vAboutDebugText Hidden HwndHwndAboutDebug, Enable debug logging
 	RegisterSettingsTooltip(HwndAboutDebug, "DEBUG LOGGING`n`nWhen enabled, detailed diagnostic information is logged.`nThis creates more verbose log files for troubleshooting.`n`nEnable temporarily when experiencing issues.`nDisable for normal use to improve performance`nand reduce log file size.`n`nLogs are stored locally and sent via 'Send Logs'.")
-	CreateToggleSlider("Settings", "DebugLogging", 630, 423, Settings_DebugLogging)
+	CreateToggleSlider("Settings", "DebugLogging", 630, 453, Settings_DebugLogging)
 	GuiControl, Settings:Hide, Toggle_DebugLogging
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x210 y455 w100 h28 gSendLogsNow vAboutSendLogsButton Hidden HwndHwndAboutSendLogs, 📤 Send Logs
+	Gui, Settings:Add, Button, x210 y485 w100 h28 gSendLogsNow vAboutSendLogsButton Hidden HwndHwndAboutSendLogs, 📤 Send Logs
 	RegisterSettingsTooltip(HwndAboutSendLogs, "SEND DIAGNOSTIC LOGS`n`nManually send current logs to support.`nUse this when reporting an issue or if requested by support.`n`nLogs include:`n• Recent actions and errors`n• Script configuration (no passwords)`n• System information`n`nThis helps diagnose problems quickly.")
 	
 	; Show log folder path next to Send Logs button
 	logFolder := A_AppData . "\SideKick_PS\Logs"
 	Gui, Settings:Font, s8 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x320 y461 w280 h20 BackgroundTrans vAboutLogPath Hidden gOpenLogFolder HwndHwndAboutLogPath, 📁 %logFolder%
+	Gui, Settings:Add, Text, x320 y491 w280 h20 BackgroundTrans vAboutLogPath Hidden gOpenLogFolder HwndHwndAboutLogPath, 📁 %logFolder%
 	RegisterSettingsTooltip(HwndAboutLogPath, "LOG FOLDER`n`nClick to open the folder containing diagnostic logs.`n`nLogs are automatically cleaned up after 7 days.")
 }
 
@@ -1451,7 +1451,7 @@ CreateGoCardlessPanel()
 	
 	; Setup Wizard button
 	Gui, Settings:Font, s9 Norm, Segoe UI
-	Gui, Settings:Add, Button, x510 y145 w160 h30 gGCSetupWizard vGCWizardBtn Hidden HwndHwndGCWizard, 🧙 Setup Wizard
+	Gui, Settings:Add, Button, x500 y145 w160 h30 gGCSetupWizard vGCWizardBtn Hidden HwndHwndGCWizard, 🧙 Setup Wizard
 	RegisterSettingsTooltip(HwndGCWizard, "GOCARDLESS SETUP WIZARD`n`nStep-by-step guide to connect SideKick`nto your GoCardless account.`n`nPerfect for first-time setup!")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
@@ -1459,6 +1459,15 @@ CreateGoCardlessPanel()
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
 	Gui, Settings:Add, GroupBox, x195 y200 w480 h150 vGCApiConfig Hidden, API Configuration
+	
+	; Status row (in top gap of groupbox)
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y223 w60 BackgroundTrans vGCStatus Hidden, Status:
+	statusText := Settings_GoCardlessToken ? "✅ Token Set" : "❌ Not configured"
+	statusColor := Settings_GoCardlessToken ? "00FF00" : "FF6B6B"
+	Gui, Settings:Font, s10 Norm c%statusColor%, Segoe UI
+	Gui, Settings:Add, Text, x275 y223 w120 BackgroundTrans vGCStatusText Hidden HwndHwndGCStatus, %statusText%
+	RegisterSettingsTooltip(HwndGCStatus, "CONNECTION STATUS`n`n✅ Token Set = API token configured`n`nUse 'Test' to verify the token works.")
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
@@ -1472,26 +1481,20 @@ CreateGoCardlessPanel()
 	Gui, Settings:Add, Edit, x305 y255 w250 h25 vGCTokenDisplay Hidden ReadOnly, %tokenDisplay%
 	Gui, Settings:Add, Button, x560 y253 w100 h28 gEditGCToken vGCTokenEditBtn Hidden, Edit
 	
-	; Status row
+	; Action buttons row
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y298 w60 BackgroundTrans vGCStatus Hidden, Status:
-	statusText := Settings_GoCardlessToken ? "✅ Token Set" : "❌ Not configured"
-	statusColor := Settings_GoCardlessToken ? "00FF00" : "FF6B6B"
-	Gui, Settings:Font, s10 Norm c%statusColor%, Segoe UI
-	Gui, Settings:Add, Text, x275 y298 w120 BackgroundTrans vGCStatusText Hidden HwndHwndGCStatus, %statusText%
-	RegisterSettingsTooltip(HwndGCStatus, "CONNECTION STATUS`n`n✅ Token Set = API token configured`n`nUse 'Test' to verify the token works.")
-	
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x405 y295 w60 h26 gTestGCConnection vGCTestBtn Hidden HwndHwndGCTest, Test
+	Gui, Settings:Add, Button, x305 y295 w60 h26 gTestGCConnection vGCTestBtn Hidden HwndHwndGCTest, Test
 	RegisterSettingsTooltip(HwndGCTest, "TEST CONNECTION`n`nVerify your API token works by making`na test request to the GoCardless API.`n`nWill show your creditor name if successful.")
-	Gui, Settings:Add, Button, x470 y295 w110 h26 gListEmptyMandates vGCEmptyMandatesBtn Hidden HwndHwndGCEmpty, No Plans
+	Gui, Settings:Add, Button, x370 y295 w82 h26 gListEmptyMandates vGCEmptyMandatesBtn Hidden HwndHwndGCEmpty, No Plans
 	RegisterSettingsTooltip(HwndGCEmpty, "LIST MANDATES WITHOUT PLANS`n`nScans ALL active GoCardless mandates and`nfinds those with no payment plans set up.`n`nUseful for:`n• Follow-up reminders to clients`n• Finding forgotten mandates`n• Identifying setup issues`n`nResults can be copied to clipboard`nfor Excel or email follow-up.")
-	Gui, Settings:Add, Button, x585 y295 w85 h26 gOpenGCDashboard vGCDashboardBtn Hidden HwndHwndGCDash, Dashboard
+	Gui, Settings:Add, Button, x457 y295 w110 h26 gListStaleMandates vGCStaleMandatesBtn Hidden HwndHwndGCStale, Stale Mandates
+	RegisterSettingsTooltip(HwndGCStale, "STALE MANDATES`n`nFinds active mandates where ALL payment`nplans have finished or been cancelled.`n`nThese mandates are still authorised but`nno longer collecting payments.`n`n⚠️ You can cancel them to keep your`naccount tidy. Cancellation is permanent.")
+	Gui, Settings:Add, Button, x572 y295 w88 h26 gOpenGCDashboard vGCDashboardBtn Hidden HwndHwndGCDash, Dashboard
 	RegisterSettingsTooltip(HwndGCDash, "GOCARDLESS DASHBOARD`n`nOpen the GoCardless web dashboard`nin your browser.")
 	
 	; Progress bar for No Plans scan
-	Gui, Settings:Add, Progress, x405 y325 w265 h12 vGCProgressBar Hidden Range0-100 c00BFFF Background3D3D3D, 0
-	Gui, Settings:Add, Text, x405 y340 w265 h18 vGCProgressText Hidden cAAAAAA, 
+	Gui, Settings:Add, Progress, x370 y325 w290 h12 vGCProgressBar Hidden Range0-100 c00BFFF Background3D3D3D, 0
+	Gui, Settings:Add, Text, x370 y340 w290 h18 vGCProgressText Hidden cAAAAAA, 
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; MANDATE NOTIFICATIONS GROUP BOX (y360 to y480)
@@ -1563,7 +1566,7 @@ CreateGoCardlessPanel()
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y525 w60 BackgroundTrans vGCNamingLabel Hidden HwndHwndGCNaming, Format:
-	RegisterSettingsTooltip(HwndGCNaming, "PLAN NAME FORMAT`n`nChoose up to 3 fields to include in the`nGoCardless instalment schedule name.`n`nFields are joined with ' - ' separator.")
+	RegisterSettingsTooltip(HwndGCNaming, "PLAN NAME FORMAT`n`nChoose up to 3 fields to include in the`nGoCardless instalment schedule name.`n`nFields are joined with '-' (no spaces).`nSome banks reject spaces in statement names.")
 	
 	; Name format dropdowns (3 in a row)
 	gcNameOptions := "(none)|Shoot No|Surname|First Name|Full Name|Order Date|GHL ID|Album Name"
@@ -1968,12 +1971,14 @@ ListEmptyMandates:
 	GC_ProgressFile := A_Temp . "\gc_progress_" . A_TickCount . ".txt"
 	GC_ResultFile := A_Temp . "\gc_empty_mandates_" . A_TickCount . ".txt"
 	GC_FetchInProgress := true
+	GC_FetchStartTime := A_TickCount
 	
 	; Add progress file argument
 	scriptCmd := scriptCmd . " --progress-file """ . GC_ProgressFile . """"
 	
-	; Run Python in background (not RunWait) - wrap in extra quotes for cmd.exe /c
-	Run, %ComSpec% /c ""%scriptCmd% > "%GC_ResultFile%" 2>&1"", , Hide
+	; Use temp .cmd file helper to avoid all cmd.exe quoting issues
+	FileAppend, % A_Now . " - ListEmptyMandates - cmd: " . scriptCmd . "`n", %DebugLogFile%
+	RunCmdToFileAsync(scriptCmd, GC_ResultFile)
 	
 	; Start timer to poll progress
 	SetTimer, GC_FetchProgressTimer, 200
@@ -1985,6 +1990,21 @@ GC_FetchProgressTimer:
 	
 	if (!GC_FetchInProgress) {
 		SetTimer, GC_FetchProgressTimer, Off
+		return
+	}
+	
+	; Safety timeout - 120 seconds max to prevent infinite polling
+	if (A_TickCount - GC_FetchStartTime > 120000) {
+		SetTimer, GC_FetchProgressTimer, Off
+		GC_FetchInProgress := false
+		FileAppend, % A_Now . " - ListEmptyMandates TIMEOUT after 120s`n", %DebugLogFile%
+		GuiControl, Settings:, GCProgressBar, 0
+		GuiControl, Settings:Hide, GCProgressBar
+		GuiControl, Settings:, GCProgressText,
+		GuiControl, Settings:Hide, GCProgressText
+		FileDelete, %GC_ProgressFile%
+		FileDelete, %GC_ResultFile%
+		DarkMsgBox("Timeout", "Fetching mandates took too long.`n`nThis can happen if GoCardless has many mandates to check.`nPlease try again.", "error")
 		return
 	}
 	
@@ -2355,6 +2375,28 @@ GC_CloseEmptyMandates:
 GCEmptyMandatesGuiClose:
 GCEmptyMandatesGuiEscape:
 	Gui, GCEmptyMandates:Destroy
+return
+
+; ═══════════════════════════════════════════════════════════════════════════
+; STALE MANDATES — mandates with all plans finished
+; ═══════════════════════════════════════════════════════════════════════════
+
+ListStaleMandates:
+	; Launch the Qt6 Stale Mandates GUI (stale_mandates_gui.py / _smg.exe)
+	envFlag := " --live"
+	scriptCmd := GetScriptCommand("stale_mandates_gui", envFlag)
+	
+	if (scriptCmd = "") {
+		DarkMsgBox("Error", "stale_mandates_gui script not found.", "error")
+		return
+	}
+	
+	FileAppend, % A_Now . " - ListStaleMandates - launching Qt6 GUI: " . scriptCmd . "`n", %DebugLogFile%
+	Run, %scriptCmd%,, UseErrorLevel
+	if (ErrorLevel) {
+		FileAppend, % A_Now . " - ListStaleMandates - Run failed, ErrorLevel=" . ErrorLevel . "`n", %DebugLogFile%
+		DarkMsgBox("Error", "Failed to launch Stale Mandates GUI.", "error")
+	}
 return
 
 ; ═══════════════════════════════════════════════════════════════════════════
@@ -2864,7 +2906,7 @@ try {
 		tempResult := A_Temp . "\gc_email_result_" . A_TickCount . ".txt"
 		FileDelete, %tempScript%
 		FileAppend, %emailScript%, %tempScript%
-		RunWait, %ComSpec% /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
+		RunCmdToFile("powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ . tempScript . """", tempResult)
 		FileRead, emailResult, %tempResult%
 		FileDelete, %tempScript%
 		FileDelete, %tempResult%
@@ -2901,7 +2943,7 @@ try {
 		tempResult := A_Temp . "\gc_sms_result_" . A_TickCount . ".txt"
 		FileDelete, %tempScript%
 		FileAppend, %smsScript%, %tempScript%
-		RunWait, %ComSpec% /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%tempScript%" > "%tempResult%" 2>&1, , Hide
+		RunCmdToFile("powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ . tempScript . """", tempResult)
 		FileRead, smsResult, %tempResult%
 		FileDelete, %tempScript%
 		FileDelete, %tempResult%
@@ -3054,14 +3096,10 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No DD payments in PayPlanLine, will read from .psa album file`n", %DebugLogFile%
 		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Search terms: " . searchTermsStr . "`n", %DebugLogFile%
 		
-		; Ask user to save the album FIRST (before opening any dialogs)
-		result := DarkMsgBox("Save Album", "📁 The album needs to be saved to read payment data.`n`nClick 'Save Album' to save and continue.", "info", {buttons: ["Save Album", "Cancel"]})
-		
-		if (result = "Cancel")
-			return
-		
-		; Save the album via PSConsole (no blind sleep needed)
+		; Auto-save the album before reading payment data
+		ToolTip, Saving album...
 		PsConsole("saveAlbum")
+		ToolTip
 		
 		; NOW get the album folder using PSConsole getAlbumData
 		albumFolder := GetAlbumFolder()
@@ -3098,9 +3136,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Running: " . scriptCmd . "`n", %DebugLogFile%
 		
 		tempResult := A_Temp . "\psa_payments_" . A_TickCount . ".txt"
-		fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
-		RunWait, %fullCmd%, , Hide
-		
+	RunCmdToFile(scriptCmd, tempResult)
 		FileRead, scriptOutput, %tempResult%
 		FileDelete, %tempResult%
 		ToolTip
@@ -3276,8 +3312,14 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 			resolved := contactData.lastName
 		else if (partVal = "First Name")
 			resolved := contactData.firstName
-		else if (partVal = "Full Name")
-			resolved := Trim(contactData.firstName . " " . contactData.lastName)
+		else if (partVal = "Full Name") {
+			fn := Trim(contactData.firstName)
+			ln := Trim(contactData.lastName)
+			if (fn != "" && ln != "")
+				resolved := fn . "-" . ln
+			else
+				resolved := fn . ln
+		}
 		else if (partVal = "Order Date")
 			resolved := GC_PP_OrderDate
 		else if (partVal = "GHL ID")
@@ -3293,7 +3335,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		formattedName := ""
 		for i, part in resolvedParts {
 			if (formattedName != "")
-				formattedName .= " - "
+				formattedName .= "-"
 			formattedName .= part
 		}
 		defaultName := formattedName
@@ -3450,8 +3492,10 @@ GC_PP_CreateMixed:
 		if (result != "Bump Dates")
 			return
 		
-		; Bump all payment dates by MonthsBump months
+		; Bump only past-dated payments by MonthsBump months
 		for idx, payment in GC_PP_DDPayments {
+			if (payment.date >= todayISO)
+				continue  ; skip payments that are already in the future
 			parts := StrSplit(payment.date, "-")
 			pYear := parts[1] + 0
 			pMonth := parts[2] + 0
@@ -3467,12 +3511,15 @@ GC_PP_CreateMixed:
 			GC_PP_DDPayments[idx].date := Format("{}-{:02d}-{:02d}", pYear, pMonth, pDay)
 		}
 		
-		; Also bump GC_PP_SinglePayments (format: day,month,year,?,amount)
+		; Also bump GC_PP_SinglePayments (format: day,month,year,?,amount) - only past ones
 		for idx, payment in GC_PP_SinglePayments {
 			parts := StrSplit(payment, ",")
 			pDay := parts[1]
 			pMonth := parts[2] + 0
 			pYear := parts[3] + 0
+			pDateISO := Format("{}-{:02d}-{:02d}", pYear, pMonth, pDay)
+			if (pDateISO >= todayISO)
+				continue
 			
 			pMonth += MonthsBump
 			while (pMonth > 12) {
@@ -3483,12 +3530,15 @@ GC_PP_CreateMixed:
 			GC_PP_SinglePayments[idx] := pDay . "," . pMonth . "," . pYear . "," . parts[4] . "," . parts[5]
 		}
 		
-		; Also bump GC_PP_InstalmentPayments
+		; Also bump GC_PP_InstalmentPayments - only past ones
 		for idx, payment in GC_PP_InstalmentPayments {
 			parts := StrSplit(payment, ",")
 			pDay := parts[1]
 			pMonth := parts[2] + 0
 			pYear := parts[3] + 0
+			pDateISO := Format("{}-{:02d}-{:02d}", pYear, pMonth, pDay)
+			if (pDateISO >= todayISO)
+				continue
 			
 			pMonth += MonthsBump
 			while (pMonth > 12) {
@@ -3569,8 +3619,7 @@ GC_PP_CreateMixed:
 	FileAppend, % A_Now . " - GC_PP_CreateMixed - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
 	
 	tempResult := A_Temp . "\gc_payplan_result_" . A_TickCount . ".txt"
-	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
-	RunWait, %fullCmd%, , Hide
+	RunCmdToFile(scriptCmd, tempResult)
 	
 	FileRead, scriptOutput, %tempResult%
 	FileAppend, % A_Now . " - GC_PP_CreateMixed - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
@@ -3798,8 +3847,7 @@ GC_PP_Create:
 	FileAppend, % A_Now . " - GC_PP_Create - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
 	
 	tempResult := A_Temp . "\gc_instalment_result_" . A_TickCount . ".txt"
-	fullCmd := ComSpec . " /c " . scriptCmd . " > """ . tempResult . """ 2>&1"
-	RunWait, %fullCmd%, , Hide
+	RunCmdToFile(scriptCmd, tempResult)
 	
 	FileRead, scriptOutput, %tempResult%
 	FileAppend, % A_Now . " - GC_PP_Create - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
@@ -4483,6 +4531,9 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, HKResetPosBtn
 	GuiControl, Settings:Hide, HKAutoBlendLabel
 	GuiControl, Settings:Hide, Toggle_ToolbarAutoBG
+	GuiControl, Settings:Hide, HKScaleLabel
+	GuiControl, Settings:Hide, Settings_ToolbarScale_DDL
+	GuiControl, Settings:Hide, HKAutoScaleCheck
 	
 	; Hide all panels - About
 	GuiControl, Settings:Hide, PanelAbout
@@ -4503,6 +4554,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_AutoUpdate
 	GuiControl, Settings:Hide, AboutReinstallBtn
 	GuiControl, Settings:Hide, AboutCheckNowBtn
+	GuiControl, Settings:Hide, AboutDownloadProgress
+	GuiControl, Settings:Hide, AboutDownloadStatus
 	GuiControl, Settings:Hide, AboutSupportGroup
 	GuiControl, Settings:Hide, AboutAuthorLabel
 	GuiControl, Settings:Hide, AboutAuthorValue
@@ -4703,6 +4756,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GCStatusText
 	GuiControl, Settings:Hide, GCTestBtn
 	GuiControl, Settings:Hide, GCEmptyMandatesBtn
+	GuiControl, Settings:Hide, GCStaleMandatesBtn
 	GuiControl, Settings:Hide, GCDashboardBtn
 	GuiControl, Settings:Hide, GCProgressBar
 	GuiControl, Settings:Hide, GCProgressText
@@ -4918,6 +4972,9 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, HKResetPosBtn
 		GuiControl, Settings:Show, HKAutoBlendLabel
 		GuiControl, Settings:Show, Toggle_ToolbarAutoBG
+		GuiControl, Settings:Show, HKScaleLabel
+		GuiControl, Settings:Show, Settings_ToolbarScale_DDL
+		GuiControl, Settings:Show, HKAutoScaleCheck
 		; Restore icon color dropdown to current value
 		if (Settings_ToolbarIconColor = "White" || Settings_ToolbarIconColor = "Black" || Settings_ToolbarIconColor = "Yellow") {
 			GuiControl, Settings:, Settings_ToolbarIconColor_DDL, White|Black|Yellow
@@ -5159,9 +5216,9 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GCStatusText
 		GuiControl, Settings:Show, GCTestBtn
 		GuiControl, Settings:Show, GCEmptyMandatesBtn
+		GuiControl, Settings:Show, GCStaleMandatesBtn
 		GuiControl, Settings:Show, GCDashboardBtn
-		GuiControl, Settings:Show, GCProgressBar
-		GuiControl, Settings:Show, GCProgressText
+		; GCProgressBar and GCProgressText are only shown during active scans - not when switching tabs
 		GuiControl, Settings:Show, GCNotifyGroup
 		GuiControl, Settings:Show, GCEmailTplLabel
 		GuiControl, Settings:Show, GCEmailTplCombo
@@ -6308,8 +6365,7 @@ ActivateLicenseBtn:
 	ToolTip, Activating license...
 	tempFile := A_Temp . "\license_result.json"
 	scriptCmd := GetScriptCommand("validate_license", "activate """ . licenseKey . """ """ . GHL_LocationID . """")
-	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempFile . """"""
-	RunWait, %fullCmd%, , Hide
+	RunCmdToFile(scriptCmd, tempFile)
 	
 	; Read result
 	FileRead, resultJson, %tempFile%
@@ -6358,8 +6414,7 @@ ValidateLicenseBtn:
 	ToolTip, Validating license...
 	tempFile := A_Temp . "\license_result.json"
 	scriptCmd := GetScriptCommand("validate_license", "validate """ . License_Key . """ """ . GHL_LocationID . """")
-	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempFile . """"""
-	RunWait, %fullCmd%, , Hide
+	RunCmdToFile(scriptCmd, tempFile)
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%
@@ -6399,8 +6454,7 @@ DeactivateLicenseBtn:
 	ToolTip, Deactivating license...
 	tempFile := A_Temp . "\license_result.json"
 	scriptCmd := GetScriptCommand("validate_license", "deactivate """ . License_Key . """ """ . GHL_LocationID . """ """ . License_InstanceID . """")
-	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempFile . """"""
-	RunWait, %fullCmd%, , Hide
+	RunCmdToFile(scriptCmd, tempFile)
 	
 	FileRead, resultJson, %tempFile%
 	FileDelete, %tempFile%

@@ -30,6 +30,7 @@ import sys
 import json
 import os
 import io
+import math
 import base64
 import re
 from pathlib import Path
@@ -239,7 +240,7 @@ def resize_image_for_cardly(image_path: str, output_path: str = None,
                             sticker_path: str = None, sticker_x: int = 75, sticker_y: int = 75,
                             sticker_zoom: int = 50,
                             card_width: int = None, card_height: int = None,
-                            skip_icc: bool = False) -> str:
+                            skip_icc: bool = False, rotation: int = 0) -> str:
     """
     Resize and convert image to Cardly card requirements.
 
@@ -250,6 +251,7 @@ def resize_image_for_cardly(image_path: str, output_path: str = None,
     - crop_x: 0-100, horizontal position (0=left, 50=center, 100=right)
     - crop_y: 0-100, vertical position (0=top, 50=center, 100=bottom)
     - zoom: 100-200, zoom level (100=fill card, 200=2x zoom in)
+    - rotation: -45 to +45, degrees to rotate the image before cropping
 
     Sticker parameters:
     - sticker_path: Path to PNG sticker file (None = no sticker)
@@ -267,7 +269,7 @@ def resize_image_for_cardly(image_path: str, output_path: str = None,
         output_path = os.path.join(output_dir, "cardly_processed.png")
 
     debug_print(f"Processing image: {image_path}")
-    debug_print(f"Crop settings: x={crop_x}%, y={crop_y}%, zoom={zoom}%")
+    debug_print(f"Crop settings: x={crop_x}%, y={crop_y}%, zoom={zoom}%, rotation={rotation}°")
 
     # Use supplied dimensions or fall back to module defaults
     target_w = int(card_width) if card_width else CARDLY_WIDTH
@@ -348,6 +350,18 @@ def resize_image_for_cardly(image_path: str, output_path: str = None,
         if 'icc_profile' in img.info:
             del img.info['icc_profile']
 
+        # ── Apply rotation before cropping ──
+        # The preview shows a rotated crop border on the unrotated image.
+        # To produce the same result here we:
+        #   1. Compute the crop on the original (unrotated) image
+        #   2. Shrink the crop so its rotated bounding box stays within bounds
+        #   3. Rotate the image (expand=True) and crop the matching area
+        rot_scale = 1.0
+        if rotation != 0:
+            angle_rad = math.radians(abs(rotation))
+            cos_a = math.cos(angle_rad)
+            sin_a = math.sin(angle_rad)
+
         orig_w, orig_h = img.size
         target_ratio = target_w / target_h
 
@@ -383,6 +397,37 @@ def resize_image_for_cardly(image_path: str, output_path: str = None,
 
         crop_left = max_offset_x * (crop_x / 100.0)
         crop_top = max_offset_y * (crop_y / 100.0)
+
+        # ── Rotation shrink: keep rotated crop inside image bounds ──
+        if rotation != 0:
+            crop_cx = crop_left + crop_w / 2
+            crop_cy = crop_top + crop_h / 2
+            hw = crop_w / 2
+            hh = crop_h / 2
+            bbox_hw = hw * cos_a + hh * sin_a
+            bbox_hh = hw * sin_a + hh * cos_a
+            space_x = min(crop_cx, orig_w - crop_cx)
+            space_y = min(crop_cy, orig_h - crop_cy)
+            if bbox_hw > 0:
+                rot_scale = min(rot_scale, space_x / bbox_hw)
+            if bbox_hh > 0:
+                rot_scale = min(rot_scale, space_y / bbox_hh)
+            crop_w *= rot_scale
+            crop_h *= rot_scale
+            crop_left = crop_cx - crop_w / 2
+            crop_top = crop_cy - crop_h / 2
+            debug_print(f"Rotation {rotation}° → shrink factor {rot_scale:.4f}, "
+                        f"crop {crop_w:.0f}x{crop_h:.0f}")
+
+            # Now rotate the image and adjust crop coordinates
+            img = img.rotate(-rotation, resample=Image.Resampling.BICUBIC,
+                             expand=True, fillcolor=(0, 0, 0))
+            new_w, new_h = img.size
+            # The original centre shifted by the expand padding
+            dx = (new_w - orig_w) / 2
+            dy = (new_h - orig_h) / 2
+            crop_left += dx
+            crop_top += dy
 
         debug_print(f"Original: {orig_w}x{orig_h}, Crop area: {crop_w:.0f}x{crop_h:.0f}")
         debug_print(f"Crop position: left={crop_left:.0f}, top={crop_top:.0f}")

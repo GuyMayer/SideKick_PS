@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "2.5.42"
+#define MyAppVersion "2.5.44"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -95,19 +95,8 @@ Source: "Release\GenerateBridgeIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Release\GenerateLightroomIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\GenerateExplorerIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
-; Python executables (compiled with cryptic names - NO Python install needed)
-Source: "Release\_vlk.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "Release\_sps.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_upm.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_ccs.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_fgc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_ugc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_gca.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_cpg.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_csc.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_wpp.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_rpp.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "Release\_rpi.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Unified Python CLI (replaces all individual _xxx.exe scripts)
+Source: "Release\SideKick_PS_CLI.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; License and version info
 Source: "Release\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -120,7 +109,7 @@ Source: "Release\media\*"; DestDir: "{app}\media"; Flags: ignoreversion recurses
 Source: "Release\stickers\*"; DestDir: "{app}\stickers"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [InstallDelete]
-; Remove old script files (now using cryptic names: _sps.exe, _vlk.exe, etc.)
+; Remove old original-name script files (pre-cryptic era)
 Type: files; Name: "{app}\sync_ps_invoice.exe"
 Type: files; Name: "{app}\sync_ps_invoice.py"
 Type: files; Name: "{app}\validate_license.exe"
@@ -143,8 +132,24 @@ Type: files; Name: "{app}\read_psa_payments.exe"
 Type: files; Name: "{app}\read_psa_payments.py"
 Type: files; Name: "{app}\read_psa_images.exe"
 Type: files; Name: "{app}\read_psa_images.py"
-Type: files; Name: "{app}\create_ghl_contactsheet.exe"
-Type: files; Name: "{app}\create_ghl_contactsheet.py"
+Type: files; Name: "{app}\stale_mandates_gui.exe"
+Type: files; Name: "{app}\stale_mandates_gui.py"
+Type: files; Name: "{app}\gocardless_api.exe"
+Type: files; Name: "{app}\gocardless_api.py"
+; Remove old cryptic-name individual exes (now replaced by SideKick_PS_CLI.exe)
+Type: files; Name: "{app}\_vlk.exe"
+Type: files; Name: "{app}\_sps.exe"
+Type: files; Name: "{app}\_upm.exe"
+Type: files; Name: "{app}\_ccs.exe"
+Type: files; Name: "{app}\_fgc.exe"
+Type: files; Name: "{app}\_ugc.exe"
+Type: files; Name: "{app}\_gca.exe"
+Type: files; Name: "{app}\_cpg.exe"
+Type: files; Name: "{app}\_csc.exe"
+Type: files; Name: "{app}\_wpp.exe"
+Type: files; Name: "{app}\_rpp.exe"
+Type: files; Name: "{app}\_rpi.exe"
+Type: files; Name: "{app}\_smg.exe"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -202,6 +207,9 @@ begin
     end;
   end;
 end;
+
+
+
 
 
 

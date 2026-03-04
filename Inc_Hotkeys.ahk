@@ -183,6 +183,14 @@ LoadSettings()
 	IniRead, Settings_ShowBtn_GoCardless, %IniFilename%, Toolbar, ShowBtn_GoCardless, 0
 	IniRead, Settings_ToolbarOffsetX, %IniFilename%, Toolbar, OffsetX, 0
 	IniRead, Settings_ToolbarOffsetY, %IniFilename%, Toolbar, OffsetY, 0
+	IniRead, Settings_ToolbarScale, %IniFilename%, Toolbar, Scale, 0.9
+	if (Settings_ToolbarScale < 0.5)
+		Settings_ToolbarScale := 0.5
+	if (Settings_ToolbarScale > 1.0)
+		Settings_ToolbarScale := 1.0
+	IniRead, Settings_ToolbarAutoScale, %IniFilename%, Toolbar, AutoScale, 0
+	if (Settings_ToolbarAutoScale != 1)
+		Settings_ToolbarAutoScale := 0
 	IniRead, Settings_QRCode_Text1, %IniFilename%, QRCode, Text1, %A_Space%
 	IniRead, Settings_QRCode_Text2, %IniFilename%, QRCode, Text2, %A_Space%
 	IniRead, Settings_QRCode_Text3, %IniFilename%, QRCode, Text3, %A_Space%
@@ -371,6 +379,8 @@ SaveSettings()
 	IniWrite, %Settings_ShowBtn_GoCardless%, %IniFilename%, Toolbar, ShowBtn_GoCardless
 	IniWrite, %Settings_ToolbarOffsetX%, %IniFilename%, Toolbar, OffsetX
 	IniWrite, %Settings_ToolbarOffsetY%, %IniFilename%, Toolbar, OffsetY
+	IniWrite, %Settings_ToolbarScale%, %IniFilename%, Toolbar, Scale
+	IniWrite, %Settings_ToolbarAutoScale%, %IniFilename%, Toolbar, AutoScale
 	IniWrite, %Settings_QRCode_Text1%, %IniFilename%, QRCode, Text1
 	IniWrite, %Settings_QRCode_Text2%, %IniFilename%, QRCode, Text2
 	IniWrite, %Settings_QRCode_Text3%, %IniFilename%, QRCode, Text3
@@ -499,8 +509,8 @@ TotalPayments := PayValue * PayNo
 RoundingError := RemainingBalance - TotalPayments
 RoundingError := Round(RoundingError, 2)
 
-; If downpayment is entered, add rounding error to it
-if (HasDownpayment && RoundingError != 0)
+; If downpayment is entered AND rounding option is "Downpayment", add rounding to deposit
+if (HasDownpayment && RoundingError != 0 && Settings_RoundingInDeposit)
 {
 	DownpaymentAmount := DownpaymentAmount + RoundingError
 	DownpaymentAmount := Round(DownpaymentAmount, 2)
@@ -546,9 +556,6 @@ PayPlanYear := SubStr(PayYear,3,2)
 
 PaymentLine =%PayPlanDay%,%PayPlanMonth%,%PayPlanYear%,%PayTypeSel%,%PayValue%
 ; MsgBox,, Output, PaymentLine %PaymentLine%
-LastPayPlanMonth := PayPlanMonth 
-if (LastPayPlanMonth := 12)
-	PayPlanYear := 1
 Return
 
 CheckPastPaymentDates:

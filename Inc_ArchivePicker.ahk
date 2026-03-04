@@ -515,20 +515,20 @@ ProcessInvoiceXML(xmlFile)
 		}
 	}
 	
-	; Validate contactId - must be 20+ chars (GHL format). If not, try album title fallback
-	if (StrLen(contactId) < 20)
+	; Validate contactId - must be 15+ chars (GHL format). If not, try album title fallback
+	if (StrLen(contactId) < 15)
 	{
 		; Try to get Client ID from ProSelect album title as fallback
 		albumContactId := ""
 		if WinExist("ProSelect ahk_exe ProSelect.exe")
 		{
 			WinGetTitle, psTitle, ahk_exe ProSelect.exe
-			; Look for GHL Client ID pattern in album name (20+ alphanumeric chars after underscore)
-			if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch))
+			; Look for GHL Client ID pattern in album name (15+ alphanumeric chars after underscore)
+			if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch))
 				albumContactId := idMatch1
 		}
 		
-		if (albumContactId != "" && StrLen(albumContactId) >= 20)
+		if (albumContactId != "" && StrLen(albumContactId) >= 15)
 		{
 			if (contactId != "" && contactId != albumContactId)
 			{
@@ -539,7 +539,7 @@ ProcessInvoiceXML(xmlFile)
 		}
 	}
 	
-	if (contactId = "" || StrLen(contactId) < 20)
+	if (contactId = "" || StrLen(contactId) < 15)
 	{
 		DarkMsgBox("Missing Client ID", "Invoice XML is missing a valid GHL Client ID.`n`nPlease link this order to a GHL contact before exporting.`n`nFile: " . xmlFile, "warning")
 		return
@@ -593,8 +593,7 @@ ShowGHLFolderPicker()
 	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-folders")
 	
 	tempOutput := A_Temp . "\ghl_folders_" . A_TickCount . ".txt"
-	fullCmd := ComSpec . " /s /c """ . scriptCmd . " > """ . tempOutput . """ 2>&1"""
-	RunWait, %fullCmd%, , Hide
+	RunCmdToFile(scriptCmd, tempOutput)
 	ToolTip
 	
 	FileRead, folderOutput, %tempOutput%

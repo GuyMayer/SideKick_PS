@@ -22,6 +22,7 @@ import subprocess
 import sys
 import os
 import json
+import math
 import re as _re
 import xml.etree.ElementTree as ET
 import tkinter as tk
@@ -61,9 +62,9 @@ def _set_window_icon(win):
 # === TOOLTIP ===
 class ToolTip:
     """Simple tooltip class for tkinter widgets.
-    Shows after a 5-second hover delay so tooltips don't get in the way.
+    Shows after a 2-second hover delay so tooltips don't get in the way.
     """
-    DELAY_MS = 5000  # milliseconds before tooltip appears
+    DELAY_MS = 2000  # milliseconds before tooltip appears
 
     def __init__(self, widget, text: str):
         self.widget = widget
@@ -300,6 +301,7 @@ class CardPreviewGUI:
         self.crop_x = 50
         self.crop_y = 50
         self.zoom = 100
+        self.rotation = 0  # Degrees, -45 to +45
 
         # Sticker
         self.sticker_path = None
@@ -350,6 +352,7 @@ class CardPreviewGUI:
 
         # Create GUI
         self.root = tk.Tk()
+        self.root.withdraw()  # Hide until fully built
         # Set window/taskbar icon
         _set_window_icon(self.root)
         # Build window title with successful image source only
@@ -359,6 +362,26 @@ class CardPreviewGUI:
         self.root.title(title)
         self.root.configure(bg='#1a1a1a')
         self.root.resizable(False, False)
+
+        # Show a dark splash with spinning animation while building the GUI
+        self._splash = tk.Toplevel()
+        self._splash.overrideredirect(True)
+        self._splash.configure(bg='#1a1a1a')
+        self._splash.attributes('-topmost', True)
+        sw, sh = 280, 120
+        sx = (self._splash.winfo_screenwidth() - sw) // 2
+        sy = (self._splash.winfo_screenheight() - sh) // 2
+        self._splash.geometry(f'{sw}x{sh}+{sx}+{sy}')
+        _set_window_icon(self._splash)
+        self._splash_canvas = tk.Canvas(self._splash, width=sw, height=sh,
+                                        bg='#1a1a1a', highlightthickness=0)
+        self._splash_canvas.pack()
+        self._splash_canvas.create_text(sw // 2, sh // 2 + 25,
+                                        text='Loading...', fill='#888888',
+                                        font=('Segoe UI', 10))
+        self._splash_angle = 0
+        self._draw_spinner()
+        self._splash.update()
 
         # Dark theme for ttk widgets
         style = ttk.Style(self.root)
@@ -387,8 +410,9 @@ class CardPreviewGUI:
         # Pre-select image from ProSelect if specified
         if self.preselect_image:
             self._preselect_filmstrip_image()
-
-        self.update_preview()
+        else:
+            # Auto-swap orientation for the first image
+            self.select_image(0)
 
     def _resolve_recipient(self):
         """Resolve recipient details from PSA/XML/GHL for display."""
@@ -421,6 +445,31 @@ class CardPreviewGUI:
                                 self.recipient[k] = fallback[k]
                 except Exception:
                     pass
+
+    def _draw_spinner(self):
+        """Draw one frame of a spinning arc on the splash screen."""
+        if not hasattr(self, '_splash') or self._splash is None:
+            return
+        try:
+            c = self._splash_canvas
+            sw = int(c['width'])
+            sh = int(c['height'])
+            cx, cy, r = sw // 2, sh // 2 - 5, 20
+            c.delete('spinner')
+            # Draw 8 dots in a circle, brightest at the current angle
+            for i in range(8):
+                a = math.radians(self._splash_angle + i * 45)
+                x = cx + r * math.cos(a)
+                y = cy - r * math.sin(a)
+                brightness = max(0x33, 0xFF - i * 0x1C)
+                colour = f'#{brightness:02x}{brightness:02x}{brightness:02x}'
+                dot_r = 4 if i == 0 else 3
+                c.create_oval(x - dot_r, y - dot_r, x + dot_r, y + dot_r,
+                              fill=colour, outline='', tags='spinner')
+            self._splash_angle = (self._splash_angle - 30) % 360
+            self._splash.after(80, self._draw_spinner)
+        except tk.TclError:
+            pass  # splash already destroyed
 
     def _preselect_filmstrip_image(self):
         """Pre-select the image matching self.preselect_image in the filmstrip.
@@ -1058,7 +1107,7 @@ class CardPreviewGUI:
         _btn_px = tk.PhotoImage(width=1, height=1)  # 1x1 transparent pixel for compound sizing
 
         # Rotate / swap orientation button (only active when alt template exists)
-        self.rotate_btn = tk.Button(crop_header_frame, text="\u21BB",
+        self.rotate_btn = tk.Button(crop_header_frame, text="\u21C4",
                                     image=_btn_px, compound='center',
                                     font=('Segoe UI', 16), width=32, height=32,
                                     command=self.swap_orientation,
@@ -1080,6 +1129,18 @@ class CardPreviewGUI:
         self.browse_btn.pack(side='right', padx=(5, 0))
         ToolTip(self.browse_btn, "Browse for an image file from disc.\nOpens at the album folder location.")
 
+        # Reset sliders button (next to folder icon)
+        self.reset_btn = tk.Button(crop_header_frame, text="\u21BA",
+                                   image=_btn_px, compound='center',
+                                   font=('Segoe UI', 16), width=32, height=32,
+                                   command=self._reset_sliders,
+                                   relief='flat', cursor='hand2',
+                                   bg='#333333', fg='#FFB347',
+                                   activebackground='#444444', activeforeground='#FFB347')
+        self.reset_btn._btn_px = _btn_px
+        self.reset_btn.pack(side='right', padx=(5, 0))
+        ToolTip(self.reset_btn, "Reset zoom and rotation to defaults.")
+
         if self.has_alt_orientation:
             ToolTip(self.rotate_btn, "Swap between Landscape and Portrait crop.\nSwitches to the matching template orientation.")
         else:
@@ -1087,8 +1148,11 @@ class CardPreviewGUI:
             ToolTip(self.rotate_btn, "No alternate orientation template available.\nUpload both Landscape and Portrait versions\nwith the same base name to enable this.")
 
         # Zoom slider
+        tk.Label(ctrl_frame, text="Zoom", font=('Segoe UI', 8),
+                fg='#888888', bg='#1a1a1a').pack(anchor='w', pady=(10, 0))
+
         zoom_frame = tk.Frame(ctrl_frame, bg='#1a1a1a')
-        zoom_frame.pack(fill='x', pady=(10, 0))
+        zoom_frame.pack(fill='x')
 
         self.zoom_var = tk.IntVar(value=100)
         self.zoom_slider = ttk.Scale(zoom_frame, from_=100, to=200,
@@ -1097,6 +1161,22 @@ class CardPreviewGUI:
         self.zoom_slider.pack(fill='x', expand=True)
 
         ToolTip(self.zoom_slider, "Zoom into the image to crop a tighter area.\n100% = full image, 200% = maximum zoom.\nCombine with drag to fine-tune the crop.")
+
+        # Rotation slider
+        tk.Label(ctrl_frame, text="Rotate", font=('Segoe UI', 8),
+                fg='#888888', bg='#1a1a1a').pack(anchor='w', pady=(10, 0))
+
+        rotate_frame = tk.Frame(ctrl_frame, bg='#1a1a1a')
+        rotate_frame.pack(fill='x')
+
+        self.rotation_var = tk.IntVar(value=0)
+        self.rotation_slider = ttk.Scale(rotate_frame, from_=-45, to=45,
+                                         variable=self.rotation_var, orient='horizontal',
+                                         command=self.on_rotation_change)
+        self.rotation_slider.pack(fill='x', expand=True)
+        self.rotation_slider.bind('<Double-Button-1>', lambda e: self._reset_rotation())
+
+        ToolTip(self.rotation_slider, "Rotate the image within the crop border.\n-45° to +45°. Double-click to reset to 0°.")
 
         # Sticker Overlay
         tk.Label(ctrl_frame, text="Sticker Overlay", font=('Segoe UI', 10, 'bold'),
@@ -1120,8 +1200,11 @@ class CardPreviewGUI:
         ToolTip(self.sticker_combo, "Choose a PNG sticker to overlay on the card.\nSelect 'None' to remove the sticker.\nSticker position and choice are remembered between sessions.")
 
         # Sticker size slider (same layout as Zoom above)
+        tk.Label(ctrl_frame, text="Size", font=('Segoe UI', 8),
+                fg='#888888', bg='#1a1a1a').pack(anchor='w', pady=(10, 0))
+
         sticker_size_frame = tk.Frame(ctrl_frame, bg='#1a1a1a')
-        sticker_size_frame.pack(fill='x', pady=(10, 0))
+        sticker_size_frame.pack(fill='x')
 
         self.sticker_zoom_var = tk.IntVar(value=self.sticker_zoom)
         self.sticker_zoom_slider = ttk.Scale(sticker_size_frame, from_=10, to=100,
@@ -1215,8 +1298,9 @@ class CardPreviewGUI:
         tk.Label(recip_frame, text="Card Details", font=('Segoe UI', 10, 'bold'),
                 fg='#FFB347', bg='#2a2a2a').pack(anchor='w')
 
-        tk.Label(recip_frame, text=f"Template: {self.media_name}",
-                font=('Segoe UI', 9), fg='silver', bg='#2a2a2a').pack(anchor='w', pady=(5, 0))
+        self.template_name_label = tk.Label(recip_frame, text=f"Template: {self.media_name}",
+                font=('Segoe UI', 9), fg='silver', bg='#2a2a2a')
+        self.template_name_label.pack(anchor='w', pady=(5, 0))
         orient = "Landscape" if self.card_width > self.card_height else "Portrait"
         self.card_size_label = tk.Label(recip_frame, text=f"Size: {self.card_width}x{self.card_height}px ({orient})",
                 font=('Segoe UI', 9), fg='silver', bg='#2a2a2a')
@@ -1270,9 +1354,27 @@ class CardPreviewGUI:
                     lbl.configure(highlightthickness=0)
 
             self.current_index = index
-            # Reset crop on image change
+            # Reset crop and rotation on image change
             self.crop_x = 50
             self.crop_y = 50
+            self.rotation = 0
+            if hasattr(self, 'rotation_var'):
+                self.rotation_var.set(0)
+
+            # Auto-swap orientation to match image if alt template available
+            if self.has_alt_orientation:
+                try:
+                    img = Image.open(self.images[index])
+                    img_w, img_h = img.size
+                    img.close()
+                    img_is_portrait = img_h > img_w
+                    card_is_portrait = self.card_height > self.card_width
+                    if img_is_portrait != card_is_portrait:
+                        self.swap_orientation()
+                        return  # swap_orientation calls update_preview
+                except Exception:
+                    pass
+
             self.update_preview()
 
     def _icc_to_srgb(self, img):
@@ -1307,7 +1409,7 @@ class CardPreviewGUI:
             return
 
         try:
-            # Load current image
+            # Load current image (never rotated — rotation is applied to the crop border)
             img_path = self.images[self.current_index]
             img = Image.open(img_path)
 
@@ -1361,18 +1463,69 @@ class CardPreviewGUI:
             crop_left = max_offset_x * (self.crop_x / 100.0)
             crop_top = max_offset_y * (self.crop_y / 100.0)
 
+            # ── Rotation: shrink crop so the rotated border stays inside the image ──
+            if self.rotation != 0:
+                angle_rad = math.radians(abs(self.rotation))
+                cos_a = math.cos(angle_rad)
+                sin_a = math.sin(angle_rad)
+
+                # Crop centre in image coordinates
+                crop_cx = crop_left + crop_w / 2
+                crop_cy = crop_top + crop_h / 2
+
+                # Half-dimensions of the (unscaled) rotated crop bounding box
+                hw = crop_w / 2
+                hh = crop_h / 2
+                bbox_hw = hw * cos_a + hh * sin_a
+                bbox_hh = hw * sin_a + hh * cos_a
+
+                # Space available from centre to each image edge
+                space_x = min(crop_cx, orig_w - crop_cx)
+                space_y = min(crop_cy, orig_h - crop_cy)
+
+                # Scale down so the rotated bounding box fits
+                rot_scale = 1.0
+                if bbox_hw > 0:
+                    rot_scale = min(rot_scale, space_x / bbox_hw)
+                if bbox_hh > 0:
+                    rot_scale = min(rot_scale, space_y / bbox_hh)
+
+                crop_w *= rot_scale
+                crop_h *= rot_scale
+                # Keep centre unchanged
+                crop_left = crop_cx - crop_w / 2
+                crop_top = crop_cy - crop_h / 2
+
             # Convert to display coordinates
             rect_x1 = self.img_x + int(crop_left * display_scale)
             rect_y1 = self.img_y + int(crop_top * display_scale)
             rect_x2 = rect_x1 + int(crop_w * display_scale)
             rect_y2 = rect_y1 + int(crop_h * display_scale)
 
-            # Store crop rect for hit testing
+            # Store crop rect for hit testing (axis-aligned bounding box)
             self.crop_rect = (rect_x1, rect_y1, rect_x2, rect_y2)
 
-            # Draw crop rectangle
-            self.preview_canvas.create_rectangle(rect_x1, rect_y1, rect_x2, rect_y2,
-                                                 outline='white', width=3)
+            # Draw crop border (rotated polygon when rotation is active)
+            if self.rotation != 0:
+                cx_d = (rect_x1 + rect_x2) / 2
+                cy_d = (rect_y1 + rect_y2) / 2
+                dhw = (rect_x2 - rect_x1) / 2
+                dhh = (rect_y2 - rect_y1) / 2
+                r = math.radians(self.rotation)
+                cos_r = math.cos(r)
+                sin_r = math.sin(r)
+                corners = [
+                    (cx_d - dhw * cos_r + dhh * sin_r, cy_d - dhw * sin_r - dhh * cos_r),
+                    (cx_d + dhw * cos_r + dhh * sin_r, cy_d + dhw * sin_r - dhh * cos_r),
+                    (cx_d + dhw * cos_r - dhh * sin_r, cy_d + dhw * sin_r + dhh * cos_r),
+                    (cx_d - dhw * cos_r - dhh * sin_r, cy_d - dhw * sin_r + dhh * cos_r),
+                ]
+                self.preview_canvas.create_polygon(
+                    *[c for pt in corners for c in pt],
+                    outline='white', fill='', width=3)
+            else:
+                self.preview_canvas.create_rectangle(rect_x1, rect_y1, rect_x2, rect_y2,
+                                                     outline='white', width=3)
 
             # Draw sticker if selected
             self.sticker_rect = None
@@ -1386,19 +1539,49 @@ class CardPreviewGUI:
                 sticker_ratio = self.sticker_image.width / self.sticker_image.height
                 sticker_h = int(sticker_w / sticker_ratio)
 
-                # Calculate sticker position within crop area
-                max_sticker_x = crop_display_w - sticker_w
-                max_sticker_y = crop_display_h - sticker_h
-                sticker_px = rect_x1 + int(max_sticker_x * self.sticker_x / 100)
-                sticker_py = rect_y1 + int(max_sticker_y * self.sticker_y / 100)
+                # Sticker position in card-relative coords (centre of sticker area)
+                rel_sx = (self.sticker_x / 100.0)
+                rel_sy = (self.sticker_y / 100.0)
+                max_sx = crop_display_w - sticker_w
+                max_sy = crop_display_h - sticker_h
 
-                # Resize and draw sticker
-                resized_sticker = self.sticker_image.resize((sticker_w, sticker_h), Image.Resampling.LANCZOS)
-                self.sticker_photo = ImageTk.PhotoImage(resized_sticker)
-                self.preview_canvas.create_image(sticker_px, sticker_py, anchor='nw', image=self.sticker_photo)
+                if self.rotation != 0:
+                    # Position sticker inside the rotated crop frame
+                    # Offset from crop centre in card (de-rotated) space
+                    off_x = -crop_display_w / 2 + sticker_w / 2 + max_sx * rel_sx
+                    off_y = -crop_display_h / 2 + sticker_h / 2 + max_sy * rel_sy
+                    # Rotate offset into canvas space
+                    r = math.radians(self.rotation)
+                    cos_r = math.cos(r)
+                    sin_r = math.sin(r)
+                    cx_d = (rect_x1 + rect_x2) / 2
+                    cy_d = (rect_y1 + rect_y2) / 2
+                    sticker_px = int(cx_d + off_x * cos_r - off_y * sin_r - sticker_w / 2)
+                    sticker_py = int(cy_d + off_x * sin_r + off_y * cos_r - sticker_h / 2)
 
-                # Store sticker rect for hit testing
-                self.sticker_rect = (sticker_px, sticker_py, sticker_px + sticker_w, sticker_py + sticker_h)
+                    # Rotate sticker image to match crop rotation
+                    resized_sticker = self.sticker_image.resize((sticker_w, sticker_h), Image.Resampling.LANCZOS)
+                    rotated_stk = resized_sticker.rotate(-self.rotation,
+                                                         resample=Image.Resampling.BICUBIC,
+                                                         expand=True)
+                    # Adjust anchor for expanded size
+                    sticker_px -= (rotated_stk.width - sticker_w) // 2
+                    sticker_py -= (rotated_stk.height - sticker_h) // 2
+                    self.sticker_photo = ImageTk.PhotoImage(rotated_stk)
+                    self.preview_canvas.create_image(sticker_px, sticker_py,
+                                                    anchor='nw', image=self.sticker_photo)
+                    self.sticker_rect = (rect_x1, rect_y1, rect_x2, rect_y2)  # use crop rect for hit
+                else:
+                    sticker_px = rect_x1 + int(max_sx * rel_sx)
+                    sticker_py = rect_y1 + int(max_sy * rel_sy)
+
+                    # Resize and draw sticker
+                    resized_sticker = self.sticker_image.resize((sticker_w, sticker_h), Image.Resampling.LANCZOS)
+                    self.sticker_photo = ImageTk.PhotoImage(resized_sticker)
+                    self.preview_canvas.create_image(sticker_px, sticker_py,
+                                                    anchor='nw', image=self.sticker_photo)
+                    self.sticker_rect = (sticker_px, sticker_py,
+                                         sticker_px + sticker_w, sticker_py + sticker_h)
 
         except Exception as e:
             print(f"Error updating preview: {e}")
@@ -1406,6 +1589,27 @@ class CardPreviewGUI:
     def on_zoom_change(self, value):
         """Handle zoom slider change."""
         self.zoom = int(float(value))
+        self.update_preview()
+
+    def on_rotation_change(self, value):
+        """Handle rotation slider change."""
+        self.rotation = int(float(value))
+        self.update_preview()
+
+    def _reset_rotation(self):
+        """Reset rotation to 0 degrees."""
+        self.rotation = 0
+        self.rotation_var.set(0)
+        self.update_preview()
+
+    def _reset_sliders(self):
+        """Reset zoom and rotation sliders to defaults."""
+        self.zoom = 100
+        self.zoom_var.set(100)
+        self.rotation = 0
+        self.rotation_var.set(0)
+        self.crop_x = 50
+        self.crop_y = 50
         self.update_preview()
 
     def browse_image(self):
@@ -1495,6 +1699,17 @@ class CardPreviewGUI:
         orient = "Landscape" if self.card_width > self.card_height else "Portrait"
         if hasattr(self, 'card_size_label'):
             self.card_size_label.configure(text=f"Size: {self.card_width}x{self.card_height}px ({orient})")
+        # Update template name to reflect the swapped orientation
+        if hasattr(self, 'template_name_label'):
+            # Derive name: swap Landscape<->Portrait in the media name
+            name = self.media_name
+            if orient == "Portrait" and "Landscape" in name:
+                name = name.replace("Landscape", "Portrait")
+            elif orient == "Landscape" and "Portrait" in name:
+                name = name.replace("Portrait", "Landscape")
+            # Update dimensions in parentheses if present, e.g. (2913x2125px)
+            name = _re.sub(r'\(\d+x\d+px\)', f'({self.card_width}x{self.card_height}px)', name)
+            self.template_name_label.configure(text=f"Template: {name}")
 
         # Reset crop position on orientation change for a clean view
         self.crop_x = 50
@@ -1597,6 +1812,8 @@ class CardPreviewGUI:
 
     def on_mouse_up(self, event):
         """Handle mouse button release."""
+        if self.sticker_dragging:
+            self._save_sticker_prefs()
         self.dragging = False
         self.sticker_dragging = False
 
@@ -1910,7 +2127,8 @@ class CardPreviewGUI:
                 sticker_y=int(self.sticker_y),
                 sticker_zoom=self.sticker_zoom,
                 card_width=self.card_width,
-                card_height=self.card_height
+                card_height=self.card_height,
+                rotation=self.rotation
             )
 
             # Save a proof copy
@@ -1967,7 +2185,8 @@ class CardPreviewGUI:
                     sticker_y=0,
                     sticker_zoom=0,
                     card_width=self.card_width,
-                    card_height=self.card_height
+                    card_height=self.card_height,
+                    rotation=self.rotation
                 )
 
                 from PIL import Image as _PILImg
@@ -2078,6 +2297,15 @@ class CardPreviewGUI:
         """Run the GUI main loop."""
         if not hasattr(self, 'root') or self.root is None:
             return self.result  # PSA not found — already warned user
+
+        # Destroy splash and reveal the fully-built main window
+        if hasattr(self, '_splash') and self._splash is not None:
+            try:
+                self._splash.destroy()
+            except tk.TclError:
+                pass
+            self._splash = None
+
         # Center window on screen
         self.root.update_idletasks()
         w = self.root.winfo_width()
@@ -2085,6 +2313,8 @@ class CardPreviewGUI:
         x = (self.root.winfo_screenwidth() - w) // 2
         y = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"+{x}+{y}")
+
+        self.root.deiconify()  # Show the fully-built window
 
         # Highlight first thumbnail
         if self.thumb_labels:

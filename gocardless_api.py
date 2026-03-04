@@ -786,6 +786,165 @@ def list_mandate_subscriptions(mandate_id: str, token: str, environment: str) ->
     return results
 
 
+def list_stale_mandates(token: str, environment: str, progress_file: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List active mandates whose ALL payment plans have finished/completed (stale mandates).
+
+    A stale mandate is one that:
+    - Has status 'active' (Direct Debit still authorized)
+    - Has at least one subscription/instalment/payment
+    - ALL of them are in a terminal state (finished, completed, cancelled, paid_out, etc.)
+    - i.e. no active or pending plans remain
+
+    Args:
+        token: GoCardless API token
+        environment: "sandbox" or "live"
+        progress_file: Optional path to write progress updates for GUI polling
+
+    Returns:
+        list: List of dicts with {mandate_id, customer_id, customer_name, email,
+              created_at, bank_name, last_payment_date, total_collected}
+    """
+    debug_log("list_stale_mandates called")
+
+    def write_progress(current: int, total: int, message: str = ""):
+        if progress_file:
+            try:
+                with open(progress_file, 'w', encoding='utf-8') as f:
+                    f.write(f"{current}|{total}|{message}")
+            except Exception:
+                pass
+
+    results = []
+    write_progress(0, 100, "Fetching active mandates...")
+
+    # Get all active mandates
+    mandates_resp = gc_request('GET', '/mandates?status=active', token, environment, timeout=30)
+    if 'error' in mandates_resp:
+        error_log(f"Failed to get mandates: {mandates_resp['error']}")
+        return results
+
+    mandates = mandates_resp.get('mandates', [])
+    total = len(mandates)
+    debug_log(f"Found {total} active mandates")
+    write_progress(0, total, f"Checking {total} mandates for stale plans...")
+
+    customer_cache = {}
+    # Terminal statuses — mandate still active but nothing left to collect
+    active_statuses = {'active', 'pending', 'pending_submission', 'submitted', 'confirmed', 'processing'}
+
+    for idx, mandate in enumerate(mandates):
+        mandate_id = mandate.get('id', '')
+        customer_id = mandate.get('links', {}).get('customer', '')
+        bank_account_id = mandate.get('links', {}).get('customer_bank_account', '')
+
+        write_progress(idx + 1, total, f"Checking {idx + 1}/{total}...")
+
+        plans = list_mandate_subscriptions(mandate_id, token, environment)
+
+        # Skip mandates with NO plans at all (those are "empty mandates", different feature)
+        if len(plans) == 0:
+            continue
+
+        # Check if ANY plan is still active/pending — if so, mandate is NOT stale
+        has_active = any(p['status'] in active_statuses for p in plans)
+        if has_active:
+            continue
+
+        # All plans are terminal — this mandate is stale
+        # Find last payment date and total collected from actual payments
+        last_payment_date = ''
+        total_collected = 0
+        payments_resp = gc_request('GET', f'/payments?mandate={mandate_id}', token, environment, timeout=15)
+        if 'error' not in payments_resp:
+            payments = payments_resp.get('payments', [])
+            paid_statuses = {'confirmed', 'paid_out'}
+            for payment in payments:
+                if payment.get('status', '') in paid_statuses:
+                    total_collected += int(payment.get('amount', 0))
+                    charge_date = payment.get('charge_date', '')
+                    if charge_date > last_payment_date:
+                        last_payment_date = charge_date
+
+        # Get customer info
+        if customer_id not in customer_cache:
+            cust_resp = gc_request('GET', f'/customers/{customer_id}', token, environment, timeout=10)
+            if 'error' not in cust_resp:
+                cust = cust_resp.get('customers', {})
+                customer_cache[customer_id] = {
+                    'name': f"{cust.get('given_name', '')} {cust.get('family_name', '')}".strip(),
+                    'email': cust.get('email', ''),
+                }
+            else:
+                customer_cache[customer_id] = {'name': 'Unknown', 'email': ''}
+
+        customer = customer_cache[customer_id]
+
+        # Get bank name
+        bank_name = ''
+        if bank_account_id:
+            bank_resp = gc_request('GET', f'/customer_bank_accounts/{bank_account_id}', token, environment, timeout=10)
+            if 'error' not in bank_resp:
+                bank = bank_resp.get('customer_bank_accounts', {})
+                bank_name = bank.get('bank_name', '')
+
+        results.append({
+            'mandate_id': mandate_id,
+            'customer_id': customer_id,
+            'customer_name': customer['name'],
+            'email': customer['email'],
+            'created_at': mandate.get('created_at', '')[:10],
+            'bank_name': bank_name,
+            'last_payment_date': last_payment_date,
+            'total_collected': total_collected,
+        })
+
+        debug_log(f"Stale mandate {mandate_id} ({customer['name']}) last payment: {last_payment_date}")
+
+    debug_log(f"Found {len(results)} stale mandates")
+    return results
+
+
+def cancel_mandate(mandate_id: str, token: str, environment: str) -> Dict[str, Any]:
+    """Cancel (revoke) an active GoCardless mandate.
+
+    WARNING: This is irreversible. The customer would need to set up a new mandate.
+
+    Args:
+        mandate_id: GoCardless mandate ID to cancel
+        token: GoCardless API token
+        environment: "sandbox" or "live"
+
+    Returns:
+        dict: {success: bool, error: str}
+    """
+    debug_log(f"cancel_mandate called for: {mandate_id}")
+
+    result = gc_request('POST', f'/mandates/{mandate_id}/actions/cancel', token, environment, timeout=15)
+
+    if 'error' in result:
+        error_log(f"Failed to cancel mandate {mandate_id}: {result['error']}")
+        return {'success': False, 'error': result['error']}
+
+    mandate = result.get('mandates', {})
+    new_status = mandate.get('status', '')
+    debug_log(f"Mandate {mandate_id} cancelled, new status: {new_status}")
+    return {'success': True, 'error': ''}
+
+
+def sanitize_statement_name(name: str) -> str:
+    """Remove spaces from statement names — some banks reject names with spaces.
+
+    Replaces all whitespace with hyphens and collapses consecutive hyphens.
+    Example: "P26001 - Smith" → "P26001-Smith"
+    """
+    import re
+    name = name.strip()
+    name = re.sub(r'\s+', '-', name)       # spaces → hyphens
+    name = re.sub(r'-{2,}', '-', name)     # collapse "--" → "-"
+    name = name.strip('-')                 # no leading/trailing hyphens
+    return name
+
+
 def get_unique_plan_name(base_name: str, mandate_id: str, token: str, environment: str) -> str:
     """Get a unique plan name by adding suffix if needed.
 
@@ -877,6 +1036,9 @@ def create_instalment_schedule(schedule_data: dict, token: str, environment: str
     if count < 1:
         result['error'] = 'Count must be at least 1'
         return result
+
+    # Sanitize name — some banks reject spaces in statement descriptors
+    name = sanitize_statement_name(name)
 
     # Get unique name (adds -1, -2 suffix if name already exists)
     unique_name = get_unique_plan_name(name, mandate_id, token, environment)
@@ -1083,7 +1245,7 @@ def create_payment_plan(plan_data: dict, token: str, environment: str) -> Dict[s
     }
 
     mandate_id = plan_data.get('mandate_id', '')
-    name = plan_data.get('name', 'Payment Plan')
+    name = sanitize_statement_name(plan_data.get('name', 'Payment Plan'))
 
     if not mandate_id:
         result['error'] = 'No mandate ID provided'
@@ -1200,6 +1362,10 @@ Examples:
                         help='List active instalment schedules for a mandate')
     parser.add_argument('--list-empty-mandates', action='store_true',
                         help='List all active mandates with no payment plans')
+    parser.add_argument('--list-stale-mandates', action='store_true',
+                        help='List active mandates where all plans have finished')
+    parser.add_argument('--cancel-mandate', type=str, metavar='MANDATE_ID',
+                        help='Cancel (revoke) an active mandate - IRREVERSIBLE')
     parser.add_argument('--progress-file', type=str, metavar='PATH',
                         help='File path for progress updates (GUI polling)')
     parser.add_argument('--live', action='store_true',
@@ -1312,6 +1478,24 @@ Examples:
             for m in mandates:
                 # Format: mandate_id|customer_id|customer_name|email|created_at|bank_name
                 print(f"{m['mandate_id']}|{m['customer_id']}|{m['customer_name']}|{m['email']}|{m['created_at']}|{m['bank_name']}")
+
+    elif args.list_stale_mandates:
+        debug_log("Executing --list-stale-mandates")
+        mandates = list_stale_mandates(gc_token, environment, args.progress_file)
+        if not mandates:
+            print("NO_STALE_MANDATES")
+        else:
+            for m in mandates:
+                # Format: mandate_id|customer_id|customer_name|email|created_at|bank_name|last_payment_date|total_collected_pence
+                print(f"{m['mandate_id']}|{m['customer_id']}|{m['customer_name']}|{m['email']}|{m['created_at']}|{m['bank_name']}|{m['last_payment_date']}|{m['total_collected']}")
+
+    elif args.cancel_mandate:
+        debug_log(f"Executing --cancel-mandate for: {args.cancel_mandate}")
+        result = cancel_mandate(args.cancel_mandate, gc_token, environment)
+        if result['success']:
+            print(f"SUCCESS|{args.cancel_mandate}")
+        else:
+            print(f"ERROR|{result['error']}")
 
     elif args.create_billing_request:
         debug_log(f"Executing --create-billing-request")
