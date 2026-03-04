@@ -295,7 +295,7 @@ if (!$SkipPythonCompile) {
         $iconArg = if (Test-Path $pyIconPath) { "--icon=`"$pyIconPath`"" } else { "" }
 
         $ErrorActionPreference = "SilentlyContinue"
-        $cliCmd = "& `"$pyinstallerExe`" --onefile --console --clean --noconfirm $iconArg " +
+        $cliCmd = "& `"$pyinstallerExe`" --onefile --console --noconfirm $iconArg " +
                   "--distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" " +
                   "--specpath `"$env:TEMP\pyinstaller_spec`" --name `"SideKick_PS_CLI`" " +
                   "--paths `"$SourceDir`" $hiArgs `"$cliLauncher`" 2>`$null | Out-Null"
@@ -350,7 +350,7 @@ if (!$SkipPythonCompile) {
                     if (!(Test-Path $pyIconPath)) { $pyIconPath = "$SourceDir\SideKick_PS.ico" }
                     $iconArg = if (Test-Path $pyIconPath) { "--icon=`"$pyIconPath`"" } else { "" }
                     $ErrorActionPreference = "SilentlyContinue"
-                    $pyCmd = "& `"$pyinstallerExe`" --onefile $consoleFlag --clean --noconfirm $iconArg --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
+                    $pyCmd = "& `"$pyinstallerExe`" --onefile $consoleFlag --noconfirm $iconArg --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
                     Invoke-Expression $pyCmd
                     $ErrorActionPreference = "Stop"
                     

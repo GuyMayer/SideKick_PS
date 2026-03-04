@@ -1632,8 +1632,14 @@ TestGCConnection:
 		return
 	}
 	
-	; Run the script and capture output via WScript.Shell (avoids cmd.exe quote issues)
-	testResult := RunCaptureOutput(scriptCmd)
+	; Run the script using proven RunCmdToFile helper
+	gcOutFile := A_Temp . "\sk_gc_test_" . A_TickCount . ".txt"
+	RunCmdToFile(scriptCmd, gcOutFile)
+	testResult := ""
+	if (FileExist(gcOutFile)) {
+		FileRead, testResult, %gcOutFile%
+		FileDelete, %gcOutFile%
+	}
 	FileAppend, % A_Now . " - TestGCConnection - testResult: [" . testResult . "]`n", %DebugLogFile%
 	
 	ToolTip
@@ -1906,8 +1912,15 @@ GCWizard_RunTest:
 		return
 	}
 	
-	; Run the script and capture output via WScript.Shell
-	testResult := RunCaptureOutput(scriptCmd)
+	; Run the script using proven RunCmdToFile helper
+	gcOutFile := A_Temp . "\sk_gc_wizard_" . A_TickCount . ".txt"
+	RunCmdToFile(scriptCmd, gcOutFile)
+	testResult := ""
+	if (FileExist(gcOutFile)) {
+		FileRead, testResult, %gcOutFile%
+		FileDelete, %gcOutFile%
+	}
+	testResult := Trim(testResult)
 	
 	if (InStr(testResult, "SUCCESS|")) {
 		parts := StrSplit(testResult, "|")
@@ -2662,8 +2675,14 @@ GC_CheckCustomerMandate(customerEmail) {
 		return result
 	}
 	
-	; Run the script and capture output via WScript.Shell (avoids cmd.exe quote issues)
-	scriptOutput := RunCaptureOutput(scriptCmd)
+	; Run the script using proven RunCmdToFile helper (avoids cmd.exe quote issues)
+	gcOutputFile := A_Temp . "\sk_gc_mandate_" . A_TickCount . ".txt"
+	RunCmdToFile(scriptCmd, gcOutputFile)
+	scriptOutput := ""
+	if (FileExist(gcOutputFile)) {
+		FileRead, scriptOutput, %gcOutputFile%
+		FileDelete, %gcOutputFile%
+	}
 	FileAppend, % A_Now . " - GC_CheckCustomerMandate - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
 	
 	scriptOutput := Trim(scriptOutput)
@@ -2838,8 +2857,14 @@ GC_SendMandateRequest(contactData, sendEmail, sendSMS) {
 		return
 	}
 	
-	; Run the script and capture output via WScript.Shell
-	scriptOutput := RunCaptureOutput(scriptCmd)
+	; Run the script using proven RunCmdToFile helper
+	gcOutFile := A_Temp . "\sk_gc_billing_" . A_TickCount . ".txt"
+	RunCmdToFile(scriptCmd, gcOutFile)
+	scriptOutput := ""
+	if (FileExist(gcOutFile)) {
+		FileRead, scriptOutput, %gcOutFile%
+		FileDelete, %gcOutFile%
+	}
 	
 	scriptOutput := Trim(scriptOutput)
 	
@@ -3738,7 +3763,13 @@ GC_PP_CreateSingles:
 		FileAppend, % A_Now . " - GC_PP_CreateSingles - paymentJson: " . paymentJson . "`n", %DebugLogFile%
 		
 		scriptCmd := GetScriptCommand("gocardless_api", "--create-payment """ . paymentJson . """" . envFlag)
-		scriptOutput := RunCaptureOutput(scriptCmd)
+		gcOutFile := A_Temp . "\sk_gc_pay_" . A_TickCount . "_" . A_Index . ".txt"
+		RunCmdToFile(scriptCmd, gcOutFile)
+		scriptOutput := ""
+		if (FileExist(gcOutFile)) {
+			FileRead, scriptOutput, %gcOutFile%
+			FileDelete, %gcOutFile%
+		}
 		
 		scriptOutput := Trim(scriptOutput)
 		FileAppend, % A_Now . " - GC_PP_CreateSingles - output: " . scriptOutput . "`n", %DebugLogFile%
@@ -3794,7 +3825,13 @@ GC_PP_Create:
 	ToolTip, Checking for existing plans...
 	envFlag := " --live"  ; Always live
 	checkCmd := GetScriptCommand("gocardless_api", "--list-plans """ . mandateId . """" . envFlag)
-	subsOutput := RunCaptureOutput(checkCmd)
+	gcOutFile := A_Temp . "\sk_gc_plans_" . A_TickCount . ".txt"
+	RunCmdToFile(checkCmd, gcOutFile)
+	subsOutput := ""
+	if (FileExist(gcOutFile)) {
+		FileRead, subsOutput, %gcOutFile%
+		FileDelete, %gcOutFile%
+	}
 	ToolTip
 	
 	; Check if plan name already exists
