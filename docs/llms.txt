@@ -66,4 +66,4 @@ With SideKick, you lock in the payment plan in 30 seconds, set up the Direct Deb
 - Homepage: https://ps.ghl-sidekick.com/
 - Documentation: https://ps.ghl-sidekick.com/docs.html
 - Privacy Policy: https://ps.ghl-sidekick.com/privacy.html
-- Start Trial: https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c
+- Start Trial: https://zoomphoto.lemonsqueezy.com/checkout/buy/077d6b76-ca2a-42df-a653-86f7aa186895

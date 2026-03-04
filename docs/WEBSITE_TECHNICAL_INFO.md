@@ -63,7 +63,7 @@ SideKick_PS/
 |------|---------|
 | **Store** | zoomphoto.lemonsqueezy.com |
 | **Product** | SideKick PS Monthly Subscription |
-| **Checkout URL** | https://zoomphoto.lemonsqueezy.com/buy/234060d4-063d-4e6f-b91b-744c254c0e7c |
+| **Checkout URL** | https://zoomphoto.lemonsqueezy.com/checkout/buy/077d6b76-ca2a-42df-a653-86f7aa186895 |
 | **Pricing** | £14.99/month (billed annually at £149/year) |
 | **Trial** | 14 days (via LemonSqueezy - requires CC upfront) |
 
