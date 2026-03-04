@@ -12,6 +12,20 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.47 (2026-03-04)
+
+### Bug Fixes
+- **RunCaptureOutput rewritten**: Used temp `.cmd` file approach instead of `WScript.Shell.Exec(ComSpec /c ...)` — fixes empty stdout when the exe path contains spaces (e.g. `C:\Program Files (x86)\...`). Affected all GoCardless mandate checks, connection tests, and other `RunCaptureOutput` callers.
+- **Helper detection for unified build**: Startup helper version check now looks for `SideKick_PS_CLI.exe` when individual `_sps.exe` is absent, eliminating the `WARNING: sync_ps_invoice helper not found!` log entry.
+- **Update/resync error display**: Error dialog now shows client name, shoot number, email, album, and order total when an update or resync fails (was previously blank).
+- **Invoice update draft pre-check**: When new total < amount already paid, attempts `update_invoice_to_draft()` first to bypass GHL payment restrictions. Error message now includes actual amounts.
+
+### Improvements
+- **Unified build priority**: Build script now compiles unified CLI exe first; if successful, skips all 13 individual Python exes (faster builds, smaller installer).
+- **Validation error guidance**: Error dialog shows specific fix instructions when "total may be less than amount paid" — suggests Replace, refund in GHL, or re-export.
+
+---
+
 ## v2.5.46 (2026-03-04)
 
 ### New Features

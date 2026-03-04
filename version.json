@@ -1,9 +1,16 @@
 ﻿{
-  "version": "2.5.46",
+  "version": "2.5.48",
   "build_date": "2026-03-04",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Invoice update/resync — update existing invoices in place or delete and resync, with payment-aware duplicate prompt",
+  "release_notes": "Fix RunCaptureOutput for unified CLI exe, improve error diagnostics, unified build skips individual exes",
   "changelog": [
+    "FIX: RunCaptureOutput rewritten to use temp .cmd file — fixes empty output when exe path contains spaces (e.g. Program Files)",
+    "FIX: Helper version detection now finds SideKick_PS_CLI.exe when individual exes are absent (unified build)",
+    "FIX: Update/resync error dialog now shows client info (name, shoot, email, order total) instead of blank AVAILABLE DATA",
+    "FIX: Invoice update tries draft status first when new total < amount paid, includes amounts in error message",
+    "IMPROVED: Build script builds unified CLI first, skips 13 individual exes if it succeeds (faster builds, smaller installer)",
+    "IMPROVED: Error dialog shows specific fix instructions for 'total less than amount paid' validation errors",
+    "----------",
     "NEW: Invoice Update — update existing GHL invoice items and amounts in place, preserving recorded payments",
     "NEW: Invoice Resync — delete old invoice for a shoot and create a fresh one in a single operation (--resync)",
     "NEW: Payment-aware duplicate prompt — DarkMsgBox with Replace / Update / New / Cancel buttons when duplicate invoice detected",
@@ -136,7 +143,7 @@
   ],
   "versions": [
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
@@ -148,7 +155,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
@@ -176,7 +183,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
@@ -188,7 +195,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
@@ -201,7 +208,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
@@ -217,7 +224,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
@@ -231,7 +238,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
@@ -240,7 +247,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
@@ -260,7 +267,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
@@ -274,7 +281,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
@@ -285,7 +292,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
@@ -297,7 +304,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
@@ -308,7 +315,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
@@ -319,7 +326,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
@@ -328,7 +335,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
@@ -340,7 +347,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
@@ -350,7 +357,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
@@ -362,7 +369,7 @@
       ]
     },
     {
-      "version": "2.5.46",
+      "version": "2.5.48",
       "build_date": "2026-03-04",
       "release_notes": "Major GHL integration release",
       "changelog": [

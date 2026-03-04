@@ -5929,7 +5929,9 @@ DevUpdateVersion:
 	InputBox, newVer, Update Version, Enter new version number (e.g., 2.5.0):,, 300, 130,,,,, %ScriptVersion%
 	if (!ErrorLevel && newVer != "") {
 		; Update version.json (single source of truth)
-		versionFile := A_ScriptDir . "\version.json"
+		; When compiled, source is at C:\Stash\SideKick_PS, not A_ScriptDir (install folder)
+		sourceDir := A_IsCompiled ? "C:\Stash\SideKick_PS" : A_ScriptDir
+		versionFile := sourceDir . "\version.json"
 		if FileExist(versionFile) {
 			; Read and update version.json
 			FileRead, versionJson, %versionFile%
@@ -6099,9 +6101,9 @@ DevQuickPush:
 		return
 	}
 	
-	; Update ScriptVersion in main script FIRST
+	; Update ScriptVersion in main script FIRST (use repoDir, not A_ScriptDir)
 	ToolTip, Updating version in script...
-	mainScript := A_ScriptDir . "\SideKick_PS.ahk"
+	mainScript := repoDir . "\SideKick_PS.ahk"
 	FileRead, scriptContent, %mainScript%
 	scriptContent := RegExReplace(scriptContent, "global ScriptVersion := ""[^""]+""", "global ScriptVersion := """ . newVersion . """")
 	; Also sync the header comment block (; Version: / ; Build Date:)
@@ -6113,7 +6115,7 @@ DevQuickPush:
 	
 	; Sync version.json (single source of truth for version info)
 	ToolTip, Syncing version.json...
-	versionJsonFile := A_ScriptDir . "\version.json"
+	versionJsonFile := repoDir . "\version.json"
 	if FileExist(versionJsonFile) {
 		FileRead, jsonContent, %versionJsonFile%
 		jsonContent := RegExReplace(jsonContent, """version"":\s*""[^""]+""", """version"": """ . newVersion . """")
