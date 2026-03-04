@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.49
+; Version:     2.5.50
 ; Build Date:  2026-03-04
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -5417,6 +5417,29 @@ Toolbar_Cardly:
 	global Settings_Cardly_GHLMediaFolderID, Settings_Cardly_GHLMediaFolderName
 	global Settings_Cardly_PhotoLinkField, Settings_Cardly_SaveToAlbum
 	global CardlyTemplateAltOrientation, CardlyTemplateMap, CardlyTemplateSizes
+	global Settings_DarkMode, DPI_Scale
+	
+	; Show loading GUI immediately
+	Gui, CardlyLoading:Destroy
+	clBg := Settings_DarkMode ? "2D2D30" : "F5F5F5"
+	clTxt := Settings_DarkMode ? "E0E0E0" : "333333"
+	clAccent := Settings_DarkMode ? "E88D67" : "D97040"
+	clDpi := DPI_Scale ? DPI_Scale : 1.0
+	clW := Round(320 * clDpi)
+	clH := Round(100 * clDpi)
+	clMargin := Round(20 * clDpi)
+	clBarW := clW - (clMargin * 2)
+	clBarH := Round(6 * clDpi)
+	Gui, CardlyLoading:New, +AlwaysOnTop -SysMenu +ToolWindow
+	Gui, CardlyLoading:Color, %clBg%
+	Gui, CardlyLoading:Font, s12 c%clTxt%, Segoe UI
+	Gui, CardlyLoading:Add, Text, x%clMargin% y%clMargin% w%clBarW% vCardlyLoadingTitle, 📮 Preparing Cardly...
+	clYBar := Round(52 * clDpi)
+	Gui, CardlyLoading:Add, Progress, x%clMargin% y%clYBar% w%clBarW% h%clBarH% Background3C3C3C c%clAccent% vCardlyLoadingBar Range0-100, 5
+	clYStatus := Round(68 * clDpi)
+	Gui, CardlyLoading:Font, s9 c%clTxt%
+	Gui, CardlyLoading:Add, Text, x%clMargin% y%clYStatus% w%clBarW% vCardlyLoadingStatus, Checking ProSelect...
+	Gui, CardlyLoading:Show, w%clW% h%clH%, Cardly Loading
 	
 	; Kill any existing cardly preview/select windows before launching a new one
 	; Handles both .exe (Release) and pythonw .py (dev) instances
@@ -5437,15 +5460,19 @@ Toolbar_Cardly:
 	{
 		WinGetTitle, psTitle, ahk_exe ProSelect.exe
 		if (psTitle = "ProSelect - Untitled" || psTitle = "ProSelect") {
+			Gui, CardlyLoading:Destroy
 			DarkMsgBox("No Album Loaded", "Please open an album in ProSelect first.", "warning")
 			return
 		}
 	} else {
+		Gui, CardlyLoading:Destroy
 		DarkMsgBox("ProSelect Not Running", "ProSelect is not running.`n`nPlease open ProSelect with an album first.", "warning")
 		return
 	}
 	
 	; Get the first selected image from ProSelect via PSConsole
+	GuiControl, CardlyLoading:, CardlyLoadingBar, 15
+	GuiControl, CardlyLoading:, CardlyLoadingStatus, Reading selected image...
 	preselectImage := ""
 	if (PsConsolePath != "") {
 		selectedXml := PsConsole("getSelectedImageData")
@@ -5457,6 +5484,8 @@ Toolbar_Cardly:
 	}
 	
 	; Auto-fetch GHL contact if not already loaded
+	GuiControl, CardlyLoading:, CardlyLoadingBar, 25
+	GuiControl, CardlyLoading:, CardlyLoadingStatus, Fetching client data...
 	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {
 		; Try to extract Client ID from ProSelect album title
 		albumContactId := ""
@@ -5487,10 +5516,12 @@ Toolbar_Cardly:
 			GHL_ContactData := FetchGHLData(albumContactId)
 			ToolTip
 			if (!GHL_ContactData.success) {
+				Gui, CardlyLoading:Destroy
 				DarkMsgBox("GHL Fetch Failed", "Could not fetch client data from GHL.`n`n" . GHL_ContactData.error, "error")
 				return
 			}
 		} else {
+			Gui, CardlyLoading:Destroy
 			DarkMsgBox("No Client Found", "No GHL Client ID found in album name or PSA file.`n`nPlease fetch a client from GHL first using the Client button,`nor ensure the album contains a GHL Client ID.", "warning")
 			return
 		}
@@ -5502,6 +5533,8 @@ Toolbar_Cardly:
 		firstName := "Client"
 	
 	; Get card message from GHL contact custom field
+	GuiControl, CardlyLoading:, CardlyLoadingBar, 40
+	GuiControl, CardlyLoading:, CardlyLoadingStatus, Loading card message...
 	CardMessage := ""
 	if (Settings_Cardly_MessageField != "" && contactId != "" && GHL_API_Key != "") {
 		try {
@@ -5527,6 +5560,8 @@ Toolbar_Cardly:
 		CardMessage := Settings_Cardly_DefaultMessage
 	
 	; Determine image source folder - use ProSelect Order Exports
+	GuiControl, CardlyLoading:, CardlyLoadingBar, 55
+	GuiControl, CardlyLoading:, CardlyLoadingStatus, Finding order images...
 	; Find the most recent order export matching the album's shoot number
 	psaPath := ""
 	xmlPath := ""
@@ -5626,12 +5661,15 @@ Toolbar_Cardly:
 	
 	; Still no images? Let user browse
 	if (imageFolder = "" || !FileExist(imageFolder)) {
+		Gui, CardlyLoading:Destroy
 		FileSelectFolder, imageFolder, , 3, Select folder containing images for postcard:
 		if (imageFolder = "")
 			return
 	}
 	
 	; Build command line args using argparse format
+	GuiControl, CardlyLoading:, CardlyLoadingBar, 75
+	GuiControl, CardlyLoading:, CardlyLoadingStatus, Building preview...
 	stickerFolder := A_ScriptDir . "\stickers"
 	; Escape newlines for command line transport (Python will unescape)
 	CardMessage_Escaped := CardMessage
@@ -5759,12 +5797,12 @@ Toolbar_Cardly:
 	}
 	
 	; Launch Card Preview GUI
-	cardPreviewPath := GetScriptPath("cardly_preview_gui")
-	if (SubStr(cardPreviewPath, -3) = ".exe") {
-		RunWait, "%cardPreviewPath%" %cmdArgs%, %A_ScriptDir%, Hide UseErrorLevel
-	} else {
-		RunWait, pythonw "%cardPreviewPath%" %cmdArgs%, %A_ScriptDir%, UseErrorLevel
-	}
+	GuiControl, CardlyLoading:, CardlyLoadingBar, 95
+	GuiControl, CardlyLoading:, CardlyLoadingStatus, Launching preview window...
+	Sleep, 200
+	Gui, CardlyLoading:Destroy
+	cardPreviewCmd := GetScriptCommand("cardly_preview_gui", cmdArgs)
+	RunWait, %cardPreviewCmd%, %A_ScriptDir%, UseErrorLevel
 	exitCode := ErrorLevel
 	
 	if (exitCode = 0) {

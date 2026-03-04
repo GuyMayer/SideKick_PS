@@ -937,38 +937,34 @@ FileAppend, % A_Now . " - UpdatePS - Album path: " . psaPath . "`n", %DebugLogFi
 ; Step 4: Build command with all payment lines as arguments
 pythonScript := GetScriptPath("write_psa_payments")
 if (!FileExist(pythonScript)) {
-	FileAppend, % A_Now . " - UpdatePS - FAILED: write_psa_payments not found`n", %DebugLogFile%
-	DarkMsgBox("Error", "write_psa_payments script not found in SideKick folder.", "error")
-	EnteringPaylines := False
-	return
+	; Also check unified CLI
+	unifiedExe := A_ScriptDir . "\SideKick_PS_CLI.exe"
+	if (!FileExist(unifiedExe)) {
+		FileAppend, % A_Now . " - UpdatePS - FAILED: write_psa_payments not found`n", %DebugLogFile%
+		DarkMsgBox("Error", "write_psa_payments script not found in SideKick folder.", "error")
+		EnteringPaylines := False
+		return
+	}
 }
 
 ; Build argument string with quoted payment lines
 ; Use --clear to replace existing payments (Payment Calculator provides the complete plan)
-isExe := (SubStr(pythonScript, -3) = ".exe")
-if (isExe) {
-	pyArgs := """" . pythonScript . """ """ . psaPath . """ --clear"
-} else {
-	pyArgs := """" . pythonScript . """ """ . psaPath . """ --clear"
-}
+writeArgs := """" . psaPath . """ --clear"
 
 Loop %TotalPaymentsToEnter%
 {
 	PaymentIndex := StartIndex + A_Index - 1
 	payLine := PayPlanLine[PaymentIndex]
 	if (payLine != "")
-		pyArgs .= " """ . payLine . """"
+		writeArgs .= " """ . payLine . """"
 }
 
-FileAppend, % A_Now . " - UpdatePS - Running: " . pyArgs . "`n", %DebugLogFile%
+pyCmd := GetScriptCommand("write_psa_payments", writeArgs)
+FileAppend, % A_Now . " - UpdatePS - Running: " . pyCmd . "`n", %DebugLogFile%
 
-; Step 5: Run the script (.exe directly, .py via python)
+; Step 5: Run the script via RunCmdToFile (handles quoting properly)
 tempOut := A_Temp . "\sk_psa_write_" . A_TickCount . ".txt"
-if (isExe) {
-	RunWait, % "cmd /c " . pyArgs . " > """ . tempOut . """ 2>&1", %A_ScriptDir%, Hide
-} else {
-	RunWait, % "cmd /c python " . pyArgs . " > """ . tempOut . """ 2>&1", %A_ScriptDir%, Hide
-}
+RunCmdToFile(pyCmd, tempOut)
 FileRead, pyOutput, %tempOut%
 FileDelete, %tempOut%
 pyOutput := Trim(pyOutput)
