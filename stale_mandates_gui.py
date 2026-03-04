@@ -543,6 +543,7 @@ def _ghl_api_request(method: str, endpoint: str, api_key: str,
         'Authorization': f'Bearer {api_key}',
         'Content-Type': 'application/json',
         'Version': '2021-07-28',
+        'User-Agent': 'SideKick_PS/2.5',
     }
     body = json.dumps(data).encode('utf-8') if data else None
     try:
@@ -1715,7 +1716,7 @@ class StaleMandatesWindow(QMainWindow):
         QApplication.processEvents()
 
         resp = _ghl_api_request(
-            'GET', f'/tags/?locationId={location_id}&limit=100', api_key
+            'GET', f'/locations/{location_id}/tags', api_key
         )
 
         self.btn_refresh_tags.setEnabled(True)

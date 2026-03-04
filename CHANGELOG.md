@@ -12,6 +12,25 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.46 (2026-03-04)
+
+### New Features
+- **Invoice Update**: Update an existing GHL invoice's line items and amounts in place via `--update-invoice <id>`. Preserves recorded payments, records any new past payments not yet in GHL, and replaces future recurring schedules.
+- **Invoice Resync**: Delete old invoice(s) for a shoot and create a fresh one in a single `--resync` operation. Aborts safely if provider payments (GoCardless/Stripe) need manual refund.
+- **Payment-Aware Duplicate Prompt**: When a duplicate invoice is detected, a `DarkMsgBox` with four buttons replaces the old Yes/No MsgBox:
+  - **Replace** — delete old invoice and resync (default when no payments)
+  - **Update** — update items in place (default when payments exist)
+  - **New** — create another invoice alongside existing
+  - **Cancel** — do nothing
+- **Shoot-Scoped Deletion**: New `delete_shoot_invoices()` function targets only invoices matching the shoot number, not all client invoices
+
+### Improvements
+- **Duplicate Check `amount_paid`**: `check_existing_invoice()` now returns `amount_paid` so AHK can show payment status and choose the right default action
+- **Update Payment Diffing**: Compares XML past payment total vs GHL `amountPaid` and only records the difference — no duplicate payment records
+- **Update Schedule Replacement**: Cancels existing recurring schedules matching the shoot, then creates new ones for remaining future payments (with rounding-in-deposit support)
+
+---
+
 ## v2.5.45 (2026-03-04)
 
 ### Bug Fixes

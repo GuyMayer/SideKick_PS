@@ -4108,10 +4108,13 @@ RefreshGCSMSTemplates:
 	}
 	
 	GuiControl, Settings:, GCSMSTplCombo, |%newSmsList%
-	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)" && Settings_GCSMSTemplateName != "SELECT")
+	if (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "(none selected)" && Settings_GCSMSTemplateName != "SELECT") {
 		GuiControl, Settings:ChooseString, GCSMSTplCombo, %Settings_GCSMSTemplateName%
-	else
+		GuiControl, Settings:Text, GCSMSTplCombo, %Settings_GCSMSTemplateName%
+	} else {
 		GuiControl, Settings:ChooseString, GCSMSTplCombo, SELECT
+		GuiControl, Settings:Text, GCSMSTplCombo, SELECT
+	}
 	
 	templateCount := StrSplit(result, "`n").MaxIndex()
 	GC_TemplateRefreshing := false
@@ -4177,10 +4180,13 @@ RefreshGCEmailTemplates:
 	}
 	
 	GuiControl, Settings:, GCEmailTplCombo, |%newList%
-	if (Settings_GCEmailTemplateName != "" && Settings_GCEmailTemplateName != "(none selected)" && Settings_GCEmailTemplateName != "SELECT")
+	if (Settings_GCEmailTemplateName != "" && Settings_GCEmailTemplateName != "(none selected)" && Settings_GCEmailTemplateName != "SELECT") {
 		GuiControl, Settings:ChooseString, GCEmailTplCombo, %Settings_GCEmailTemplateName%
-	else
+		GuiControl, Settings:Text, GCEmailTplCombo, %Settings_GCEmailTemplateName%
+	} else {
 		GuiControl, Settings:ChooseString, GCEmailTplCombo, SELECT
+		GuiControl, Settings:Text, GCEmailTplCombo, SELECT
+	}
 	
 	templateCount := StrSplit(result, "`n").MaxIndex()
 	GC_TemplateRefreshing := false

@@ -218,6 +218,7 @@ $pythonFiles = @(
 
 $compiledCount = 0
 $cachedCount = 0
+$unifiedCliBuilt = $false
 
 if (!$SkipPythonCompile) {
     # Check if PyInstaller is installed
@@ -260,70 +261,14 @@ if (!$SkipPythonCompile) {
     } elseif (Test-Path $userScriptsPath3) {
         $pyinstallerExe = $userScriptsPath3
     }
-    
-    foreach ($script in $pythonFiles) {
-        $pyFile = "$SourceDir\$script.py"
-        # Use cryptic name for compiled output
-        $outputName = if ($scriptNameMap.ContainsKey($script)) { $scriptNameMap[$script] } else { $script }
-        $exeName = "$outputName.exe"
-        $cachedExe = "$CacheDir\$exeName"
-        
-        if (Test-Path $pyFile) {
-            # Check if we can use cached version
-            if (!(Test-NeedsRecompile $pyFile $exeName)) {
-                # Use cached EXE
-                Copy-Item $cachedExe "$ReleaseDir\$exeName" -Force
-                Write-Host "  [CACHED] $outputName.exe (from $script.py)" -ForegroundColor Cyan
-                $cachedCount++
-            } else {
-                # Need to recompile
-                Write-Host "  Compiling: $script.py -> $outputName.exe" -ForegroundColor Gray
-                
-                # PyInstaller - single file, console mode for CLI scripts (they output to stdout)
-                # GUI scripts use --noconsole to suppress the terminal window
-                $consoleFlag = if ($guiScripts -contains $script) { "--noconsole" } else { "--console" }
-                $extraArgs = ""
-                if ($hiddenImports.ContainsKey($script)) {
-                    foreach ($hi in $hiddenImports[$script]) {
-                        $hiName = if ($scriptNameMap.ContainsKey($hi)) { $scriptNameMap[$hi] } else { $hi }
-                        $extraArgs += " --hidden-import=$hiName"
-                    }
-                }
-                # Use SideKick icon for exe if available
-                $pyIconPath = "$ScriptDir\media\SideKick_PS.ico"
-                if (!(Test-Path $pyIconPath)) { $pyIconPath = "$SourceDir\SideKick_PS.ico" }
-                $iconArg = if (Test-Path $pyIconPath) { "--icon=`"$pyIconPath`"" } else { "" }
-                $ErrorActionPreference = "SilentlyContinue"
-                $pyCmd = "& `"$pyinstallerExe`" --onefile $consoleFlag --clean --noconfirm $iconArg --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
-                Invoke-Expression $pyCmd
-                $ErrorActionPreference = "Stop"
-                
-                if (Test-Path "$ReleaseDir\$exeName") {
-                    Write-Host "    [OK] $outputName.exe" -ForegroundColor Green
-                    $compiledCount++
-                    
-                    # Cache the compiled EXE and update hash
-                    Copy-Item "$ReleaseDir\$exeName" $cachedExe -Force
-                    $cachedHashes[$pyFile] = Get-FileHashMD5 $pyFile
-                } else {
-                    Write-BuildLog "PyInstaller failed: $script.py -> $outputName.exe" "ERROR"
-                }
-            }
-        }
-    }
-    
-    # Save updated hashes
-    $cachedHashes | ConvertTo-Json | Set-Content $HashFile -Force
-    
-    Write-Host "  Summary: $compiledCount compiled, $cachedCount from cache" -ForegroundColor Gray
 
-    # ── Unified CLI build ────────────────────────────────────────────────
-    # Compile a single-exe CLI dispatcher that replaces the 11+ individual
+    # ── Unified CLI build (preferred) ────────────────────────────────────
+    # Build a single-exe CLI dispatcher that replaces the 13 individual
     # Python exes.  AHK prefers SideKick_PS_CLI.exe when it exists and falls
     # back to the legacy per-script exes automatically.
     $cliLauncher = "$SourceDir\SideKick_PS_CLI.py"
     if (Test-Path $cliLauncher) {
-        Write-Host "`n  Building unified CLI exe (SideKick_PS_CLI.exe)..." -ForegroundColor Yellow
+        Write-Host "  Building unified CLI exe (SideKick_PS_CLI.exe)..." -ForegroundColor Yellow
 
         # Every script module must be listed as a hidden-import so PyInstaller
         # includes it in the single bundle.
@@ -359,9 +304,74 @@ if (!$SkipPythonCompile) {
 
         if (Test-Path "$ReleaseDir\SideKick_PS_CLI.exe") {
             Write-Host "    [OK] SideKick_PS_CLI.exe" -ForegroundColor Green
+            $unifiedCliBuilt = $true
+            Write-Host "  Skipping individual Python exes (unified CLI covers all modules)" -ForegroundColor Cyan
+            Write-BuildLog "Unified CLI built successfully - individual exes skipped"
         } else {
-            Write-BuildLog "PyInstaller failed: SideKick_PS_CLI.py -> SideKick_PS_CLI.exe" "ERROR"
+            Write-BuildLog "PyInstaller failed: SideKick_PS_CLI.py -> SideKick_PS_CLI.exe - falling back to individual exes" "WARN"
+            Write-Host "    [WARN] Unified CLI failed - falling back to individual exes..." -ForegroundColor Yellow
         }
+    }
+
+    # ── Fallback: individual exes (only if unified CLI failed) ───────────
+    if (!$unifiedCliBuilt) {
+        Write-Host "  Building individual Python exes..." -ForegroundColor Yellow
+
+        foreach ($script in $pythonFiles) {
+            $pyFile = "$SourceDir\$script.py"
+            # Use cryptic name for compiled output
+            $outputName = if ($scriptNameMap.ContainsKey($script)) { $scriptNameMap[$script] } else { $script }
+            $exeName = "$outputName.exe"
+            $cachedExe = "$CacheDir\$exeName"
+            
+            if (Test-Path $pyFile) {
+                # Check if we can use cached version
+                if (!(Test-NeedsRecompile $pyFile $exeName)) {
+                    # Use cached EXE
+                    Copy-Item $cachedExe "$ReleaseDir\$exeName" -Force
+                    Write-Host "  [CACHED] $outputName.exe (from $script.py)" -ForegroundColor Cyan
+                    $cachedCount++
+                } else {
+                    # Need to recompile
+                    Write-Host "  Compiling: $script.py -> $outputName.exe" -ForegroundColor Gray
+                    
+                    # PyInstaller - single file, console mode for CLI scripts (they output to stdout)
+                    # GUI scripts use --noconsole to suppress the terminal window
+                    $consoleFlag = if ($guiScripts -contains $script) { "--noconsole" } else { "--console" }
+                    $extraArgs = ""
+                    if ($hiddenImports.ContainsKey($script)) {
+                        foreach ($hi in $hiddenImports[$script]) {
+                            $hiName = if ($scriptNameMap.ContainsKey($hi)) { $scriptNameMap[$hi] } else { $hi }
+                            $extraArgs += " --hidden-import=$hiName"
+                        }
+                    }
+                    # Use SideKick icon for exe if available
+                    $pyIconPath = "$ScriptDir\media\SideKick_PS.ico"
+                    if (!(Test-Path $pyIconPath)) { $pyIconPath = "$SourceDir\SideKick_PS.ico" }
+                    $iconArg = if (Test-Path $pyIconPath) { "--icon=`"$pyIconPath`"" } else { "" }
+                    $ErrorActionPreference = "SilentlyContinue"
+                    $pyCmd = "& `"$pyinstallerExe`" --onefile $consoleFlag --clean --noconfirm $iconArg --distpath `"$ReleaseDir`" --workpath `"$env:TEMP\pyinstaller_work`" --specpath `"$env:TEMP\pyinstaller_spec`" --name `"$outputName`" $extraArgs `"$pyFile`" 2>`$null | Out-Null"
+                    Invoke-Expression $pyCmd
+                    $ErrorActionPreference = "Stop"
+                    
+                    if (Test-Path "$ReleaseDir\$exeName") {
+                        Write-Host "    [OK] $outputName.exe" -ForegroundColor Green
+                        $compiledCount++
+                        
+                        # Cache the compiled EXE and update hash
+                        Copy-Item "$ReleaseDir\$exeName" $cachedExe -Force
+                        $cachedHashes[$pyFile] = Get-FileHashMD5 $pyFile
+                    } else {
+                        Write-BuildLog "PyInstaller failed: $script.py -> $outputName.exe" "ERROR"
+                    }
+                }
+            }
+        }
+        
+        # Save updated hashes
+        $cachedHashes | ConvertTo-Json | Set-Content $HashFile -Force
+        
+        Write-Host "  Summary: $compiledCount compiled, $cachedCount from cache" -ForegroundColor Gray
     }
 } else {
     Write-Host '  Skipped (-SkipPythonCompile flag)' -ForegroundColor Gray

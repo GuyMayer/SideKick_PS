@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.45
+; Version:     2.5.46
 ; Build Date:  2026-03-04
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -3379,6 +3379,9 @@ GetAlbumFolder() {
 	if (albumPath = "")
 		return ""
 	
+	; Normalise double-escaped backslashes from PSConsole XML
+	StringReplace, albumPath, albumPath, \\, \, All
+	
 	; Extract the directory from the full .psa file path
 	SplitPath, albumPath, , albumFolder
 	
@@ -3398,8 +3401,12 @@ GetAlbumPath() {
 		return ""
 	
 	; Parse XML: <albumFile albumName="..." path="D:\path\to\album.psa" saved="true" />
-	if (RegExMatch(albumData, "<albumFile[^>]+path=""([^""]+)""", pathMatch))
-		return pathMatch1
+	if (RegExMatch(albumData, "<albumFile[^>]+path=""([^""]+)""", pathMatch)) {
+		resultPath := pathMatch1
+		; Normalise double-escaped backslashes from PSConsole XML
+		StringReplace, resultPath, resultPath, \\, \, All
+		return resultPath
+	}
 	
 	return ""
 }
@@ -4889,18 +4896,16 @@ FileAppend, % A_Now . " - Starting invoice export...`n", %DebugLogFile%
 ; Reset cancellation flag
 ExportCancelled := false
 
-; Show hands-off warning GUI during export automation
+; Show export progress GUI (PSConsole handles export - no mouse/keyboard needed)
 Gui, InvoiceHandsOff:New, +AlwaysOnTop +ToolWindow -Caption +HwndInvoiceHandsOffHwnd
 Gui, InvoiceHandsOff:Color, 1E1E1E
 Gui, InvoiceHandsOff:Font, s14 Bold cWhite, Segoe UI
 Gui, InvoiceHandsOff:Add, Text, x20 y20 w260 Center, 📤 Exporting Invoice...
-Gui, InvoiceHandsOff:Font, s10 cFFCC00, Segoe UI
-Gui, InvoiceHandsOff:Add, Text, x20 y55 w260 Center, ⚠️ HANDS OFF
 Gui, InvoiceHandsOff:Font, s9 cCCCCCC, Segoe UI
-Gui, InvoiceHandsOff:Add, Text, x20 y80 w260 Center, Do not touch mouse or keyboard
+Gui, InvoiceHandsOff:Add, Text, x20 y55 w260 Center, Reading order data from ProSelect
 Gui, InvoiceHandsOff:Font, s8 c888888, Segoe UI
-Gui, InvoiceHandsOff:Add, Text, x20 y100 w260 Center, Press ESC to cancel
-Gui, InvoiceHandsOff:Show, w300 h130, Exporting Invoice
+Gui, InvoiceHandsOff:Add, Text, x20 y80 w260 Center, Press ESC to cancel
+Gui, InvoiceHandsOff:Show, w300 h110, Exporting Invoice
 DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", InvoiceHandsOffHwnd, "Int", 20, "Int*", 1, "Int", 4)
 
 ; Enable ESC hotkey during export
@@ -5005,6 +5010,117 @@ if (!Settings_OpenInvoiceURL)
 	syncArgs .= " --no-open-browser"
 syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
 FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
+
+; ── Duplicate invoice check ──────────────────────────────
+; Quick pre-check: does this client already have an invoice for this shoot?
+FileAppend, % A_Now . " - Running duplicate check...`n", %DebugLogFile%
+dupCheckArgs := """" . latestXml . """ --check-duplicate"
+dupCheckCmd := GetScriptCommand("sync_ps_invoice", dupCheckArgs)
+dupResultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+
+; Run synchronously (fast - just one API call)
+RunWait, %dupCheckCmd%, %A_ScriptDir%, Hide, dupCheckPid
+dupCheckExit := ErrorLevel
+
+if (dupCheckExit = 2) {
+	; Duplicate found - read details from result file
+	dupInvId := ""
+	dupInvNumber := ""
+	dupInvStatus := ""
+	dupInvTotal := ""
+	dupInvDate := ""
+	dupAmountPaid := ""
+	if (FileExist(dupResultFile)) {
+		FileRead, dupJson, %dupResultFile%
+		if (RegExMatch(dupJson, """invoice_id"":\s*""([^""]+)""", m))
+			dupInvId := m1
+		if (RegExMatch(dupJson, """invoice_number"":\s*""([^""]+)""", m))
+			dupInvNumber := m1
+		if (RegExMatch(dupJson, """status"":\s*""([^""]+)""", m))
+			dupInvStatus := m1
+		if (RegExMatch(dupJson, """total"":\s*([\d.]+)", m))
+			dupInvTotal := m1
+		if (RegExMatch(dupJson, """created"":\s*""([^""]+)""", m))
+			dupInvDate := m1
+		if (RegExMatch(dupJson, """amount_paid"":\s*([\d.]+)", m))
+			dupAmountPaid := m1
+	}
+
+	dupMsg := "An invoice already exists in GHL for this shoot.`n`n"
+	if (dupInvNumber != "")
+		dupMsg .= "Invoice #: " . dupInvNumber . "`n"
+	if (dupInvStatus != "")
+		dupMsg .= "Status: " . dupInvStatus . "`n"
+	if (dupInvTotal != "")
+		dupMsg .= "Total: £" . dupInvTotal . "`n"
+	if (dupAmountPaid != "" && dupAmountPaid != "0" && dupAmountPaid != "0.0")
+		dupMsg .= "Paid: £" . dupAmountPaid . "`n"
+	if (dupInvDate != "")
+		dupMsg .= "Created: " . dupInvDate . "`n"
+
+	hasPaid := (dupAmountPaid != "" && dupAmountPaid != "0" && dupAmountPaid != "0.0")
+	if (hasPaid)
+		dupMsg .= "`n⚠ This invoice has recorded payments.`n"
+
+	dupMsg .= "`nChoose an action:"
+
+	Gui, InvoiceHandsOff:Destroy
+	FileAppend, % A_Now . " - Duplicate found (paid=" . dupAmountPaid . "), prompting user`n", %DebugLogFile%
+
+	; Show options dialog - buttons depend on payment status
+	dupBtns := ["Replace", "Update", "New", "Cancel"]
+	dupTips := {}
+	dupTips["Replace"] := "Delete old invoice and create new one"
+	dupTips["Update"] := "Update line items on existing invoice"
+	dupTips["New"] := "Create another invoice alongside existing"
+	dupTips["Cancel"] := "Do nothing"
+	if (hasPaid)
+		dupDefaultBtn := 2  ; Default to Update when payments exist
+	else
+		dupDefaultBtn := 1  ; Default to Replace when no payments
+
+	DarkMsgBox("Duplicate Invoice", dupMsg, "question", {buttons: dupBtns, default: dupDefaultBtn, tooltips: dupTips, width: 420})
+
+	if (DarkMsgBox_Result = "Cancel" || DarkMsgBox_Result = "") {
+		FileAppend, % A_Now . " - User cancelled (duplicate)`n", %DebugLogFile%
+		Hotkey, Escape, ExportCancelCheck, Off
+		ExportInProgress := false
+		Return
+	}
+
+	dupAction := DarkMsgBox_Result
+	FileAppend, % A_Now . " - User chose: " . dupAction . "`n", %DebugLogFile%
+
+	if (dupAction = "Replace") {
+		; Delete old invoice(s) for this shoot then sync new - use --resync flag
+		syncArgs := """" . latestXml . """ --resync"
+		if (Settings_FinancialsOnly)
+			syncArgs .= " --financials-only"
+		if (!Settings_ContactSheet)
+			syncArgs .= " --no-contact-sheet"
+		if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
+			syncArgs .= " --collect-folder """ . Settings_ContactSheetFolder . """"
+		if (Settings_RoundingInDeposit)
+			syncArgs .= " --rounding-in-deposit"
+		if (!Settings_OpenInvoiceURL)
+			syncArgs .= " --no-open-browser"
+		syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
+		FileAppend, % A_Now . " - Resync command: " . syncCmd . "`n", %DebugLogFile%
+	}
+	else if (dupAction = "Update") {
+		; Update existing invoice items and record new payments in place
+		syncArgs := """" . latestXml . """ --update-invoice """ . dupInvId . """"
+		if (Settings_FinancialsOnly)
+			syncArgs .= " --financials-only"
+		if (Settings_RoundingInDeposit)
+			syncArgs .= " --rounding-in-deposit"
+		if (!Settings_OpenInvoiceURL)
+			syncArgs .= " --no-open-browser"
+		syncCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
+		FileAppend, % A_Now . " - Update command: " . syncCmd . "`n", %DebugLogFile%
+	}
+	; else dupAction = "New" -> fall through with original syncCmd (create another)
+}
 
 ; Check if user cancelled before syncing
 if (ExportCancelled) {
@@ -6862,6 +6978,8 @@ SyncProgress_Close:
 				shootNo := m1
 			if (RegExMatch(resultJson, """contact_id""\s*:\s*""([^""]*)""", m))
 				contactId := m1
+			if (RegExMatch(resultJson, """order_total""\s*:\s*(\d+\.?\d*)", m))
+				orderTotal := m1
 			if (RegExMatch(resultJson, """error""\s*:\s*""([^""]*)""", m))
 				errorMsg := m1
 			
@@ -6879,6 +6997,8 @@ SyncProgress_Close:
 				msg .= "  Email:        " . email . "`n"
 			if (albumName != "")
 				msg .= "  Album:        " . albumName . "`n"
+			if (orderTotal != "")
+				msg .= "  Order Total:  £" . orderTotal . "`n"
 			
 			msg .= "`n══════════════════════════════`n"
 			msg .= "MISSING/INVALID:`n"
@@ -6897,6 +7017,16 @@ SyncProgress_Close:
 			} else if (InStr(errorMsg, "authentication") || InStr(errorMsg, "401")) {
 				msg .= "  ✗ GHL API key invalid or expired`n"
 				msg .= "`nTO FIX: Update API key in SideKick Settings"
+			} else if (InStr(errorMsg, "total may be less than amount paid") || InStr(errorMsg, "validation failed")) {
+				msg .= "  ✗ " . errorMsg . "`n"
+				msg .= "`nTO FIX:`n"
+				msg .= "  The new order total is less than what has`n"
+				msg .= "  already been paid on this invoice.`n`n"
+				msg .= "  Options:`n"
+				msg .= "  1. Use 'Replace' instead of 'Update' on the`n"
+				msg .= "     duplicate prompt (deletes old, creates new)`n"
+				msg .= "  2. Refund the difference in GHL Payments first`n"
+				msg .= "  3. Re-export from ProSelect with correct totals"
 			} else {
 				msg .= "  ✗ " . errorMsg . "`n"
 			}

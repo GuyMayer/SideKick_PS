@@ -13,7 +13,7 @@ Payment plan calculator, client sync, and workflow automation for photographers.
 - 📊 **Payment Plan Calculator** - Weekly, bi-weekly, 4-weekly & monthly schedules
 - 🔗 **GHL Integration** - Fetch client data from GoHighLevel CRM
 - 📷 **ProSelect Automation** - Auto-fill client details, manage orders
-- 📁 **Invoice Sync** - Sync ProSelect invoices to GHL contacts
+- 📁 **Invoice Sync** - Sync ProSelect invoices to GHL contacts (with duplicate detection, update & resync)
 
 ## Requirements
 

@@ -3504,6 +3504,454 @@ def _handle_invoice_success(
     return result
 
 
+def check_existing_invoice(contact_id: str, shoot_no: str, order_total: float) -> dict | None:
+    """Check if an invoice already exists in GHL for this contact and shoot.
+
+    Searches existing invoices by contact ID and matches by invoice name
+    containing the shoot number. Returns details of the matching invoice
+    if found, or None if no duplicate.
+
+    Args:
+        contact_id: GHL contact ID.
+        shoot_no: Shoot number (e.g. 'P26010P').
+        order_total: Order total for comparison.
+
+    Returns:
+        dict with duplicate info if found, None otherwise.
+    """
+    if not contact_id or not shoot_no:
+        return None
+
+    debug_log("DUPLICATE CHECK", {"contact_id": contact_id, "shoot_no": shoot_no, "order_total": order_total})
+
+    invoices = list_contact_invoices(contact_id)
+    if not invoices:
+        debug_log("No existing invoices found - safe to create")
+        return None
+
+    for inv in invoices:
+        inv_name = inv.get('name', inv.get('title', ''))
+        inv_status = inv.get('status', 'unknown')
+
+        # Skip voided invoices
+        if inv_status == 'void':
+            continue
+
+        # Match by shoot number in invoice name
+        if shoot_no and shoot_no in inv_name:
+            inv_id = inv.get('_id', inv.get('id', ''))
+            inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
+            inv_total = inv.get('total', inv.get('amount', 0))
+            inv_amount_due = inv.get('amountDue', 0)
+            created = inv.get('createdAt', inv.get('created_at', ''))
+
+            inv_amount_paid = inv.get('amountPaid', 0)
+
+            debug_log("DUPLICATE FOUND", {
+                "inv_id": inv_id, "inv_number": inv_number,
+                "inv_name": inv_name, "inv_status": inv_status,
+                "inv_total": inv_total, "amount_paid": inv_amount_paid,
+                "created": created
+            })
+
+            return {
+                'duplicate': True,
+                'invoice_id': inv_id,
+                'invoice_number': inv_number,
+                'invoice_name': inv_name,
+                'status': inv_status,
+                'total': inv_total / 100 if inv_total > 1000 else inv_total,  # GHL stores in cents
+                'amount_due': inv_amount_due / 100 if inv_amount_due > 1000 else inv_amount_due,
+                'amount_paid': inv_amount_paid / 100 if inv_amount_paid > 1000 else inv_amount_paid,
+                'created': created[:10] if created else '',
+            }
+
+    debug_log("No duplicate invoices found")
+    return None
+
+
+def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: bool = False,
+                            rounding_in_deposit: bool = True, open_browser: bool = True) -> dict:
+    """Update an existing GHL invoice's line items, amounts, and payments.
+
+    This preserves provider payments (GoCardless/Stripe) and updates:
+    - Invoice line items and totals
+    - Records any new past payments not yet recorded
+    - Cancels old recurring schedules and creates new ones for future payments
+
+    Args:
+        invoice_id: GHL invoice ID to update.
+        ps_data: Parsed ProSelect data.
+        financials_only: Whether financials-only mode is enabled.
+        rounding_in_deposit: If True, add rounding to deposit; else create separate first invoice.
+        open_browser: If True, open the invoice URL in browser after update.
+
+    Returns:
+        dict: Result with success status.
+    """
+    debug_log("UPDATE EXISTING INVOICE CALLED", {"invoice_id": invoice_id, "financials_only": financials_only})
+
+    order = ps_data.get('order', {})
+    items = order.get('items', [])
+    payments = order.get('payments', [])
+
+    if not items:
+        debug_log("ERROR: No items to update invoice with")
+        print("✗ No items in XML to update invoice")
+        return {'success': False, 'error': 'No items in XML to update invoice'}
+
+    # Step 1: Fetch existing invoice to know current payment state
+    print(f"  Fetching existing invoice details...")
+    existing_data = get_ghl_invoice(invoice_id)
+    existing_amount_paid = 0
+    existing_payments_count = 0
+    if existing_data:
+        existing_inv = existing_data.get('invoice', existing_data)
+        existing_amount_paid = existing_inv.get('amountPaid', 0)
+        # Normalize cents to pounds
+        if existing_amount_paid > 1000:
+            existing_amount_paid = existing_amount_paid / 100
+        existing_payments_count = len(existing_inv.get('recordPayment', existing_inv.get('payments', [])))
+        debug_log("EXISTING INVOICE STATE", {
+            "amount_paid": existing_amount_paid,
+            "payments_count": existing_payments_count
+        })
+
+    # Step 2: Build new line items from the XML
+    print(f"  Building updated invoice items from {len(items)} product items...")
+    invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only)
+
+    if not invoice_items:
+        print("✗ No invoice items after building")
+        return {'success': False, 'error': 'No invoice items after building'}
+
+    ps_order_total = order.get('total_amount', 0)
+    ghl_items = _convert_to_ghl_items(invoice_items)
+
+    if total_discounts_credits == 0:
+        _adjust_invoice_totals(invoice_items, ghl_items, ps_order_total)
+
+    # Build invoice name
+    client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
+    album_name = ps_data.get('album_name', '')
+    shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+    invoice_name = f"{client_name} - {shoot_no}" if shoot_no else client_name
+
+    issue_date = _normalize_date(order.get('date', ''))
+    today = datetime.now().strftime('%Y-%m-%d')
+    due_date = today if issue_date < today else issue_date
+
+    # Step 3: Pre-check - if new total < existing paid, warn early
+    if ps_order_total < existing_amount_paid - 0.01:
+        print(f"  ⚠ New order total (£{ps_order_total:.2f}) is less than amount already paid (£{existing_amount_paid:.2f})")
+        print(f"  Attempting to set invoice to draft first...")
+        # Try moving to draft to bypass payment restrictions
+        draft_result = update_invoice_to_draft(invoice_id)
+        if draft_result.get('success'):
+            debug_log("Invoice set to draft before update")
+        else:
+            debug_log("Could not set to draft - update may fail", draft_result)
+
+    # Step 4: Update invoice items via PUT
+    payload = {
+        "altId": CONFIG.get('LOCATION_ID', ''),
+        "altType": "location",
+        "name": invoice_name,
+        "items": ghl_items,
+        "dueDate": due_date,
+    }
+
+    if total_discounts_credits > 0:
+        payload["discount"] = {
+            "type": "fixed",
+            "value": float(total_discounts_credits)
+        }
+
+    url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}"
+    debug_log(f"UPDATE INVOICE REQUEST: {url}", payload)
+
+    try:
+        response = requests.put(url, headers=_get_ghl_headers(), json=payload, timeout=60)
+        response_body = response.text[:3000] if response.text else "EMPTY"
+        debug_log(f"UPDATE INVOICE RESPONSE: Status={response.status_code}", {"body": response_body})
+
+        if response.status_code not in [200, 201]:
+            error_msg = f"Invoice update failed (HTTP {response.status_code})"
+            if response.status_code == 400:
+                error_msg = "Invalid invoice data - check order details"
+            elif response.status_code == 422:
+                error_msg = f"Invoice validation failed - total may be less than amount paid"
+                if existing_amount_paid > 0:
+                    error_msg += f" (new total: £{ps_order_total:.2f}, already paid: £{existing_amount_paid:.2f})"
+            print(f"✗ {error_msg}")
+            print(f"  Response: {response.text}")
+            error_log(f"GHL Invoice Update Failed: {error_msg}", {
+                "status_code": response.status_code,
+                "response": response.text[:2000],
+                "invoice_id": invoice_id,
+                "ps_order_total": ps_order_total,
+                "existing_amount_paid": existing_amount_paid,
+            })
+            return {'success': False, 'error': error_msg, 'status_code': response.status_code}
+
+        updated_data = response.json()
+        inv = updated_data.get('invoice', updated_data)
+        inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
+
+        print(f"\n✓ Invoice #{inv_number} items updated!")
+        print(f"  New total: £{ps_order_total:.2f}")
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error: {str(e)}"
+        print(f"✗ Error updating invoice: {error_msg}")
+        error_log(f"GHL Invoice Update Network Error: {error_msg}", {"invoice_id": invoice_id}, exception=e)
+        return {'success': False, 'error': error_msg}
+
+    # Step 5: Handle payments - record new past payments
+    payments_recorded = 0
+    if payments:
+        past_payments = [p for p in payments if p.get('date', '') <= today]
+        future_payments = [p for p in payments if p.get('date', '') > today]
+
+        # Calculate how much has been paid in the XML vs what GHL already has
+        xml_past_total = sum(p.get('amount', 0) for p in past_payments)
+        new_payment_amount = round(xml_past_total - existing_amount_paid, 2)
+
+        debug_log("PAYMENT COMPARISON", {
+            "xml_past_payments": len(past_payments),
+            "xml_past_total": xml_past_total,
+            "existing_amount_paid": existing_amount_paid,
+            "new_payment_amount": new_payment_amount,
+            "future_payments": len(future_payments)
+        })
+
+        if new_payment_amount > 0.01:
+            # There are new past payments to record - find which ones are new
+            # Sort past payments by date and skip the ones already recorded
+            past_sorted = sorted(past_payments, key=lambda p: p.get('date', ''))
+
+            # Sum up payments until we've accounted for existing_amount_paid
+            running_total = 0
+            new_to_record = []
+            for p in past_sorted:
+                running_total += p.get('amount', 0)
+                if running_total > existing_amount_paid + 0.01:
+                    new_to_record.append(p)
+
+            if new_to_record:
+                print(f"\n💳 Recording {len(new_to_record)} new payment(s) (£{new_payment_amount:.2f})...")
+                for i, payment in enumerate(new_to_record):
+                    write_progress(2, 3, f"Recording payment {i+1}/{len(new_to_record)}...")
+                    if i > 0:
+                        time.sleep(3)  # GHL needs ~3s between payments
+                    success, _ = record_ghl_payment(invoice_id, payment)
+                    if success:
+                        payments_recorded += 1
+                print(f"  ✓ Recorded {payments_recorded}/{len(new_to_record)} new payment(s)")
+        else:
+            print(f"  ℹ No new past payments to record (existing: £{existing_amount_paid:.2f})")
+
+    # Step 6: Handle future payment schedules
+    contact_id = ps_data.get('ghl_contact_id', '')
+    schedule_ids = []
+    schedule_created = False
+
+    if payments and contact_id:
+        future_payments = [p for p in payments if p.get('date', '') > today]
+
+        if future_payments:
+            # Cancel any existing schedules for this shoot first
+            print(f"\n📅 Updating payment schedules...")
+            existing_schedules = list_contact_schedules(contact_id)
+            for sched in existing_schedules:
+                sched_name = sched.get('name', '')
+                if shoot_no and shoot_no in sched_name:
+                    sched_id = sched.get('_id', sched.get('id', ''))
+                    if sched_id:
+                        debug_log(f"Cancelling old schedule: {sched_name}")
+                        cancel_ghl_schedule(sched_id)
+
+            # Create new schedule for remaining future payments
+            num_payments = len(future_payments)
+            total_future = sum(p.get('amount', 0) for p in future_payments)
+            base_amount = round(total_future / num_payments, 2)
+            calculated_total = round(base_amount * num_payments, 2)
+            rounding_diff = round(total_future - calculated_total, 2)
+            first_date = future_payments[0].get('date', today)
+
+            email = ps_data.get('email', '')
+            payment_plan_name = f"{client_name} - {shoot_no} Payment Plan" if shoot_no else f"{client_name} Payment Plan"
+
+            print(f"  Creating schedule: {num_payments} x £{base_amount:.2f}/month from {first_date}")
+
+            if rounding_diff != 0 and num_payments > 1 and not rounding_in_deposit:
+                # First payment with rounding adjustment
+                first_amount = round(base_amount + rounding_diff, 2)
+                payment_1_name = f"{client_name} - {shoot_no} Payment 1" if shoot_no else f"{client_name} Payment 1"
+                first_schedule = create_recurring_invoice_schedule(
+                    contact_id=contact_id, contact_name=client_name, email=email,
+                    amount=first_amount, num_payments=1, start_date=first_date,
+                    invoice_name=payment_1_name
+                )
+                if first_schedule:
+                    sid = first_schedule.get('_id', first_schedule.get('id', ''))
+                    if sid:
+                        schedule_ids.append(sid)
+                # Remaining payments
+                if num_payments > 1:
+                    second_date = future_payments[1].get('date', first_date) if len(future_payments) > 1 else first_date
+                    schedule = create_recurring_invoice_schedule(
+                        contact_id=contact_id, contact_name=client_name, email=email,
+                        amount=base_amount, num_payments=num_payments - 1,
+                        start_date=second_date, invoice_name=payment_plan_name
+                    )
+                    if schedule:
+                        sid = schedule.get('_id', schedule.get('id', ''))
+                        if sid:
+                            schedule_ids.append(sid)
+                schedule_created = first_schedule is not None
+            else:
+                # Equal payments (rounding in deposit or no rounding)
+                schedule = create_recurring_invoice_schedule(
+                    contact_id=contact_id, contact_name=client_name, email=email,
+                    amount=base_amount, num_payments=num_payments,
+                    start_date=first_date, invoice_name=payment_plan_name
+                )
+                schedule_created = schedule is not None
+                if schedule:
+                    sid = schedule.get('_id', schedule.get('id', ''))
+                    if sid:
+                        schedule_ids.append(sid)
+
+    if open_browser:
+        _open_invoice_in_browser(invoice_id)
+
+    # Re-fetch final state
+    final_data = get_ghl_invoice(invoice_id)
+    final_due = 0
+    if final_data:
+        final_inv = final_data.get('invoice', final_data)
+        final_due = final_inv.get('amountDue', 0)
+        if final_due > 1000:
+            final_due = final_due / 100
+
+    print(f"  Amount due: £{final_due:.2f}")
+
+    result = {
+        'success': True,
+        'updated': True,
+        'invoice_id': invoice_id,
+        'invoice_number': inv_number,
+        'amount': ps_order_total,
+        'amount_due': final_due,
+        'payments_recorded': payments_recorded,
+        'schedule_created': schedule_created,
+        'client_name': client_name,
+        'shoot_no': shoot_no,
+    }
+    if schedule_ids:
+        result['schedule_ids'] = schedule_ids
+    if payments:
+        future_payments = [p for p in payments if p.get('date', '') > today]
+        if future_payments:
+            result['future_payments'] = {
+                'count': len(future_payments),
+                'total': sum(p.get('amount', 0) for p in future_payments),
+                'payments': future_payments
+            }
+
+    return result
+
+
+def delete_shoot_invoices(contact_id: str, shoot_no: str) -> dict:
+    """Delete only invoices matching a specific shoot number for a contact.
+
+    Unlike delete_client_invoices() which deletes ALL invoices, this only
+    targets invoices whose name contains the shoot number.
+
+    Args:
+        contact_id: GHL contact ID.
+        shoot_no: Shoot number to match (e.g. 'P26010P').
+
+    Returns:
+        dict: Result with deletion details.
+    """
+    debug_log("DELETE SHOOT INVOICES", {"contact_id": contact_id, "shoot_no": shoot_no})
+    print(f"\n🗑️ Deleting invoices for shoot: {shoot_no}")
+
+    if not contact_id or not shoot_no:
+        return {'success': False, 'error': 'Missing contact_id or shoot_no'}
+
+    invoices = list_contact_invoices(contact_id)
+    if not invoices:
+        print(f"  No invoices found for contact")
+        return {'success': True, 'deleted': 0, 'message': 'No invoices found'}
+
+    # Filter to invoices matching this shoot
+    matching = []
+    for inv in invoices:
+        inv_name = inv.get('name', inv.get('title', ''))
+        inv_status = inv.get('status', 'unknown')
+        if inv_status == 'void':
+            continue
+        if shoot_no in inv_name:
+            matching.append(inv)
+
+    if not matching:
+        print(f"  No invoices matching shoot {shoot_no}")
+        return {'success': True, 'deleted': 0, 'message': f'No invoices matching shoot {shoot_no}'}
+
+    print(f"  Found {len(matching)} invoice(s) matching shoot {shoot_no}")
+
+    # Also find and cancel matching schedules
+    schedules = list_contact_schedules(contact_id)
+    matching_schedules = [s for s in schedules if shoot_no in s.get('name', '')]
+
+    deleted = 0
+    voided = 0
+    failed = 0
+    needs_manual_refund = False
+
+    for inv in matching:
+        inv_id = inv.get('_id', inv.get('id', ''))
+        inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
+        if not inv_id:
+            continue
+        print(f"  Deleting invoice #{inv_number}...")
+        result = delete_ghl_invoice(inv_id)
+        if result.get('deleted'):
+            deleted += 1
+        elif result.get('voided'):
+            voided += 1
+        else:
+            failed += 1
+            if result.get('needs_provider_refund') or result.get('needs_refund'):
+                needs_manual_refund = True
+
+    schedules_cancelled = 0
+    for sched in matching_schedules:
+        sched_id = sched.get('_id', sched.get('id', ''))
+        if sched_id:
+            cancel_result = cancel_ghl_schedule(sched_id)
+            if cancel_result.get('success'):
+                schedules_cancelled += 1
+
+    total_removed = deleted + voided
+    success = failed == 0 and total_removed > 0
+
+    print(f"\n  {'✓' if success else '⚠'} {deleted} deleted, {voided} voided, {failed} failed, {schedules_cancelled} schedules cancelled")
+
+    return {
+        'success': success,
+        'deleted': deleted,
+        'voided': voided,
+        'failed': failed,
+        'schedules_cancelled': schedules_cancelled,
+        'needs_manual_refund': needs_manual_refund,
+        'error': f'{failed} invoice(s) could not be deleted' if failed > 0 else None
+    }
+
+
 def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False, rounding_in_deposit: bool = True, open_browser: bool = True) -> dict | None:
     """Create an actual invoice in GHL Payments → Invoices using V2 API."""
     debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only, "rounding_in_deposit": rounding_in_deposit, "open_browser": open_browser})
@@ -4185,6 +4633,9 @@ def _parse_cli_args():
         parser.add_argument('--list-email-templates', action='store_true')
         parser.add_argument('--list-sms-templates', action='store_true')
         parser.add_argument('--void-invoice', type=str, default='')
+        parser.add_argument('--check-duplicate', action='store_true')
+        parser.add_argument('--resync', action='store_true')
+        parser.add_argument('--update-invoice', type=str, default='')
     else:
         parser = argparse.ArgumentParser(description='Sync ProSelect invoice to GHL')
         parser.add_argument('xml_path', nargs='?', help='Path to ProSelect XML export file')
@@ -4224,6 +4675,12 @@ def _parse_cli_args():
                             help='List available SMS templates from GHL and exit')
         parser.add_argument('--void-invoice', type=str, default='',
                             help='Void a GHL invoice by ID (after payment refund)')
+        parser.add_argument('--check-duplicate', action='store_true',
+                            help='Check if invoice already exists for this XML before syncing')
+        parser.add_argument('--resync', action='store_true',
+                            help='Delete existing invoice for this shoot then sync new one')
+        parser.add_argument('--update-invoice', type=str, default='',
+                            help='Update an existing GHL invoice ID with new data from XML')
     return parser.parse_args()
 
 
@@ -4422,6 +4879,138 @@ def main() -> None:
     if not os.path.exists(args.xml_path):
         print(f"Error: File not found: {args.xml_path}")
         sys.exit(1)
+
+    # Quick duplicate check mode - parse XML and check GHL, then exit
+    if args.check_duplicate:
+        ps_data = parse_proselect_xml(args.xml_path)
+        if not ps_data:
+            result = {'duplicate': False, 'error': 'Failed to parse XML'}
+            _save_and_log_result(result)
+            sys.exit(1)
+        contact_id = ps_data.get('ghl_contact_id', '')
+        album_name = ps_data.get('album_name', '')
+        shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+        order_total = ps_data.get('order', {}).get('total_amount', 0)
+        if not contact_id:
+            result = {'duplicate': False, 'error': 'No GHL Contact ID in XML'}
+            _save_and_log_result(result)
+            sys.exit(1)
+        dup = check_existing_invoice(contact_id, shoot_no, order_total)
+        if dup:
+            _save_and_log_result(dup)
+            sys.exit(2)  # Exit code 2 = duplicate found
+        else:
+            _save_and_log_result({'duplicate': False})
+            sys.exit(0)
+
+    # Resync mode: delete existing invoice(s) for this shoot, then full sync
+    if args.resync:
+        debug_log("CLI MODE: --resync", {"xml_path": args.xml_path})
+        write_progress(0, 6, "Resync: parsing XML...")
+        ps_data = parse_proselect_xml(args.xml_path)
+        if not ps_data:
+            result = {'success': False, 'error': 'Failed to parse XML'}
+            _save_and_log_result(result)
+            sys.exit(1)
+
+        contact_id = ps_data.get('ghl_contact_id', '')
+        album_name = ps_data.get('album_name', '')
+        shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+
+        # Enrich early failures with client info for error display
+        _resync_client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
+        _resync_base_info = {
+            'client_name': _resync_client_name,
+            'shoot_no': shoot_no,
+            'contact_id': contact_id,
+            'email': ps_data.get('email', ''),
+            'album_name': album_name,
+        }
+
+        if not contact_id:
+            result = {**_resync_base_info, 'success': False, 'error': 'No GHL Contact ID in XML'}
+            _save_and_log_result(result)
+            sys.exit(1)
+
+        if not shoot_no:
+            result = {**_resync_base_info, 'success': False, 'error': 'No shoot number in album name'}
+            _save_and_log_result(result)
+            sys.exit(1)
+
+        # Step 1: Delete existing invoices for this shoot
+        write_progress(1, 6, f"Deleting old invoice(s) for {shoot_no}...")
+        print(f"\n🔄 Resync: Deleting existing invoices for shoot {shoot_no}...")
+        del_result = delete_shoot_invoices(contact_id, shoot_no)
+
+        if not del_result.get('success') and del_result.get('needs_manual_refund'):
+            print(f"\n⚠ Cannot resync - payments must be refunded manually in GHL first")
+            result = {
+                **_resync_base_info,
+                'success': False,
+                'error': 'Existing invoice has provider payments that must be refunded in GHL first',
+                'needs_manual_refund': True,
+            }
+            _save_and_log_result(result)
+            sys.exit(1)
+
+        if del_result.get('failed', 0) > 0:
+            print(f"\n⚠ Some invoices could not be deleted - proceeding with sync anyway")
+
+        # Step 2: Run normal sync to create new invoice
+        print(f"\n🔄 Resync: Creating new invoice...")
+        financials_only = args.financials_only
+        create_invoice = not args.no_invoice
+        create_contact_sheet = not args.no_contact_sheet
+        collect_folder = args.collect_folder if args.collect_folder else ''
+        rounding_in_deposit = args.rounding_in_deposit
+        open_browser = not args.no_open_browser
+
+        _print_sync_header(args.xml_path, financials_only, create_invoice, create_contact_sheet)
+        result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit, open_browser)
+        result['resync'] = True
+        result['old_invoices_deleted'] = del_result.get('deleted', 0) + del_result.get('voided', 0)
+        _save_and_log_result(result)
+        sys.exit(0 if result.get('success') else 1)
+
+    # Update existing invoice mode: update items in-place
+    if args.update_invoice:
+        debug_log("CLI MODE: --update-invoice", {"invoice_id": args.update_invoice, "xml_path": args.xml_path})
+        write_progress(0, 3, "Parsing XML for update...")
+        ps_data = parse_proselect_xml(args.xml_path)
+        if not ps_data:
+            result = {'success': False, 'error': 'Failed to parse XML'}
+            _save_and_log_result(result)
+            sys.exit(1)
+
+        financials_only = args.financials_only
+        open_browser = not args.no_open_browser
+        rounding_in_deposit = args.rounding_in_deposit
+
+        write_progress(1, 3, "Updating invoice items & payments...")
+        result = update_existing_invoice(args.update_invoice, ps_data, financials_only, rounding_in_deposit, open_browser)
+
+        # Enrich result with client info for error display
+        client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
+        album_name = ps_data.get('album_name', '')
+        shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+        result.setdefault('client_name', client_name)
+        result.setdefault('shoot_no', shoot_no)
+        result.setdefault('contact_id', ps_data.get('ghl_contact_id', ''))
+        result.setdefault('email', ps_data.get('email', ''))
+        result.setdefault('album_name', album_name)
+        order_total = ps_data.get('order', {}).get('total_amount', 0)
+        result.setdefault('order_total', order_total)
+
+        # Also update the GHL contact fields
+        if result.get('success'):
+            contact_id = ps_data.get('ghl_contact_id', '')
+            if contact_id:
+                write_progress(2, 3, "Updating contact fields...")
+                update_ghl_contact(contact_id, ps_data)
+
+        write_progress(3, 3, "Update complete" if result.get('success') else f"Update failed: {result.get('error', '')}", 'success' if result.get('success') else 'error')
+        _save_and_log_result(result)
+        sys.exit(0 if result.get('success') else 1)
 
     financials_only = args.financials_only
     create_invoice = not args.no_invoice
