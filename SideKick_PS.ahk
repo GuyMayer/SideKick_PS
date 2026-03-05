@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.53
+; Version:     2.5.54
 ; Build Date:  2026-03-05
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -1691,6 +1691,7 @@ CreateFloatingToolbar()
 	
 	; Destroy any existing toolbar first to prevent ghost/duplicate windows
 	Gui, Toolbar:Destroy
+	Sleep, 200  ; Allow screen to repaint so PixelGetColor samples the actual background, not a stale toolbar
 	
 	; Calculate toolbar width dynamically based on enabled buttons
 	; Each button = 44px wide + 7px spacing (51px per slot), plus 2px left margin
@@ -1781,7 +1782,9 @@ CreateFloatingToolbar()
 				r := (sampledColor >> 16) & 0xFF
 				g := (sampledColor >> 8) & 0xFF
 				b := sampledColor & 0xFF
-				initialBgColor := Format("{:02X}{:02X}{:02X}", r, g, b)
+				; Reject near-white samples (likely unrendered window) if we have a saved color
+				if (r < 240 || g < 240 || b < 240 || Settings_ToolbarLastBGColor = "")
+					initialBgColor := Format("{:02X}{:02X}{:02X}", r, g, b)
 			}
 		}
 	}
@@ -9186,6 +9189,11 @@ RefreshPrintTemplatesSilent:
 	if !WinExist("ahk_exe ProSelect.exe")
 		return
 	
+	; Print menu requires an open album
+	WinGetTitle, psTitle, ahk_exe ProSelect.exe
+	if (psTitle = "ProSelect" || psTitle = "ProSelect - Untitled")
+		return
+	
 	WinActivate, ahk_exe ProSelect.exe
 	WinWaitActive, ahk_exe ProSelect.exe,, 2
 	
@@ -9812,6 +9820,9 @@ ApplyImportedSettings(decrypted)
 
 ; Reload settings
 LoadSettings()
+
+; Rebuild toolbar with imported settings (colors, button visibility, scale, etc.)
+CreateFloatingToolbar()
 
 ; Refresh settings GUI if open
 Gui, Settings:Default

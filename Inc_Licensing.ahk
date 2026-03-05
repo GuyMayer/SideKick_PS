@@ -1062,22 +1062,31 @@ RefreshPrintTemplates:
 		return
 	}
 	
+	; Check an album is open (Print menu requires an open album)
+	WinGetTitle, psTitle, ahk_exe ProSelect.exe
+	if (psTitle = "ProSelect" || psTitle = "ProSelect - Untitled") {
+		ToolTip
+		DarkMsgBox("No Album Open", "Please open an album in ProSelect first.`n`nThe Print menu is only available when an album is loaded.", "warning")
+		return
+	}
+	
 	; Activate ProSelect
 	WinActivate, ahk_exe ProSelect.exe
 	WinWaitActive, ahk_exe ProSelect.exe,, 2
 	
 	; Open Print dialog using keyboard navigation
+	delay := Settings_MenuDelay ? Settings_MenuDelay : 200
 	Send, !f        ; Alt+F to open File menu
-	Sleep, 300
+	Sleep, %delay%
 	Send, p         ; P to highlight Print submenu
-	Sleep, 300
+	Sleep, %delay%
 	Send, {Right}   ; Open the submenu
-	Sleep, 300
+	Sleep, %delay%
 	Send, {Enter}   ; Select first item (Order/Invoice Report...)
-	Sleep, 1000
+	Sleep, 1500
 	
 	; Wait for Print Order/Invoice Report window
-	WinWait, Print Order/Invoice Report, , 3
+	WinWait, Print Order/Invoice Report, , 5
 	if ErrorLevel {
 		ToolTip
 		DarkMsgBox("Error", "Could not open Print dialog.", "error")
