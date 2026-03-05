@@ -61,7 +61,16 @@ Gui, Add, Text, x%contentX% y%clMargin% w%clBarW% vLoadTitle BackgroundTrans, Pr
 Gui, Add, Progress, x%contentX% y%clYBar% w%clBarW% h%clBarH% Background3C3C3C c%clAccent% vLoadBar Range0-100, 5
 Gui, Font, s9 c%clTxt%
 Gui, Add, Text, x%contentX% y%clYStatus% w%clBarW% vLoadStatus BackgroundTrans, Checking ProSelect...
-Gui, Show, w%clW% h%clH%, Cardly Loading
+
+; Centre on ProSelect window if available, otherwise default placement
+WinGetPos, _psX, _psY, _psW, _psH, ahk_exe ProSelect.exe
+if (_psW != "" && _psH != "") {
+	clShowX := _psX + (_psW - clW) // 2
+	clShowY := _psY + (_psH - clH) // 2
+	Gui, Show, x%clShowX% y%clShowY% w%clW% h%clH%, Cardly Loading
+} else {
+	Gui, Show, w%clW% h%clH%, Cardly Loading
+}
 
 ; -- Single animation + check timer (avoids timer collision) --
 progress := 5

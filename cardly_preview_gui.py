@@ -47,6 +47,13 @@ try:
 except Exception:
     pass
 
+# Enable DPI awareness so window positioning matches physical pixel coordinates
+# (consistent with AHK's SetThreadDpiAwarenessContext SYSTEM_AWARE)
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PROCESS_SYSTEM_DPI_AWARE
+except Exception:
+    pass
+
 # === WINDOW ICON HELPER ===
 _icon_path_cache = None
 
@@ -267,7 +274,10 @@ except ImportError as e:
 CARD_RATIO = CARDLY_WIDTH / CARDLY_HEIGHT  # ~1.371
 
 class CardPreviewGUI:
-    def __init__(self, image_folder, contact_id, first_name, message, template_id=None, sticker_folder=None, card_width=None, card_height=None, media_name=None, postcard_folder=None, ghl_media_folder_id=None, photo_link_field=None, psa_path=None, xml_path=None, album_name=None, test_mode=False, preselect_image=None, save_to_album=False, album_folder=None, alt_template_id=None, alt_card_width=None, alt_card_height=None):
+    def __init__(self, image_folder, contact_id, first_name, message, template_id=None, sticker_folder=None, card_width=None, card_height=None, media_name=None, postcard_folder=None, ghl_media_folder_id=None, photo_link_field=None, psa_path=None, xml_path=None, album_name=None, test_mode=False, preselect_image=None, save_to_album=False, album_folder=None, alt_template_id=None, alt_card_width=None, alt_card_height=None, ps_geometry=None):
+        # ProSelect window geometry for centering (x, y, w, h) or None
+        self.ps_geometry = ps_geometry
+
         self.image_folder = image_folder
         self.contact_id = contact_id
         self.first_name = first_name
@@ -377,8 +387,7 @@ class CardPreviewGUI:
         self._splash.configure(bg='#1a1a1a')
         self._splash.attributes('-topmost', True)
         sw, sh = 280, 120
-        sx = (self._splash.winfo_screenwidth() - sw) // 2
-        sy = (self._splash.winfo_screenheight() - sh) // 2
+        sx, sy = self._center_on_ps(self._splash, sw, sh)
         self._splash.geometry(f'{sw}x{sh}+{sx}+{sy}')
         _set_window_icon(self._splash)
         self._splash_canvas = tk.Canvas(self._splash, width=sw, height=sh,
@@ -411,11 +420,14 @@ class CardPreviewGUI:
         self.root.option_add('*TCombobox*Listbox.selectForeground', 'white')
 
         # Resolve recipient address for display in the GUI
+        self._pump_splash()
         self._resolve_recipient()
 
+        self._pump_splash()
         self.create_widgets()
 
         # Pre-select image from ProSelect if specified
+        self._pump_splash()
         if self.preselect_image:
             self._preselect_filmstrip_image()
         else:
@@ -433,6 +445,7 @@ class CardPreviewGUI:
                               ("XML", self._extract_client_from_xml),
                               ("GHL", self._get_ghl_recipient)]:
             try:
+                self._pump_splash()
                 result_data = fn()
                 if result_data and result_data.get('name', '').strip():
                     self.recipient = result_data
@@ -543,6 +556,28 @@ class CardPreviewGUI:
                 json.dump(prefs, f, indent=2)
         except Exception:
             pass
+
+    def _pump_splash(self):
+        """Process pending splash events so the spinner keeps animating."""
+        if hasattr(self, '_splash') and self._splash is not None:
+            try:
+                self._splash.update()
+            except tk.TclError:
+                pass
+
+    def _center_on_ps(self, win, w, h):
+        """Return (x, y) to center a window of size w×h on the ProSelect window.
+
+        Falls back to screen-center if no ProSelect geometry was provided.
+        """
+        if self.ps_geometry:
+            ps_x, ps_y, ps_w, ps_h = self.ps_geometry
+            x = ps_x + (ps_w - w) // 2
+            y = ps_y + (ps_h - h) // 2
+        else:
+            x = (win.winfo_screenwidth() - w) // 2
+            y = (win.winfo_screenheight() - h) // 2
+        return x, y
 
     def load_images(self):
         """Load images from folder, PSA ordered images, or browse.
@@ -1070,6 +1105,9 @@ class CardPreviewGUI:
                 lbl.pack(side='left', padx=3, pady=5)
                 lbl.bind('<Button-1>', lambda e, idx=i: self.select_image(idx))
                 self.thumb_labels.append(lbl)
+                # Keep splash spinner alive while loading thumbnails
+                if i % 3 == 0:
+                    self._pump_splash()
             except Exception as e:
                 print(f"Error loading thumbnail {img_path}: {e}")
 
@@ -2329,12 +2367,11 @@ class CardPreviewGUI:
                                        fg='silver', bg='#1a1a1a')
         self.progress_label.pack(pady=(0, 20))
 
-        # Center window
+        # Center window on ProSelect
         progress_win.update_idletasks()
         w = progress_win.winfo_width()
         h = progress_win.winfo_height()
-        x = (progress_win.winfo_screenwidth() - w) // 2
-        y = (progress_win.winfo_screenheight() - h) // 2
+        x, y = self._center_on_ps(progress_win, w, h)
         progress_win.geometry(f"+{x}+{y}")
 
         progress_win.update()
@@ -2628,8 +2665,7 @@ class CardPreviewGUI:
         success_win.update_idletasks()
         w = success_win.winfo_width()
         h = success_win.winfo_height()
-        x = (success_win.winfo_screenwidth() - w) // 2
-        y = (success_win.winfo_screenheight() - h) // 2
+        x, y = self._center_on_ps(success_win, w, h)
         success_win.geometry(f"+{x}+{y}")
         success_win.grab_set()
         success_win.wait_window()
@@ -2653,12 +2689,11 @@ class CardPreviewGUI:
                 pass
             self._splash = None
 
-        # Center window on screen
+        # Center window on ProSelect
         self.root.update_idletasks()
         w = self.root.winfo_width()
         h = self.root.winfo_height()
-        x = (self.root.winfo_screenwidth() - w) // 2
-        y = (self.root.winfo_screenheight() - h) // 2
+        x, y = self._center_on_ps(self.root, w, h)
         self.root.geometry(f"+{x}+{y}")
 
         self.root.deiconify()  # Show the fully-built window
@@ -2698,8 +2733,19 @@ def main() -> None:
     parser.add_argument("--alt-template-id", default=None, help="Alternate orientation template ID (L\u2194P pair)")
     parser.add_argument("--alt-card-width", default=None, help="Alternate template card width in pixels")
     parser.add_argument("--alt-card-height", default=None, help="Alternate template card height in pixels")
+    parser.add_argument("--ps-geometry", default=None, help="ProSelect window geometry as x,y,w,h for centering")
 
     args = parser.parse_args()
+
+    # Parse ProSelect geometry if provided
+    ps_geometry = None
+    if args.ps_geometry:
+        try:
+            parts = [int(v) for v in args.ps_geometry.split(',')]
+            if len(parts) == 4:
+                ps_geometry = tuple(parts)
+        except ValueError:
+            pass
 
     if not os.path.exists(args.image_folder):
         print(f"Error: Image folder not found: {args.image_folder}")
@@ -2714,7 +2760,8 @@ def main() -> None:
         preselect_image=args.preselect_image,
         save_to_album=args.save_to_album, album_folder=args.album_folder,
         alt_template_id=args.alt_template_id,
-        alt_card_width=args.alt_card_width, alt_card_height=args.alt_card_height
+        alt_card_width=args.alt_card_width, alt_card_height=args.alt_card_height,
+        ps_geometry=ps_geometry
     )
     result = gui.run()
     sys.exit(result)

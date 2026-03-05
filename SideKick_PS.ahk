@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.52
+; Version:     2.5.53
 ; Build Date:  2026-03-05
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -5784,6 +5784,11 @@ Toolbar_Cardly:
 	if (Settings_Cardly_SaveToAlbum && albumDir != "" && FileExist(albumDir)) {
 		cmdArgs .= " --save-to-album --album-folder """ . albumDir . """"
 	}
+	
+	; Pass ProSelect window geometry so the preview centres on it
+	WinGetPos, _psX, _psY, _psW, _psH, ahk_exe ProSelect.exe
+	if (_psW != "" && _psH != "")
+		cmdArgs .= " --ps-geometry """ . _psX . "," . _psY . "," . _psW . "," . _psH . """"
 	
 	; Launch Card Preview GUI — the standalone CardlyLoader auto-closes
 	; when this window title appears (or on 60s timeout)
