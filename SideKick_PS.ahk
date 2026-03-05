@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.51
-; Build Date:  2026-03-04
+; Version:     2.5.52
+; Build Date:  2026-03-05
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -5446,23 +5446,21 @@ Toolbar_Cardly:
 		FileDelete, %lockFile%
 	
 	; Check if ProSelect has an album loaded
+	noAlbumMode := false
 	if WinExist("ProSelect ahk_exe ProSelect.exe")
 	{
 		WinGetTitle, psTitle, ahk_exe ProSelect.exe
 		if (psTitle = "ProSelect - Untitled" || psTitle = "ProSelect") {
-			WinClose, Cardly Loading
-			DarkMsgBox("No Album Loaded", "Please open an album in ProSelect first.", "warning")
-			return
+			noAlbumMode := true
 		}
 	} else {
-		WinClose, Cardly Loading
-		DarkMsgBox("ProSelect Not Running", "ProSelect is not running.`n`nPlease open ProSelect with an album first.", "warning")
-		return
+		noAlbumMode := true
+		psTitle := ""
 	}
 	
 	; Get the first selected image from ProSelect via PSConsole
 	preselectImage := ""
-	if (PsConsolePath != "") {
+	if (!noAlbumMode && PsConsolePath != "") {
 		selectedXml := PsConsole("getSelectedImageData")
 		if (selectedXml != false && selectedXml != true) {
 			; Extract the name attribute from the first <image> element
@@ -5473,42 +5471,49 @@ Toolbar_Cardly:
 	
 	; Auto-fetch GHL contact if not already loaded
 	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {
-		; Try to extract Client ID from ProSelect album title
-		albumContactId := ""
-		if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
-			; Verify it's a GHL ID, not a shoot number (e.g. P26020P)
-			if (!RegExMatch(idMatch1, "^P\d+P$"))
-				albumContactId := idMatch1
-		}
-		
-		; Fallback: read clientCode from the .psa SQLite file
-		if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
-			ToolTip, Reading client ID from PSA file...
-			tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
-			FileDelete, %tempFile%
-			pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); m=re.search(r'<clientCode>([^<]+)</clientCode>',str(r[0])) if r else None; open(sys.argv[2],'w').write(m.group(1) if m else '')"" """ . psaPath . """ """ . tempFile . """"
-			RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
-			FileRead, psaClientCode, %tempFile%
-			FileDelete, %tempFile%
-			psaClientCode := Trim(psaClientCode, " `t`r`n")
-			; Must be 15+ alphanum AND not a shoot number (P26020P)
-			if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
-				albumContactId := psaClientCode
-			ToolTip
-		}
-		
-		if (albumContactId != "") {
-			ToolTip, Fetching client from GHL...
-			GHL_ContactData := FetchGHLData(albumContactId)
-			ToolTip
-			if (!GHL_ContactData.success) {
+		if (!noAlbumMode) {
+			; Try to extract Client ID from ProSelect album title
+			albumContactId := ""
+			if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
+				; Verify it's a GHL ID, not a shoot number (e.g. P26020P)
+				if (!RegExMatch(idMatch1, "^P\d+P$"))
+					albumContactId := idMatch1
+			}
+			
+			; Fallback: read clientCode from the .psa SQLite file
+			if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
+				ToolTip, Reading client ID from PSA file...
+				tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
+				FileDelete, %tempFile%
+				pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); m=re.search(r'<clientCode>([^<]+)</clientCode>',str(r[0])) if r else None; open(sys.argv[2],'w').write(m.group(1) if m else '')"" """ . psaPath . """ """ . tempFile . """"
+				RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
+				FileRead, psaClientCode, %tempFile%
+				FileDelete, %tempFile%
+				psaClientCode := Trim(psaClientCode, " `t`r`n")
+				; Must be 15+ alphanum AND not a shoot number (P26020P)
+				if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
+					albumContactId := psaClientCode
+				ToolTip
+			}
+			
+			if (albumContactId != "") {
+				ToolTip, Fetching client from GHL...
+				GHL_ContactData := FetchGHLData(albumContactId)
+				ToolTip
+				if (!GHL_ContactData.success) {
+					WinClose, Cardly Loading
+					DarkMsgBox("GHL Fetch Failed", "Could not fetch client data from GHL.`n`n" . GHL_ContactData.error, "error")
+					return
+				}
+			} else {
 				WinClose, Cardly Loading
-				DarkMsgBox("GHL Fetch Failed", "Could not fetch client data from GHL.`n`n" . GHL_ContactData.error, "error")
+				DarkMsgBox("No Client Found", "No GHL Client ID found in album name or PSA file.`n`nPlease fetch a client from GHL first using the Client button,`nor ensure the album contains a GHL Client ID.", "warning")
 				return
 			}
 		} else {
+			; No album mode — require user to load a client first via the Client button
 			WinClose, Cardly Loading
-			DarkMsgBox("No Client Found", "No GHL Client ID found in album name or PSA file.`n`nPlease fetch a client from GHL first using the Client button,`nor ensure the album contains a GHL Client ID.", "warning")
+			DarkMsgBox("No Client Loaded", "No album is open and no GHL client is loaded.`n`nPlease fetch a client from GHL first using the Client button.", "warning")
 			return
 		}
 	}
@@ -5548,100 +5553,104 @@ Toolbar_Cardly:
 	psaPath := ""
 	xmlPath := ""
 	imageFolder := ""
+	albumFilename := ""
+	albumDir := ""
 	
-	; Try to find PSA from ProSelect title
-	RegExMatch(psTitle, "^ProSelect - (.+)", albumMatch)
-	if (albumMatch1 != "") {
-		SplitPath, albumMatch1, albumFilename, albumDir
-		psaPath := albumMatch1  ; Full path to .psa file (if title has full path)
-	}
-	
-	; If psaPath isn't a valid file (title was just album name, not full path),
-	; search for the .psa in the Shoot Archive folder
-	if (psaPath != "" && !FileExist(psaPath) && albumFilename != "") {
-		; Strip .psa extension if present for matching
-		searchName := RegExReplace(albumFilename, "\.psa$", "")
-		; Extract shoot number for folder matching (e.g. P26020P)
-		RegExMatch(searchName, "^(P\d+P)", sMatch)
-		searchShoot := sMatch1
+	if (!noAlbumMode) {
+		; Try to find PSA from ProSelect title
+		RegExMatch(psTitle, "^ProSelect - (.+)", albumMatch)
+		if (albumMatch1 != "") {
+			SplitPath, albumMatch1, albumFilename, albumDir
+			psaPath := albumMatch1  ; Full path to .psa file (if title has full path)
+		}
 		
-		; Search archive recursively for PSA matching exact album name first
-		; Archive structure: D:\Shoot_Archive\[subfolder]\P2xxxx_Name\Unprocessed\*.psa
-		if (searchShoot != "" && Settings_ShootArchivePath != "" && FileExist(Settings_ShootArchivePath)) {
-			; Pass 1: exact filename match (recursive)
-			Loop, Files, %Settings_ShootArchivePath%\%searchName%.psa, FR
-			{
-				psaPath := A_LoopFileFullPath
-				SplitPath, psaPath, albumFilename, albumDir
-				break
-			}
-			; Pass 2: any PSA starting with shoot number (recursive)
-			if (!FileExist(psaPath)) {
-				Loop, Files, %Settings_ShootArchivePath%\%searchShoot%*.psa, FR
+		; If psaPath isn't a valid file (title was just album name, not full path),
+		; search for the .psa in the Shoot Archive folder
+		if (psaPath != "" && !FileExist(psaPath) && albumFilename != "") {
+			; Strip .psa extension if present for matching
+			searchName := RegExReplace(albumFilename, "\.psa$", "")
+			; Extract shoot number for folder matching (e.g. P26020P)
+			RegExMatch(searchName, "^(P\d+P)", sMatch)
+			searchShoot := sMatch1
+			
+			; Search archive recursively for PSA matching exact album name first
+			; Archive structure: D:\Shoot_Archive\[subfolder]\P2xxxx_Name\Unprocessed\*.psa
+			if (searchShoot != "" && Settings_ShootArchivePath != "" && FileExist(Settings_ShootArchivePath)) {
+				; Pass 1: exact filename match (recursive)
+				Loop, Files, %Settings_ShootArchivePath%\%searchName%.psa, FR
 				{
 					psaPath := A_LoopFileFullPath
 					SplitPath, psaPath, albumFilename, albumDir
 					break
 				}
-			}
-		}
-	}
-	
-	; Find most recent order export XML matching the album's shoot number
-	; Use the GHL Invoice Watch Folder setting (GHL Integration > Watch Folder)
-	orderExportsDir := Settings_InvoiceWatchFolder
-	if (orderExportsDir = "")
-		orderExportsDir := A_MyDocuments . "\Proselect Order Exports"
-	if (FileExist(orderExportsDir)) {
-		; Extract shoot number and GHL ID from album filename
-		; e.g. P26020P_Leach_VKIXpJNp1wLzc5o59qDm.psa → shoot=P26020P, ghl=VKIXpJNp1wLzc5o59qDm
-		albumShootNo := ""
-		albumGhlId := ""
-		if (albumFilename != "") {
-			RegExMatch(albumFilename, "^(P\d+P)", shootMatch), albumShootNo := shootMatch1
-			RegExMatch(albumFilename, "_([A-Za-z0-9]{15,})(?:\.|_|$)", ghlMatch), albumGhlId := ghlMatch1
-		}
-		
-		; Find matching export folder - prioritise shoot number, fall back to GHL ID
-		latestTime := ""
-		latestFolder := ""
-		
-		; Pass 1: match by shoot number (highest priority)
-		if (albumShootNo != "") {
-			Loop, Files, %orderExportsDir%\*, D
-			{
-				if (InStr(A_LoopFileName, albumShootNo) && A_LoopFileTimeModified > latestTime) {
-					latestTime := A_LoopFileTimeModified
-					latestFolder := A_LoopFileFullPath
+				; Pass 2: any PSA starting with shoot number (recursive)
+				if (!FileExist(psaPath)) {
+					Loop, Files, %Settings_ShootArchivePath%\%searchShoot%*.psa, FR
+					{
+						psaPath := A_LoopFileFullPath
+						SplitPath, psaPath, albumFilename, albumDir
+						break
+					}
 				}
 			}
 		}
 		
-		; Pass 2: match by GHL ID if no shoot number match
-		if (latestFolder = "" && albumGhlId != "") {
-			Loop, Files, %orderExportsDir%\*, D
-			{
-				if (InStr(A_LoopFileName, albumGhlId) && A_LoopFileTimeModified > latestTime) {
-					latestTime := A_LoopFileTimeModified
-					latestFolder := A_LoopFileFullPath
+		; Find most recent order export XML matching the album's shoot number
+		; Use the GHL Invoice Watch Folder setting (GHL Integration > Watch Folder)
+		orderExportsDir := Settings_InvoiceWatchFolder
+		if (orderExportsDir = "")
+			orderExportsDir := A_MyDocuments . "\Proselect Order Exports"
+		if (FileExist(orderExportsDir)) {
+			; Extract shoot number and GHL ID from album filename
+			; e.g. P26020P_Leach_VKIXpJNp1wLzc5o59qDm.psa → shoot=P26020P, ghl=VKIXpJNp1wLzc5o59qDm
+			albumShootNo := ""
+			albumGhlId := ""
+			if (albumFilename != "") {
+				RegExMatch(albumFilename, "^(P\d+P)", shootMatch), albumShootNo := shootMatch1
+				RegExMatch(albumFilename, "_([A-Za-z0-9]{15,})(?:\.|_|$)", ghlMatch), albumGhlId := ghlMatch1
+			}
+			
+			; Find matching export folder - prioritise shoot number, fall back to GHL ID
+			latestTime := ""
+			latestFolder := ""
+			
+			; Pass 1: match by shoot number (highest priority)
+			if (albumShootNo != "") {
+				Loop, Files, %orderExportsDir%\*, D
+				{
+					if (InStr(A_LoopFileName, albumShootNo) && A_LoopFileTimeModified > latestTime) {
+						latestTime := A_LoopFileTimeModified
+						latestFolder := A_LoopFileFullPath
+					}
 				}
+			}
+			
+			; Pass 2: match by GHL ID if no shoot number match
+			if (latestFolder = "" && albumGhlId != "") {
+				Loop, Files, %orderExportsDir%\*, D
+				{
+					if (InStr(A_LoopFileName, albumGhlId) && A_LoopFileTimeModified > latestTime) {
+						latestTime := A_LoopFileTimeModified
+						latestFolder := A_LoopFileFullPath
+					}
+				}
+			}
+			
+			if (latestFolder != "") {
+				; XML is a sibling file with same name as the folder + .xml extension
+				xmlSibling := latestFolder . ".xml"
+				if (FileExist(xmlSibling))
+					xmlPath := xmlSibling
+				imageFolder := latestFolder
 			}
 		}
 		
-		if (latestFolder != "") {
-			; XML is a sibling file with same name as the folder + .xml extension
-			xmlSibling := latestFolder . ".xml"
-			if (FileExist(xmlSibling))
-				xmlPath := xmlSibling
-			imageFolder := latestFolder
-		}
+		; If no order exports, use album folder
+		if (imageFolder = "" && albumDir != "")
+			imageFolder := albumDir
 	}
 	
-	; If no order exports, use album folder
-	if (imageFolder = "" && albumDir != "")
-		imageFolder := albumDir
-	
-	; Still no images? Let user browse
+	; No images found (or no album mode) — let user browse for a folder
 	if (imageFolder = "" || !FileExist(imageFolder)) {
 		WinClose, Cardly Loading
 		FileSelectFolder, imageFolder, , 3, Select folder containing images for postcard:

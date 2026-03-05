@@ -24,6 +24,8 @@ import os
 import json
 import math
 import re as _re
+import calendar as _calendar
+import locale as _locale
 import xml.etree.ElementTree as ET
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -32,6 +34,12 @@ import atexit
 import ctypes
 import threading
 import queue as _queue
+
+# Activate system locale for date formatting (e.g. DD/MM/YYYY in UK, MM/DD/YYYY in US)
+try:
+    _locale.setlocale(_locale.LC_TIME, '')
+except _locale.Error:
+    pass
 
 # Set Windows AppUserModelID so the taskbar shows our icon, not Python's
 try:
@@ -418,6 +426,9 @@ class CardPreviewGUI:
         """Resolve recipient details from PSA/XML/GHL for display."""
         self.recipient = None
         self.recipient_source = ""
+        self.ghl_date_fields = {}  # {display_label: 'YYYY-MM-DD'}
+        self.requested_arrival = None  # None = ASAP
+        self._ghl_birthday = None  # raw DOB string from GHL contact
         for label_src, fn in [("PSA", self._extract_client_from_psa),
                               ("XML", self._extract_client_from_xml),
                               ("GHL", self._get_ghl_recipient)]:
@@ -782,6 +793,9 @@ class CardPreviewGUI:
                 return None
             ghl_data = contact_result.get('data', {})
             contact = ghl_data.get('contact', ghl_data)
+            # Store birthday for the Receiving Date dropdown
+            if not hasattr(self, '_ghl_birthday') or self._ghl_birthday is None:
+                self._ghl_birthday = contact.get('dateOfBirth') or None
             # Enrich with custom address fields (GHL stores address2/3 as custom fields)
             _enrich_contact_address(contact)
             # Combine address2 + address3 into a single address2 for Cardly
@@ -1259,20 +1273,19 @@ class CardPreviewGUI:
                 anchor='w', justify='left')
         self.recip_name_label.pack(fill='x')
 
-        # Address
+        # Address — compact: address1, city+postcode on one line, country
         if self.recipient:
             addr_parts = []
-            for k in ('address1', 'address2'):
-                v = self.recipient.get(k, '').strip()
-                if v:
-                    addr_parts.append(v)
-            city_line = ', '.join(filter(None, [
+            a1 = self.recipient.get('address1', '').strip()
+            if a1:
+                addr_parts.append(a1)
+            # City, postcode on one line
+            city_pc = ', '.join(filter(None, [
                 self.recipient.get('city', '').strip(),
-                self.recipient.get('state', '').strip(),
                 self.recipient.get('postcode', '').strip()
             ]))
-            if city_line:
-                addr_parts.append(city_line)
+            if city_pc:
+                addr_parts.append(city_pc)
             country = self.recipient.get('country', '').strip()
             if country:
                 addr_parts.append(country)
@@ -1281,18 +1294,12 @@ class CardPreviewGUI:
             addr_text = '(recipient details unavailable)'
 
         self.recip_addr_label = tk.Label(recip_frame, text=addr_text,
-                font=('Segoe UI', 9), fg='silver', bg='#2a2a2a',
+                font=('Segoe UI', 8), fg='silver', bg='#2a2a2a',
                 anchor='w', justify='left', wraplength=220)
-        self.recip_addr_label.pack(fill='x', pady=(5, 0))
-
-        # Source indicator
-        if self.recipient_source:
-            tk.Label(recip_frame, text=f"(from {self.recipient_source})",
-                    font=('Segoe UI', 8), fg='#666666', bg='#2a2a2a',
-                    anchor='w').pack(fill='x', pady=(8, 0))
+        self.recip_addr_label.pack(fill='x', pady=(2, 0))
 
         # Separator
-        tk.Frame(recip_frame, bg='#444444', height=1).pack(fill='x', pady=(15, 10))
+        tk.Frame(recip_frame, bg='#444444', height=1).pack(fill='x', pady=(8, 5))
 
         # Card Details (moved here from controls)
         tk.Label(recip_frame, text="Card Details", font=('Segoe UI', 10, 'bold'),
@@ -1305,6 +1312,53 @@ class CardPreviewGUI:
         self.card_size_label = tk.Label(recip_frame, text=f"Size: {self.card_width}x{self.card_height}px ({orient})",
                 font=('Segoe UI', 9), fg='silver', bg='#2a2a2a')
         self.card_size_label.pack(anchor='w')
+
+        # Separator before Receiving Date
+        tk.Frame(recip_frame, bg='#444444', height=1).pack(fill='x', pady=(15, 10))
+
+        # Receiving Date section
+        date_header_frame = tk.Frame(recip_frame, bg='#2a2a2a')
+        date_header_frame.pack(fill='x')
+        tk.Label(date_header_frame, text="Receiving Date", font=('Segoe UI', 10, 'bold'),
+                fg='#FFB347', bg='#2a2a2a').pack(side='left')
+
+        # Refresh button to fetch GHL date fields
+        self._date_refresh_btn = tk.Button(date_header_frame, text="\u21bb",
+                font=('Segoe UI', 10), width=2,
+                bg='#444444', fg='white', activebackground='#555555',
+                relief='flat', cursor='hand2',
+                command=self._refresh_ghl_dates)
+        self._date_refresh_btn.pack(side='right')
+        ToolTip(self._date_refresh_btn, "Fetch date fields from this client's\nGHL contact record (e.g. session date,\nbirthday, anniversary).")
+
+        # Calendar button to pick a custom date
+        self._date_cal_btn = tk.Button(date_header_frame, text="\U0001F4C5",
+                font=('Segoe UI', 10), width=2,
+                bg='#444444', fg='white', activebackground='#555555',
+                relief='flat', cursor='hand2',
+                command=self._pick_custom_date)
+        self._date_cal_btn.pack(side='right', padx=(0, 4))
+        ToolTip(self._date_cal_btn, "Choose a custom receiving date\nfrom a calendar.")
+
+        # Dropdown
+        self._date_var = tk.StringVar(value="ASAP")
+        self._date_options = ["ASAP"]
+        # Pre-populate with session anniversary if we can derive it
+        self._populate_initial_dates()
+        self._date_combo = ttk.Combobox(recip_frame, textvariable=self._date_var,
+                values=self._date_options, state='readonly', width=28,
+                font=('Segoe UI', 9), height=6)
+        self._date_combo.pack(fill='x', pady=(5, 0))
+        self._date_combo.bind('<<ComboboxSelected>>', self._on_date_selected)
+
+        # Style the combobox for dark theme
+        style = ttk.Style()
+        style.configure('TCombobox', fieldbackground='#333333', background='#444444',
+                        foreground='white', arrowcolor='white')
+
+        self._date_info_label = tk.Label(recip_frame, text="Card will be dispatched immediately",
+                font=('Segoe UI', 8), fg='#888888', bg='#2a2a2a', anchor='w')
+        self._date_info_label.pack(fill='x', pady=(3, 0))
 
         # Missing address warning
         if self.recipient:
@@ -1326,22 +1380,314 @@ class CardPreviewGUI:
 
         # Buttons at bottom of recipient panel
         btn_frame = tk.Frame(recip_frame, bg='#2a2a2a')
-        btn_frame.pack(side='bottom', fill='x', pady=(15, 0))
+        btn_frame.pack(side='bottom', fill='x', pady=(10, 0))
 
-        self.post_btn = tk.Button(btn_frame, text="Send Card", width=14, height=2,
-                                  command=self.post_card, font=('Segoe UI', 10, 'bold'),
+        self.post_btn = tk.Button(btn_frame, text="Send Card",
+                                  command=self.post_card, font=('Segoe UI', 11, 'bold'),
                                   bg='#4CAF50', fg='white', activebackground='#5CBF60',
                                   activeforeground='white', relief='flat', cursor='hand2')
-        self.post_btn.pack(side='left', padx=(0, 8))
+        self.post_btn.pack(side='left', fill='both', expand=True, padx=(0, 4), ipady=8)
 
-        cancel_btn = tk.Button(btn_frame, text="Cancel", width=10, height=2,
+        cancel_btn = tk.Button(btn_frame, text="Cancel",
                               command=self.cancel, font=('Segoe UI', 10),
                               bg='#444444', fg='white', activebackground='#555555',
                               relief='flat', cursor='hand2')
-        cancel_btn.pack(side='left')
+        cancel_btn.pack(side='left', fill='both', expand=True, padx=(4, 0), ipady=8)
 
         ToolTip(self.post_btn, "Send this card via Cardly now.\nThe selected image will be cropped, resized,\nand submitted with your message to the recipient.")
         ToolTip(cancel_btn, "Close without sending.\nNo card will be created or charged.")
+
+    # === Receiving Date helpers ===
+
+    @staticmethod
+    def _format_local_date(d):
+        """Format a date object using the system's short date locale (e.g. 05/03/2026 for UK)."""
+        try:
+            return d.strftime('%x')
+        except Exception:
+            return d.strftime('%Y-%m-%d')
+
+    @staticmethod
+    def _parse_local_date(s):
+        """Parse a locale-formatted date string back to a date object.
+        Tries locale short format first, then common fallbacks."""
+        from datetime import datetime
+        for fmt in ('%x', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d.%m.%Y'):
+            try:
+                return datetime.strptime(s.strip(), fmt).date()
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    def _populate_initial_dates(self):
+        """Pre-populate date dropdown with Birthday (always shown) and any derivable dates."""
+        from datetime import datetime, date
+        # Always show Birthday — with date or Unknown
+        dob = getattr(self, '_ghl_birthday', None)
+        if dob:
+            for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ',
+                        '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
+                try:
+                    d = datetime.strptime(dob, fmt).date()
+                    self._date_options.append(f"Birthday \u2014 {self._format_local_date(d)}")
+                    break
+                except (ValueError, TypeError):
+                    continue
+            else:
+                self._date_options.append("Birthday \u2014 Unknown")
+        else:
+            self._date_options.append("Birthday \u2014 Unknown")
+
+    def _on_date_selected(self, event=None):
+        """Handle receiving date selection change."""
+        from datetime import datetime, date
+        selection = self._date_var.get()
+        if selection == "ASAP" or selection.endswith("Unknown"):
+            self.requested_arrival = None
+            if selection.endswith("Unknown"):
+                self._date_info_label.config(text="No date on file \u2014 sending ASAP")
+            else:
+                self._date_info_label.config(text="Card will be dispatched immediately")
+        else:
+            # Extract date from selection (format: "Label — <locale date>")
+            parts = selection.rsplit(' \u2014 ', 1)
+            if len(parts) == 2:
+                d = self._parse_local_date(parts[1])
+                try:
+                    if d is None:
+                        raise ValueError('unparseable date')
+                    today = date.today()
+                    if d <= today:
+                        # Date is in the past — bump to next year's anniversary
+                        try:
+                            d = d.replace(year=today.year)
+                            if d <= today:
+                                d = d.replace(year=today.year + 1)
+                        except ValueError:
+                            # Feb 29 edge case
+                            d = d.replace(month=3, day=1, year=today.year + 1)
+                    self.requested_arrival = d.strftime('%Y-%m-%d')
+                    self._date_info_label.config(
+                        text=f"Arrive by {self._format_local_date(d)} (Cardly sets dispatch)")
+                except ValueError:
+                    self.requested_arrival = None
+                    self._date_info_label.config(text="Invalid date — sending ASAP")
+            else:
+                self.requested_arrival = None
+                self._date_info_label.config(text="Card will be dispatched immediately")
+
+    def _refresh_ghl_dates(self):
+        """Fetch date-type custom fields from GHL contact and add to dropdown."""
+        from datetime import datetime, date
+        if not self.contact_id:
+            messagebox.showinfo("No Contact", "No GHL contact ID available.")
+            return
+
+        self._date_refresh_btn.config(state='disabled', text="...")
+        self.root.update_idletasks()
+
+        try:
+            contact_result = get_ghl_contact(self.contact_id)
+            if not contact_result.get('success'):
+                messagebox.showwarning("GHL Error",
+                    f"Could not fetch contact: {contact_result.get('error', 'Unknown')}")
+                return
+
+            ghl_data = contact_result.get('data', {})
+            contact = ghl_data.get('contact', ghl_data)
+
+            # Collect date fields from customFields
+            found_dates = {}
+            custom_fields = contact.get('customFields', [])
+
+            # Also fetch field definitions to get human-readable names
+            field_names = {}
+            try:
+                from cardly_send_card import GHL_BASE_URL, GHL_LOCATION_ID
+                if GHL_API_KEY and GHL_LOCATION_ID:
+                    headers = {
+                        "Authorization": f"Bearer {GHL_API_KEY}",
+                        "Version": "2021-07-28"
+                    }
+                    url = f"{GHL_BASE_URL}/locations/{GHL_LOCATION_ID}/customFields"
+                    resp = requests.get(url, headers=headers, timeout=10)
+                    if resp.status_code == 200:
+                        for cf in resp.json().get('customFields', []):
+                            field_names[cf['id']] = cf.get('name', cf.get('fieldKey', ''))
+            except Exception as e:
+                print(f"Could not fetch field names: {e}")
+
+            for cf in custom_fields:
+                cf_id = cf.get('id', '')
+                cf_val = cf.get('value', '')
+                if not cf_val:
+                    continue
+                # Try to parse as date (GHL stores dates as ISO strings or YYYY-MM-DD)
+                for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ',
+                            '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
+                    try:
+                        d = datetime.strptime(cf_val, fmt).date()
+                        label = field_names.get(cf_id, cf_id)
+                        # Clean up label
+                        label = label.replace('contact.', '').replace('_', ' ').title()
+                        # Abbreviate & adjust known date types
+                        low = label.lower()
+                        if 'session' in low or 'shoot' in low:
+                            label = 'Shoot Anniversary'
+                            try:
+                                d = d.replace(year=d.year + 1)
+                            except ValueError:
+                                d = d.replace(month=3, day=1, year=d.year + 1)
+                        elif 'wedding' in low:
+                            label = label.lower().replace('wedding', 'WD').title()
+                        found_dates[label] = self._format_local_date(d)
+                        break
+                    except (ValueError, TypeError):
+                        continue
+
+            # Also check standard contact date fields
+            for key, label in [('dateOfBirth', 'Birthday'),
+                               ('dateAdded', 'Date Added')]:
+                val = contact.get(key)
+                if val:
+                    for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ',
+                                '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
+                        try:
+                            d = datetime.strptime(val, fmt).date()
+                            found_dates[label] = self._format_local_date(d)
+                            break
+                        except (ValueError, TypeError):
+                            continue
+
+            self.ghl_date_fields = found_dates
+
+            # Rebuild dropdown options — Birthday is always present
+            self._date_options = ["ASAP"]
+            # Ensure Birthday is always first (with date or Unknown)
+            bday_str = found_dates.pop('Birthday', None)
+            if bday_str:
+                self._date_options.append(f"Birthday \u2014 {bday_str}")
+            else:
+                self._date_options.append("Birthday \u2014 Unknown")
+            # Add remaining date fields
+            for label, date_str in sorted(found_dates.items()):
+                self._date_options.append(f"{label} \u2014 {date_str}")
+
+            self._date_combo['values'] = self._date_options
+
+            if found_dates:
+                count = len(found_dates)
+                self._date_info_label.config(
+                    text=f"Found {count} date field{'s' if count != 1 else ''} from GHL")
+            else:
+                self._date_info_label.config(text="No date fields found on this contact")
+
+        except Exception as e:
+            messagebox.showwarning("Error", f"Failed to fetch dates: {e}")
+        finally:
+            self._date_refresh_btn.config(state='normal', text="\u21bb")
+
+    def _pick_custom_date(self):
+        """Open a mini calendar popup for the user to pick a custom date."""
+        from datetime import date as _date_type
+
+        today = _date_type.today()
+        state = {'year': today.year, 'month': today.month}
+
+        popup = tk.Toplevel(self.root)
+        popup.title("Pick a Date")
+        popup.configure(bg='#2a2a2a')
+        popup.resizable(False, False)
+        popup.grab_set()
+        _set_window_icon(popup)
+
+        # Centre on parent
+        popup.update_idletasks()
+        px = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - 140
+        py = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - 120
+        popup.geometry(f'+{px}+{py}')
+
+        header = tk.Frame(popup, bg='#2a2a2a')
+        header.pack(fill='x', padx=8, pady=(8, 0))
+
+        month_label = tk.Label(header, text='', font=('Segoe UI', 10, 'bold'),
+                               fg='#FFB347', bg='#2a2a2a')
+        month_label.pack(side='left', expand=True)
+
+        btn_prev = tk.Button(header, text='\u25C0', font=('Segoe UI', 9), width=3,
+                             bg='#444444', fg='white', activebackground='#555555',
+                             relief='flat', cursor='hand2')
+        btn_prev.pack(side='left')
+        btn_next = tk.Button(header, text='\u25B6', font=('Segoe UI', 9), width=3,
+                             bg='#444444', fg='white', activebackground='#555555',
+                             relief='flat', cursor='hand2')
+        btn_next.pack(side='left', padx=(4, 0))
+
+        grid_frame = tk.Frame(popup, bg='#2a2a2a')
+        grid_frame.pack(padx=8, pady=8)
+
+        # Day-of-week headers
+        for col, day_name in enumerate(['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']):
+            tk.Label(grid_frame, text=day_name, font=('Segoe UI', 8, 'bold'),
+                     fg='#888888', bg='#2a2a2a', width=4).grid(row=0, column=col)
+
+        day_btns = []
+
+        def _render_month():
+            for b in day_btns:
+                b.destroy()
+            day_btns.clear()
+            y, m = state['year'], state['month']
+            month_label.config(text=f"{_calendar.month_name[m]} {y}")
+            first_weekday, num_days = _calendar.monthrange(y, m)
+            row = 1
+            col = first_weekday  # 0=Monday
+            for d in range(1, num_days + 1):
+                day_val = d
+                is_today = (y == today.year and m == today.month and d == today.day)
+                fg_color = '#FFB347' if is_today else 'white'
+                btn = tk.Button(grid_frame, text=str(d), font=('Segoe UI', 9),
+                                width=4, bg='#333333', fg=fg_color,
+                                activebackground='#555555', activeforeground='white',
+                                relief='flat', cursor='hand2',
+                                command=lambda dv=day_val: _on_pick(dv))
+                btn.grid(row=row, column=col, padx=1, pady=1)
+                day_btns.append(btn)
+                col += 1
+                if col > 6:
+                    col = 0
+                    row += 1
+
+        def _prev_month():
+            state['month'] -= 1
+            if state['month'] < 1:
+                state['month'] = 12
+                state['year'] -= 1
+            _render_month()
+
+        def _next_month():
+            state['month'] += 1
+            if state['month'] > 12:
+                state['month'] = 1
+                state['year'] += 1
+            _render_month()
+
+        def _on_pick(day):
+            picked = _date_type(state['year'], state['month'], day)
+            date_str = self._format_local_date(picked)
+            label = f"Custom \u2014 {date_str}"
+            # Remove any previous Custom entry
+            self._date_options = [o for o in self._date_options
+                                  if not o.startswith('Custom \u2014')]
+            self._date_options.append(label)
+            self._date_combo['values'] = self._date_options
+            self._date_var.set(label)
+            self._on_date_selected()
+            popup.destroy()
+
+        btn_prev.config(command=_prev_month)
+        btn_next.config(command=_next_month)
+        _render_month()
 
     def select_image(self, index):
         """Select image from filmstrip."""
@@ -2167,7 +2513,8 @@ class CardPreviewGUI:
                     recipient,
                     message=message,
                     first_name=self.first_name,
-                    template_id=self.template_id
+                    template_id=self.template_id,
+                    requested_arrival=self.requested_arrival
                 )
                 if not order_result.get('success'):
                     raise Exception(f"Failed to place order: {order_result.get('error')}")

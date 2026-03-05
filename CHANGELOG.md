@@ -12,6 +12,24 @@ AI INSTRUCTIONS - When publishing a new version:
 4. Run the build script to compile and create installer
 -->
 
+## v2.5.52 (2026-03-04)
+
+### New Features
+- **Cardly Receiving Date**: Schedule card arrival for a specific date — dropdown with ASAP (default), Birthday, Shoot Anniversary, and any date-type GHL custom fields. Cardly calculates dispatch backward from the requested arrival date.
+- **Cardly no-album mode**: Launch Cardly without a ProSelect album open — skips album-dependent steps and shows a folder picker to select images manually. Requires a GHL client to be loaded first.
+- **Receiving Date refresh button**: Fetches all date-type custom fields from the GHL contact record and adds them to the dropdown.
+- **Birthday always visible**: Birthday entry always appears in the Receiving Date dropdown — shows the date from GHL or "Unknown" if not on file.
+- **Shoot Anniversary**: Session date fields auto-calculate +1 year for the anniversary.
+
+### Improvements
+- **Wedding → WD**: Wedding abbreviated to WD in date labels for compact dropdown display.
+- **Dropdown scroll**: Receiving Date dropdown limited to 6 visible rows with scrollbar for longer lists.
+
+### Bug Fixes
+- **Loader animation freeze**: Added `SetWinDelay, -1` to CardlyLoader — AHK's default 100ms delay on every `WinExist()` call was blocking the animation thread.
+- **Loader timer collision**: Merged two separate timers (AnimateBar + CheckDone) into a single `Tick` timer with `Critical` flag — exit checks run every 6th tick to keep bar smooth.
+- **Loader border & encoding**: Added 1px border to loading GUI, removed emoji from title text, saved with UTF-8 BOM for AHK v1 compatibility.
+
 ## v2.5.51 (2026-03-04)
 
 ### Bug Fixes

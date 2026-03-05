@@ -744,7 +744,8 @@ def is_template_id(media_id: str) -> bool:
     return media_id and '-ae1c-11ea-' not in media_id and '-ae1c-' not in media_id
 
 def place_cardly_order(artwork_id: str, recipient: dict, message: str = "",
-                       first_name: str = "", template_id: str = None) -> dict:
+                       first_name: str = "", template_id: str = None,
+                       requested_arrival: str = None) -> dict:
     """
     Place an order to send a card via Cardly.
 
@@ -758,6 +759,7 @@ def place_cardly_order(artwork_id: str, recipient: dict, message: str = "",
         message: Message to include in the card
         first_name: Recipient's first name (for template variables)
         template_id: Optional template ID - if provided, uses template mode
+        requested_arrival: Optional YYYY-MM-DD date for requested card arrival (None = ASAP)
 
     Returns:
         dict with order details on success
@@ -815,6 +817,11 @@ def place_cardly_order(artwork_id: str, recipient: dict, message: str = "",
                 ]
             }
         debug_print(f"Placing ARTWORK order: {artwork_id}")
+
+    # Add scheduled arrival date if specified (Cardly calculates dispatch from this)
+    if requested_arrival:
+        line_item["requestedArrival"] = requested_arrival
+        debug_print(f"Requested arrival date: {requested_arrival}")
 
     # Build the top-level payload with required 'lines' array
     payload = {

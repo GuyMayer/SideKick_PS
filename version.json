@@ -1,9 +1,21 @@
 ﻿{
-  "version": "2.5.51",
-  "build_date": "2026-03-04",
+  "version": "2.5.52",
+  "build_date": "2026-03-05",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GoCardless & Cardly unified CLI fixes, animated Cardly loading GUI, build improvements",
+  "release_notes": "Cardly scheduled receiving date, no-album folder picker, loader animation fix",
   "changelog": [
+    "NEW: Cardly Receiving Date — schedule card arrival for a specific date (Birthday, Shoot Anniversary, or any GHL date field)",
+    "NEW: Cardly no-album mode — launch Cardly without a ProSelect album open; shows folder picker to select images manually",
+    "NEW: Receiving Date refresh button — fetches date-type custom fields from GHL contact (Birthday, WD Anniversary, Shoot Anniversary, etc.)",
+    "NEW: Birthday always shown in Receiving Date dropdown — displays date from GHL or 'Unknown' if not on file",
+    "NEW: Shoot Anniversary dates auto-calculate +1 year from session date",
+    "IMPROVED: Wedding abbreviated to WD in date labels for compact display",
+    "IMPROVED: Receiving Date dropdown limited to 6 visible rows with scrollbar for longer lists",
+    "FIX: Cardly loading GUI animation freeze — SetWinDelay -1 prevents 100ms blocking on WinExist calls",
+    "FIX: Cardly loading GUI merged to single timer with Critical flag — eliminates timer collision stutter",
+    "FIX: Cardly loading GUI border added and emoji removed for encoding compatibility",
+    "FIX: CardlyLoader.ahk saved with UTF-8 BOM for AHK v1 compatibility",
+    "----------",
     "FIX: All GoCardless callers switched from RunCaptureOutput to proven RunCmdToFile — fixes mandate check, connection test, billing requests, payments, and plan listing",
     "FIX: Cardly preview launch switched from GetScriptPath to GetScriptCommand — works with unified CLI exe",
     "FIX: Write PSA payments switched from GetScriptPath to GetScriptCommand + RunCmdToFile — works with unified CLI exe",
@@ -144,8 +156,8 @@
   ],
   "versions": [
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
         "FIX: GHL Photo Link URL - normalise upload URL to public CDN domain (assets.cdn.filesafe.space)",
@@ -156,8 +168,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
         "NEW: GoCardless toolbar button - check mandates and send setup links",
@@ -184,8 +196,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
         "NEW: Auto-blend toolbar background - samples screen behind toolbar and matches color",
@@ -196,8 +208,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
         "FIX: GHL invoice creation failed when Product_Name was empty (Wall Groupings, Collections)",
@@ -209,8 +221,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
         "NEW: Setup Wizard auto-loads GHL tags, opportunity tags, and email templates after setup",
@@ -225,8 +237,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
         "NEW: SKU field (Product_Code) extracted from ProSelect XML for product matching",
@@ -239,8 +251,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
         "FIX: GHL API updated to new endpoint for PIT token support",
@@ -248,8 +260,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
         "NEW: Dedicated PDF toolbar button (maroon) - always prints to PDF",
@@ -268,8 +280,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
         "NEW: Detailed error dialog when invoice sync fails - shows available data and what's missing",
@@ -282,8 +294,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
         "NEW: Toolbar grab handle - Ctrl+Click and drag to reposition",
@@ -293,8 +305,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
         "NEW: Local QR Code Generation - no more Google Charts API dependency",
@@ -305,8 +317,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
         "NEW: Print to PDF - save PDF to album folder with optional copy to secondary folder",
@@ -316,8 +328,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
         "NEW: Room Capture Email Template Picker - choose from GHL templates",
@@ -327,8 +339,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
         "IMPROVED: Full high-DPI display support for DarkMsgBox",
@@ -336,8 +348,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
         "IMPROVED: Payment schedules show as invoice line items with dates",
@@ -348,8 +360,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
         "FIX: DateDiff errors - replaced with AHK v1 compatible EnvSub",
@@ -358,8 +370,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
         "NEW: DarkMsgBox - universal dark mode message box",
@@ -370,8 +382,8 @@
       ]
     },
     {
-      "version": "2.5.51",
-      "build_date": "2026-03-04",
+      "version": "2.5.52",
+      "build_date": "2026-03-05",
       "release_notes": "Major GHL integration release",
       "changelog": [
         "NEW: GHL Client lookup from Chrome URLs",
