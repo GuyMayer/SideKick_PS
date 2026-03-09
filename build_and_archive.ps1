@@ -222,6 +222,7 @@ $pythonFiles = @(
     "write_psa_payments",
     "read_psa_payments",
     "read_psa_images",
+    "detect_psa_group"
 )
 
 $compiledCount = 0
