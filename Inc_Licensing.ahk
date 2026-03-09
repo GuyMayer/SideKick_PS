@@ -5344,10 +5344,11 @@ DevQuickPush:
 	FileDelete, %batchFile%
 	
 	; Write batch file line by line
-	FileAppend, @echo on`n, %batchFile%
+	FileAppend, @echo off`n, %batchFile%
 	FileAppend, cd /d "%repoDir%"`n, %batchFile%
 	FileAppend, call C:\Stash\.venv\Scripts\activate.bat`n, %batchFile%
 	FileAppend, powershell -ExecutionPolicy Bypass -File "build_and_archive.ps1" -Version "%newVersion%" -ForceRebuild -SkipPublish`n, %batchFile%
+	FileAppend, pause`n, %batchFile%
 	
 	Run, cmd.exe /c "%batchFile%", %repoDir%, , buildPID
 	

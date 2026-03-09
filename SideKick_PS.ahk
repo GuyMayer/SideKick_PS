@@ -6017,7 +6017,13 @@ Return
 ; ============================================================================
 
 ShowSettings:
+; Guard against re-entrance (building Settings GUI is not re-entrant)
+if (Settings_Building) {
+	return
+}
+Settings_Building := true
 Gui, Settings:Destroy
+Sleep, 50
 
 ; Initialize dark mode if not already set
 if (Settings_DarkMode = "")
@@ -6184,6 +6190,7 @@ if (hSettingsIcon) {
 	; Set the small icon (title bar)
 	DllCall("SendMessage", "Ptr", SettingsHwnd, "UInt", 0x80, "Ptr", 0, "Ptr", hSettingsIconSmall)
 }
+Settings_Building := false
 Return
 
 ; Toggle slider helper functions - Icon-based approach using Unicode
@@ -8423,6 +8430,7 @@ Gui, Settings:Hide
 Gui, Toolbar:Destroy
 Sleep, 50
 Gui, Settings:Destroy
+Settings_Building := false
 ; Cancel any pending background sample timers
 SetTimer, FirstLaunchBackgroundSample, Off
 global Toolbar_FirstShowDone := true
