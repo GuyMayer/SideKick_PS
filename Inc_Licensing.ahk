@@ -5344,12 +5344,12 @@ DevQuickPush:
 	FileDelete, %batchFile%
 	
 	; Write batch file line by line
-	FileAppend, @echo off`n, %batchFile%
+	FileAppend, @echo on`n, %batchFile%
 	FileAppend, cd /d "%repoDir%"`n, %batchFile%
 	FileAppend, call C:\Stash\.venv\Scripts\activate.bat`n, %batchFile%
 	FileAppend, powershell -ExecutionPolicy Bypass -File "build_and_archive.ps1" -Version "%newVersion%" -ForceRebuild -SkipPublish`n, %batchFile%
 	
-	Run, %batchFile%, %repoDir%
+	Run, cmd.exe /c "%batchFile%", %repoDir%, , buildPID
 	
 	; Wait for the installer to be created (poll every 2 seconds for up to 5 minutes)
 	; Now uses 'latest' folder with fixed filename
