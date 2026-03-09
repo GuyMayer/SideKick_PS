@@ -192,26 +192,23 @@ $scriptNameMap = @{
     "update_ghl_contact" = "_ugc"
     "sync_ps_invoice" = "_sps"
     "upload_ghl_media" = "_upm"
-    "gocardless_api" = "_gca"
     "cardly_preview_gui" = "_cpg"
     "cardly_send_card" = "_csc"
     "create_ghl_contactsheet" = "_ccs"
     "write_psa_payments" = "_wpp"
     "read_psa_payments" = "_rpp"
     "read_psa_images" = "_rpi"
-    "stale_mandates_gui" = "_smg"
 }
 
 # Hidden imports: scripts that import other local modules at runtime
 # PySide6 Qt plugins must be explicitly listed for PyInstaller --onefile to bundle them
 $hiddenImports = @{
     "cardly_preview_gui" = @("cardly_send_card")
-    "stale_mandates_gui" = @("PySide6.QtWidgets", "PySide6.QtCore", "PySide6.QtGui")
 }
 
 # GUI scripts that should use --noconsole (no terminal window).
 # All other scripts are CLI tools that communicate via stdout and MUST use --console.
-$guiScripts = @("cardly_preview_gui", "stale_mandates_gui")
+$guiScripts = @("cardly_preview_gui")
 
 $pythonFiles = @(
     "validate_license",
@@ -219,14 +216,12 @@ $pythonFiles = @(
     "update_ghl_contact",
     "sync_ps_invoice",
     "upload_ghl_media",
-    "gocardless_api",
     "cardly_preview_gui",
     "cardly_send_card",
     "create_ghl_contactsheet",
     "write_psa_payments",
     "read_psa_payments",
     "read_psa_images",
-    "stale_mandates_gui"
 )
 
 $compiledCount = 0
@@ -246,17 +241,7 @@ if (!$SkipPythonCompile) {
         Write-Host "  [OK] PyInstaller installed" -ForegroundColor Green
     }
     
-    # Check if PySide6 is installed (required by stale_mandates_gui)
-    $pyside6Check = & pip show PySide6 2>$null
-    if (!$pyside6Check) {
-        Write-Host "  PySide6 not found. Installing..." -ForegroundColor Yellow
-        & pip install PySide6
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ERROR: Failed to install PySide6!" -ForegroundColor Red
-            exit 1
-        }
-        Write-Host "  [OK] PySide6 installed" -ForegroundColor Green
-    }
+    # Note: PySide6 no longer needed — stale_mandates_gui moved to SideKick_GC.exe
     
     # Find PyInstaller executable (check multiple locations)
     $pyinstallerExe = "pyinstaller"
@@ -290,16 +275,11 @@ if (!$SkipPythonCompile) {
             "validate_license",
             "create_ghl_contactsheet",
             "upload_ghl_media",
-            "gocardless_api",
             "cardly_preview_gui",
             "cardly_send_card",
             "write_psa_payments",
             "read_psa_payments",
-            "read_psa_images",
-            "stale_mandates_gui",
-            "PySide6.QtWidgets",
-            "PySide6.QtCore",
-            "PySide6.QtGui"
+            "read_psa_images"
         )
         $hiArgs = ($allHiddenImports | ForEach-Object { "--hidden-import=$_" }) -join " "
 
@@ -390,8 +370,39 @@ if (!$SkipPythonCompile) {
     Write-Host '  Skipped (-SkipPythonCompile flag)' -ForegroundColor Gray
 }
 
+# Build SideKick_GC.exe (standalone GoCardless module)
+Write-Host "`n[5/9] Building SideKick_GC.exe..." -ForegroundColor Yellow
+$gcSourceDir = "$ScriptDir\..\SideKick_GC"
+$gcBuildScript = "$gcSourceDir\build.py"
+if (!$SkipPythonCompile -and (Test-Path $gcBuildScript)) {
+    $ErrorActionPreference = "SilentlyContinue"
+    & python "$gcBuildScript" 2>&1 | Out-Null
+    $ErrorActionPreference = "Stop"
+    $gcExeBuilt = "$gcSourceDir\dist\SideKick_GC.exe"
+    if (Test-Path $gcExeBuilt) {
+        Copy-Item $gcExeBuilt "$ReleaseDir\SideKick_GC.exe" -Force
+        Write-Host "  [OK] SideKick_GC.exe" -ForegroundColor Green
+        Write-BuildLog "SideKick_GC.exe built and copied to Release"
+    } else {
+        Write-Host "  [WARN] SideKick_GC build failed - GC features will use dev-mode fallback" -ForegroundColor Yellow
+        Write-BuildLog "SideKick_GC.exe build failed" "WARN"
+    }
+    # Copy GC icon (used for window/taskbar/tray)
+    $gcIcon = "$gcSourceDir\SideKick_GC.ico"
+    if (Test-Path $gcIcon) {
+        Copy-Item $gcIcon "$ReleaseDir\SideKick_GC.ico" -Force
+        Write-Host "  Copied SideKick_GC.ico" -ForegroundColor Gray
+    }
+} elseif (Test-Path "$gcSourceDir\dist\SideKick_GC.exe") {
+    # Use pre-built GC exe if available
+    Copy-Item "$gcSourceDir\dist\SideKick_GC.exe" "$ReleaseDir\SideKick_GC.exe" -Force
+    Write-Host "  [OK] Copied pre-built SideKick_GC.exe" -ForegroundColor Green
+} else {
+    Write-Host "  [SKIP] SideKick_GC source not found at $gcSourceDir" -ForegroundColor Yellow
+}
+
 # Copy media files
-Write-Host "`n[5/8] Copying media files..." -ForegroundColor Yellow
+Write-Host "`n[6/9] Copying media files..." -ForegroundColor Yellow
 $mediaDir = "$ScriptDir\media"
 if (Test-Path $mediaDir) {
     New-Item -ItemType Directory -Path "$ReleaseDir\media" -Force | Out-Null
@@ -440,7 +451,7 @@ foreach ($iconFile in $iconFiles) {
 }
 
 # Copy EULA/License
-Write-Host "`n[6/8] Copying license files..." -ForegroundColor Yellow
+Write-Host "`n[7/9] Copying license files..." -ForegroundColor Yellow
 $eulaFile = "$ScriptDir\LICENSE.txt"
 if (Test-Path $eulaFile) {
     Copy-Item $eulaFile "$ReleaseDir\LICENSE.txt"
@@ -450,7 +461,7 @@ if (Test-Path $eulaFile) {
 }
 
 # Verify no source scripts in release (EXE ONLY!)
-Write-Host "`n[7/9] Verifying no source scripts..." -ForegroundColor Yellow
+Write-Host "`n[8/11] Verifying no source scripts..." -ForegroundColor Yellow
 $sourceFiles = Get-ChildItem $ReleaseDir -Include "*.py","*.ahk" -Recurse -ErrorAction SilentlyContinue
 if ($sourceFiles) {
     Write-Host "  Removing source scripts from release..." -ForegroundColor Yellow
@@ -459,7 +470,7 @@ if ($sourceFiles) {
 Write-Host "  [OK] Release contains EXE files only" -ForegroundColor Green
 
 # Copy full version.json from repo root (includes changelog, release_notes, and versions history)
-Write-Host "`n[7b/9] Copying version.json with full history..." -ForegroundColor Yellow
+Write-Host "`n[8b/11] Copying version.json with full history..." -ForegroundColor Yellow
 $sourceVersionJson = "$ScriptDir\version.json"
 if (Test-Path $sourceVersionJson) {
     Copy-Item $sourceVersionJson "$ReleaseDir\version.json" -Force
@@ -477,7 +488,7 @@ if (Test-Path $sourceVersionJson) {
 }
 
 # Update installer.iss version
-Write-Host "`n[8/10] Updating installer version..." -ForegroundColor Yellow
+Write-Host "`n[9/11] Updating installer version..." -ForegroundColor Yellow
 $issFile = "$ScriptDir\installer.iss"
 if (Test-Path $issFile) {
     $issContent = Get-Content $issFile -Raw
@@ -490,7 +501,7 @@ if (Test-Path $issFile) {
 # ============================================
 # Code-sign all EXEs in Release folder (RFC 3161 timestamp)
 # ============================================
-Write-Host "`n[9/10] Signing EXE files..." -ForegroundColor Yellow
+Write-Host "`n[10/11] Signing EXE files..." -ForegroundColor Yellow
 $signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
 $certThumbprint = "0A8665226386555FD6AE7BD4EC3A240624887AD9"
 $timestampServers = @(
@@ -528,7 +539,7 @@ if (Test-Path $signtoolExe) {
 }
 
 # Build Inno Setup installer
-Write-Host "`n[10/10] Building Inno Setup installer..." -ForegroundColor Yellow
+Write-Host "`n[11/11] Building Inno Setup installer..." -ForegroundColor Yellow
 
 # Check all common Inno Setup locations
 $InnoLocations = @(

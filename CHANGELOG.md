@@ -10,7 +10,52 @@ AI INSTRUCTIONS - When publishing a new version:
    - "changelog": array of changes (NEW/FIX/IMPROVED prefixes)
 3. Commit and push both files to Git
 4. Run the build script to compile and create installer
+
+NOTE: SideKick_PS now includes SideKick_GC (GoCardless) as a unified package.
+SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
+SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
+
+## v3.0.1 (2026-03-09)
+
+### New Features
+- **Multi-client PayPlan group detection**: Automatically targets the correct client in multi-group ProSelect albums by matching the PayPlan balance against each group's order total
+- **Ambiguous balance prompt**: When multiple groups share the same balance, a dialog lets the user pick the correct client by name
+- **Existing PayPlan detection**: Checks for existing payments before writing — offers Replace (delete old + write new), Add (append), or Cancel
+- **PayPlan success dialog**: Shows payment count on success, confirms old plan removal when Replace was used
+
+### Fixes
+- **Toolbar multi-monitor positioning**: Toolbar now tracks the last active ProSelect window instead of picking the largest — fixes wrong-monitor placement when multiple PS windows exist
+- **Toolbar dialog hiding**: Toolbar hides when ProSelect dialogs (Client Setup, Print, etc.) are the active window
+- **Toolbar drag persistence**: Deferred toolbar rebuild after drag prevents AHK v1 g-label thread blocking on subsequent drags
+- **Toolbar background sampling**: Uses tracked ProSelect window for correct screen color sampling on multi-monitor setups
+
+### Improvements
+- **GoCardless prompt removed**: PayPlan flow now shows a success dialog instead of auto-launching SideKick_GC
+- **write_psa_payments --clear**: Scoped to target group only in multi-client albums
+- **read_psa_payments --group N**: Read payments from a specific client group
+
+---
+
+## v3.0.0 (2026-03-05)
+
+### SideKick_GC v1.1.1 — Unified with SideKick_PS
+SideKick_GC is now included in the SideKick_PS package. GC can still run as an independent
+standalone application, but from this version onward all GC changes are also tracked here.
+
+#### New Features
+- **Close to Tray option**: "Close to system tray" checkbox in GC Settings — when enabled, X hides to system tray; when disabled (default), X minimises to taskbar
+- **Toast on Mandate Cancellation**: "Show Windows notification on mandate cancellation" checkbox — displays a Windows toast when polling detects bank-cancelled mandates (enabled by default)
+- **Exit Program button**: Red "⏻ Exit" button in GC Settings to fully quit the application, with a confirmation warning if notification polling is active
+- **Polling-active exit warning**: Exiting via Settings or tray menu warns if polling is running — reminds that SideKick needs to stay in the background for polling to work
+
+#### Improvements
+- **X button behaviour**: Clicking X now minimises to taskbar (or hides to tray if enabled) — the app always stays running
+- **Desktop Shortcut button**: Renamed with the SideKick_GC app icon instead of emoji
+- **Smaller checkboxes & radio buttons**: Reduced indicator size and font for a cleaner, more compact look
+- **Settings layout**: Bottom-justified Desktop Shortcut and Exit buttons on the same row with matching height
+
+---
 
 ## v2.5.52 (2026-03-04)
 

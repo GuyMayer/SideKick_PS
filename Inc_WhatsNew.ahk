@@ -562,16 +562,11 @@ CheckGoCardlessAfterSync:
 			Run, %gcUrl%
 		}
 		else if (planResult = "Set Up PayPlan") {
-			; Store data for PayPlan dialog
-			global GC_PayPlan_ContactData := {}
-			GC_PayPlan_ContactData.name := clientName
-			GC_PayPlan_ContactData.email := customerEmail
-			GC_PayPlan_ContactData.contactId := contactId
-			GC_PayPlan_ContactData.mandateId := mandateResult.mandateId
-			GC_PayPlan_ContactData.customerId := mandateResult.customerId
-			GC_PayPlan_ContactData.futurePaymentsJson := resultJson
-			; TODO: Show PayPlan dialog
-			DarkMsgBox("Coming Soon", "Payment plan creation will be available in a future update.`n`nMandate ID: " . mandateResult.mandateId, "info")
+			; v3.0: Launch SideKick_GC GUI with client data pre-filled
+			balanceArg := (futureTotal > 0) ? " --balance " . Format("{:.2f}", futureTotal / 100) : ""
+			gcArgs := "--gui payment-plans --client-email """ . customerEmail . """" --client-name """ . clientName . """"" . balanceArg
+			gcCmd := GetScriptCommand("gocardless_api", gcArgs)
+			Run, %gcCmd%,, Hide UseErrorLevel
 		}
 	} else {
 		; No mandate - offer to send mandate request

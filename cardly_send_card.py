@@ -1071,6 +1071,72 @@ def send_card(image_path: str, contact_id: str, message: str = "",
 
     return result
 
+def list_recent_orders(recipient_name: str = "", limit: int = 25, max_pages: int = 4) -> dict:
+    """Fetch recent Cardly orders and optionally filter by recipient name.
+
+    Args:
+        recipient_name: If provided, filter results to orders whose recipient
+                        name contains this string (case-insensitive).
+        limit: Number of orders per page (max 25).
+        max_pages: Maximum pages to fetch to avoid excessive API calls.
+
+    Returns:
+        dict with "success", "orders" (list of matching order dicts) and
+        "total_checked" (number of orders scanned).
+    """
+    if not CARDLY_API_KEY:
+        return {"success": False, "error": "Cardly API key not configured"}
+
+    headers = {"API-Key": CARDLY_API_KEY}
+    matching = []
+    total_checked = 0
+    needle = recipient_name.strip().lower()
+
+    for page in range(max_pages):
+        offset = page * limit
+        try:
+            url = f"{CARDLY_BASE_URL}/orders?limit={limit}&offset={offset}"
+            resp = requests.get(url, headers=headers)
+            if resp.status_code != 200:
+                debug_print(f"list_recent_orders page {page} failed: {resp.status_code}")
+                break
+            body = resp.json()
+            results = body.get("data", {}).get("results", [])
+            if not results:
+                break
+            for order in results:
+                total_checked += 1
+                for item in order.get("items", []):
+                    recip = item.get("recipient", {})
+                    recip_full = recip.get("name", "")
+                    if needle and needle not in recip_full.lower():
+                        continue
+                    timings = item.get("timings", {})
+                    delivery = item.get("delivery", {})
+                    matching.append({
+                        "order_id": order.get("id", ""),
+                        "order_status": order.get("status", ""),
+                        "recipient_name": recip_full,
+                        "label": item.get("label", ""),
+                        "scheduled_date": item.get("scheduledDate"),
+                        "lodged": timings.get("lodged"),
+                        "shipped": timings.get("shipped"),
+                        "held": timings.get("held"),
+                        "dispatch": delivery.get("dispatch"),
+                        "est_min_arrival": delivery.get("estimatedMinArrival"),
+                        "est_max_arrival": delivery.get("estimatedMaxArrival"),
+                        "created": order.get("timings", {}).get("created"),
+                    })
+            total_records = body.get("data", {}).get("meta", {}).get("totalRecords", 0)
+            if offset + limit >= total_records:
+                break
+        except Exception as e:
+            debug_print(f"list_recent_orders error: {e}")
+            break
+
+    return {"success": True, "orders": matching, "total_checked": total_checked}
+
+
 def test_connection() -> dict:
     """Test Cardly API connection."""
     if not CARDLY_API_KEY:

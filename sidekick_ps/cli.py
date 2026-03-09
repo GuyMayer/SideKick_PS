@@ -30,18 +30,16 @@ COMMANDS: dict[str, str] = {
     "validate-license":    "validate_license",
     "create-contactsheet": "create_ghl_contactsheet",
     "upload-media":        "upload_ghl_media",
-    "gocardless":          "gocardless_api",
     "cardly-preview":      "cardly_preview_gui",
     "cardly-send":         "cardly_send_card",
     "write-psa":           "write_psa_payments",
     "read-psa":            "read_psa_payments",
     "read-psa-images":     "read_psa_images",
-    "stale-mandates":      "stale_mandates_gui",
 }
 
 # Commands that launch a GUI – the console window is hidden on startup so
 # it doesn't flash behind the Qt/tkinter window.
-_GUI_COMMANDS: set[str] = {"cardly-preview", "stale-mandates"}
+_GUI_COMMANDS: set[str] = {"cardly-preview"}
 
 
 # ---------------------------------------------------------------------------

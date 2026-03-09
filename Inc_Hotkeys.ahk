@@ -85,6 +85,79 @@ Run, "%A_ScriptFullPath%"
 ExitApp
 Return
 
+; ============================================
+; INI Backup / Auto-Restore
+; ============================================
+
+; Check if the INI looks corrupted and auto-restore from last-known-good backup.
+; Detection: if a .lastgood backup exists and is significantly larger than the
+; current INI, the current file was likely truncated or reset.
+CheckINIHealth()
+{
+	global IniFilename, IniFolder, DebugLogFile
+	
+	lastGood := IniFolder . "\SideKick_PS.ini.lastgood"
+	if !FileExist(lastGood)
+		return  ; No backup to restore from
+	
+	if !FileExist(IniFilename)
+		return  ; Nothing to compare — LoadSettings will use defaults
+	
+	FileGetSize, currentSize, %IniFilename%
+	FileGetSize, backupSize, %lastGood%
+	
+	; If backup is at least 3x larger than current, assume corruption
+	if (backupSize < 3000 || currentSize * 3 > backupSize)
+		return  ; Current file looks OK (or backup is tiny too)
+	
+	; Double-check: read a key that every configured user has
+	IniRead, testTrial, %IniFilename%, License, TrialStart, %A_Space%
+	IniRead, testToolbar, %IniFilename%, Toolbar, ShowBtn_Client, %A_Space%
+	IniRead, testAppear, %IniFilename%, Appearance, ToolbarIconColor, %A_Space%
+	
+	; If critical sections are present, the file isn't actually reset
+	if (testTrial != "" && testToolbar != "" && testAppear != "")
+		return
+	
+	; INI looks reset — restore from backup
+	FileAppend, % A_Now . " - INI CORRUPTION DETECTED: current=" . currentSize . "B vs backup=" . backupSize . "B. Auto-restoring.`n", %DebugLogFile%
+	
+	; Save the broken copy for diagnostics
+	FormatTime, stamp,, yyyyMMdd_HHmmss
+	brokenCopy := IniFilename . ".broken_" . stamp
+	FileCopy, %IniFilename%, %brokenCopy%
+	
+	; Restore from last-known-good
+	FileCopy, %lastGood%, %IniFilename%, 1
+	
+	FileAppend, % A_Now . " - INI restored from last-known-good backup. Broken copy saved as " . brokenCopy . "`n", %DebugLogFile%
+}
+
+; If the current INI looks healthy (real user data, not just defaults),
+; save a rolling "last known good" backup that CheckINIHealth can restore from.
+BackupINIIfHealthy()
+{
+	global IniFilename, IniFolder, License_TrialStart, GHL_LocationID, DebugLogFile
+	
+	if !FileExist(IniFilename)
+		return
+	
+	FileGetSize, currentSize, %IniFilename%
+	
+	; A healthy configured INI is typically 5KB+.  Skip tiny/default files.
+	if (currentSize < 3000)
+		return
+	
+	; Require at least one sign of real user configuration
+	hasLicense := (License_TrialStart != "")
+	hasGHL := (GHL_LocationID != "")
+	if (!hasLicense && !hasGHL)
+		return
+	
+	lastGood := IniFolder . "\SideKick_PS.ini.lastgood"
+	FileCopy, %IniFilename%, %lastGood%, 1
+}
+
 ; Settings persistence functions
 LoadSettings()
 {
@@ -208,6 +281,7 @@ LoadSettings()
 	IniRead, Settings_PrintTemplate_PayPlan, %IniFilename%, Toolbar, PrintTemplate_PayPlan, PayPlan
 	IniRead, Settings_PrintTemplate_Standard, %IniFilename%, Toolbar, PrintTemplate_Standard, Terms of Sale
 	IniRead, Settings_PrintTemplateOptions, %IniFilename%, Toolbar, PrintTemplateOptions, %A_Space%
+	IniRead, Settings_PSPaymentMethods, %IniFilename%, GoCardless, PSPaymentMethods, %A_Space%
 	IniRead, Settings_QuickPrintPrinter, %IniFilename%, Toolbar, QuickPrintPrinter, %A_Space%
 	IniRead, Settings_EmailTemplateID, %IniFilename%, Toolbar, EmailTemplateID, %A_Space%
 	IniRead, Settings_EmailTemplateName, %IniFilename%, Toolbar, EmailTemplateName, SELECT
@@ -246,9 +320,6 @@ LoadSettings()
 	IniRead, Settings_GCSMSTemplateID, %IniFilename%, GoCardless, SMSTemplateID, %A_Space%
 	IniRead, Settings_GCSMSTemplateName, %IniFilename%, GoCardless, SMSTemplateName, SELECT
 	IniRead, Settings_GCAutoSetup, %IniFilename%, GoCardless, AutoSetup, 0
-	IniRead, Settings_GCNamePart1, %IniFilename%, GoCardless, NamePart1, Shoot No
-	IniRead, Settings_GCNamePart2, %IniFilename%, GoCardless, NamePart2, Surname
-	IniRead, Settings_GCNamePart3, %IniFilename%, GoCardless, NamePart3, (none)
 	
 	; Load GHL agency domain - check if migration needed for existing users
 	IniRead, GHL_AgencyDomain, %IniFilename%, GHL, AgencyDomain, %A_Space%
@@ -436,6 +507,7 @@ SaveSettings()
 	IniWrite, %Settings_GCEmailTemplateID%, %IniFilename%, GoCardless, EmailTemplateID
 	IniWrite, %Settings_GCEmailTemplateName%, %IniFilename%, GoCardless, EmailTemplateName
 	IniWrite, %Settings_GCAutoSetup%, %IniFilename%, GoCardless, AutoSetup
+	IniWrite, %Settings_PSPaymentMethods%, %IniFilename%, GoCardless, PSPaymentMethods
 	SaveGHLCredentials()  ; Save API keys to encrypted credentials file
 	
 	; Update invoice folder monitor
@@ -934,6 +1006,123 @@ if (psaPath = "" || !FileExist(psaPath)) {
 
 FileAppend, % A_Now . " - UpdatePS - Album path: " . psaPath . "`n", %DebugLogFile%
 
+; Step 3b: Detect which order group to target (multi-client albums)
+TargetGroup := 1
+if (RegExMatch(albumData, "orderGroupCount=""(\d+)""", groupCountMatch) && groupCountMatch1 > 1) {
+	FileAppend, % A_Now . " - UpdatePS - Multiple order groups detected (" . groupCountMatch1 . "), detecting correct group`n", %DebugLogFile%
+	
+	; Use detect_psa_group to match the balance to the right client group
+	detectArgs := """" . psaPath . """ " . PayDue
+	detectCmd := GetScriptCommand("detect_psa_group", detectArgs)
+	FileAppend, % A_Now . " - UpdatePS - Detect group cmd: " . detectCmd . "`n", %DebugLogFile%
+	
+	tempDetect := A_Temp . "\sk_detect_group_" . A_TickCount . ".txt"
+	RunCmdToFile(detectCmd, tempDetect)
+	FileRead, detectOutput, %tempDetect%
+	FileDelete, %tempDetect%
+	detectOutput := Trim(detectOutput)
+	FileAppend, % A_Now . " - UpdatePS - Detect output: " . detectOutput . "`n", %DebugLogFile%
+	
+	if (InStr(detectOutput, "GROUP|")) {
+		; Unique match: GROUP|id|firstName|lastName|groupCount
+		detectParts := StrSplit(detectOutput, "|")
+		TargetGroup := detectParts[2]
+		detectName := detectParts[3] . " " . detectParts[4]
+		FileAppend, % A_Now . " - UpdatePS - Target group: " . TargetGroup . " (" . detectName . ")`n", %DebugLogFile%
+	}
+	else if (InStr(detectOutput, "AMBIGUOUS|")) {
+		; Multiple clients with the same balance — ask the user to pick
+		; Format: AMBIGUOUS|groupCount|id1|name1|id2|name2|...
+		FileAppend, % A_Now . " - UpdatePS - Ambiguous groups, prompting user`n", %DebugLogFile%
+		
+		ambigParts := StrSplit(detectOutput, "|")
+		; Build list of client names and their group IDs
+		ambigClients := []
+		ambigButtons := []
+		idx := 3  ; Skip "AMBIGUOUS" and groupCount
+		while (idx < ambigParts.Length()) {
+			cid := ambigParts[idx]
+			cname := ambigParts[idx + 1]
+			ambigClients.Push({id: cid, name: cname})
+			ambigButtons.Push(cname)
+			idx += 2
+		}
+		
+		if (ambigClients.Length() > 0) {
+			msg := "This album has multiple clients with the same balance.`n`nWhich client should these payments be added to?"
+			pickResult := DarkMsgBox("Select Client", msg, "info", {buttons: ambigButtons})
+			
+			; Match the picked button text to the client
+			groupFound := false
+			for i, client in ambigClients {
+				if (pickResult = client.name) {
+					TargetGroup := client.id
+					FileAppend, % A_Now . " - UpdatePS - User selected group: " . TargetGroup . " (" . client.name . ")`n", %DebugLogFile%
+					groupFound := true
+					break
+				}
+			}
+			if (!groupFound) {
+				; User closed the dialog or cancelled
+				FileAppend, % A_Now . " - UpdatePS - User cancelled client selection`n", %DebugLogFile%
+				EnteringPaylines := False
+				return
+			}
+		}
+	}
+	else {
+		FileAppend, % A_Now . " - UpdatePS - WARNING: Could not detect group, defaulting to 1. Output: " . detectOutput . "`n", %DebugLogFile%
+	}
+}
+
+; Step 3c: Check for existing payments in the target group
+FileAppend, % A_Now . " - UpdatePS - Checking existing payments for group " . TargetGroup . "`n", %DebugLogFile%
+readArgs := """" . psaPath . """ --group " . TargetGroup
+readCmd := GetScriptCommand("read_psa_payments", readArgs)
+tempRead := A_Temp . "\sk_psa_read_" . A_TickCount . ".txt"
+RunCmdToFile(readCmd, tempRead)
+FileRead, readOutput, %tempRead%
+FileDelete, %tempRead%
+readOutput := Trim(readOutput)
+FileAppend, % A_Now . " - UpdatePS - Existing payments: " . readOutput . "`n", %DebugLogFile%
+
+useClear := false
+if (InStr(readOutput, "PAYMENTS|")) {
+	; Existing payments found — parse count and total
+	readParts := StrSplit(readOutput, "|")
+	existingCount := readParts[2]
+	
+	; Sum up existing payment amounts (each payment: day,month,year,amount,method,methodID)
+	existingTotal := 0
+	Loop {
+		idx := 3 + A_Index  ; Skip PAYMENTS|count|date
+		if (idx > readParts.Length())
+			break
+		eparts := StrSplit(readParts[idx], ",")
+		if (eparts.Length() >= 4) {
+			existingTotal += eparts[4]
+		}
+	}
+	
+	msg := "This client already has a PayPlan with " . existingCount . " payment(s)"
+	if (existingTotal > 0)
+		msg .= " totalling £" . Format("{:.2f}", existingTotal)
+	msg .= ".`n`nReplace the existing PayPlan, or add these payments alongside it?"
+	
+	replaceResult := DarkMsgBox("Existing PayPlan", msg, "warning", {buttons: ["Replace", "Add", "Cancel"]})
+	if (replaceResult = "Cancel" || replaceResult = "") {
+		FileAppend, % A_Now . " - UpdatePS - User cancelled PayPlan update`n", %DebugLogFile%
+		EnteringPaylines := False
+		return
+	}
+	if (replaceResult = "Replace") {
+		FileAppend, % A_Now . " - UpdatePS - User chose to replace existing PayPlan`n", %DebugLogFile%
+		useClear := true
+	} else {
+		FileAppend, % A_Now . " - UpdatePS - User chose to add payments to existing PayPlan`n", %DebugLogFile%
+	}
+}
+
 ; Step 4: Build command with all payment lines as arguments
 pythonScript := GetScriptPath("write_psa_payments")
 if (!FileExist(pythonScript)) {
@@ -948,8 +1137,11 @@ if (!FileExist(pythonScript)) {
 }
 
 ; Build argument string with quoted payment lines
-; Use --clear to replace existing payments (Payment Calculator provides the complete plan)
-writeArgs := """" . psaPath . """ --clear"
+; Use --clear to replace existing payments only when user confirmed replacement
+; Use --group to target the correct client in multi-client albums
+writeArgs := """" . psaPath . """ --group " . TargetGroup
+if (useClear)
+	writeArgs .= " --clear"
 
 Loop %TotalPaymentsToEnter%
 {
@@ -981,42 +1173,14 @@ if (InStr(pyOutput, "SUCCESS|")) {
 	reloadResult := PsConsole("openAlbum", psaPath, "true")
 	Sleep, 2000  ; Give ProSelect time to reload
 	
-	; Play ding sound (no dialog - success is silent, only failures shown)
+	; Play ding sound and show success message
 	SoundPlay, *48
+	successMsg := ""
+	if (useClear)
+		successMsg .= "Old PayPlan removed.`n"
+	successMsg .= countAdded . " payment(s) written to album successfully."
+	DarkMsgBox("PayPlan Updated", successMsg, "success")
 	
-	; Step 8: Check for GoCardless DD payments and offer to create in GoCardless
-	hasGCPayments := false
-	Loop %TotalPaymentsToEnter%
-	{
-		PaymentIndex := StartIndex + A_Index - 1
-		payLine := PayPlanLine[PaymentIndex]
-		if (payLine = "")
-			continue
-		parts := StrSplit(payLine, ",")
-		if (parts.Length() >= 4) {
-			payType := parts[4]
-			if (InStr(payType, "GoCardless") || InStr(payType, "Direct Debit") || InStr(payType, " DD") || payType = "DD" || InStr(payType, "BACS"))
-			{
-				hasGCPayments := true
-				break
-			}
-		}
-	}
-	
-	if (hasGCPayments && Settings_GoCardlessToken != "")
-	{
-		FileAppend, % A_Now . " - UpdatePS - GoCardless DD payments detected, prompting user`n", %DebugLogFile%
-		gcResult := DarkMsgBox("Create in GoCardless?", "GoCardless DD payments detected in this plan.`n`nCreate these payments in GoCardless now?", "info", {buttons: ["Create in GoCardless", "Skip"]})
-		
-		if (gcResult = "Create in GoCardless")
-		{
-			FileAppend, % A_Now . " - UpdatePS - User chose to create GoCardless payments`n", %DebugLogFile%
-			EnteringPaylines := False
-			GoSub, Toolbar_GoCardless
-			return
-		}
-		FileAppend, % A_Now . " - UpdatePS - User skipped GoCardless creation`n", %DebugLogFile%
-	}
 } else {
 	; Failed
 	errorMsg := StrReplace(pyOutput, "ERROR|", "")

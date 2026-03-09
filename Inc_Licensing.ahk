@@ -1567,41 +1567,6 @@ CreateGoCardlessPanel()
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y450 w440 BackgroundTrans vGCNotifyHint Hidden, Choose SELECT to skip sending that notification type.
 	
-	; ═══════════════════════════════════════════════════════════════════════════
-	; PLAN NAMING GROUP BOX (y500 to y590)
-	; ═══════════════════════════════════════════════════════════════════════════
-	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y500 w480 h90 vGCAutoGroup Hidden, Plan Naming
-	
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y525 w60 BackgroundTrans vGCNamingLabel Hidden HwndHwndGCNaming, Format:
-	RegisterSettingsTooltip(HwndGCNaming, "PLAN NAME FORMAT`n`nChoose up to 3 fields to include in the`nGoCardless instalment schedule name.`n`nFields are joined with '-' (no spaces).`nSome banks reject spaces in statement names.")
-	
-	; Name format dropdowns (3 in a row)
-	gcNameOptions := "(none)|Shoot No|Surname|First Name|Full Name|Order Date|GHL ID|Album Name"
-	Gui, Settings:Add, DropDownList, x275 y522 w115 vGCNamePart1DDL Hidden gGCNamePartChanged Choose1, %gcNameOptions%
-	Gui, Settings:Add, Text, x393 y525 w10 BackgroundTrans vGCNameSep1 Hidden, -
-	Gui, Settings:Add, DropDownList, x408 y522 w115 vGCNamePart2DDL Hidden gGCNamePartChanged Choose1, %gcNameOptions%
-	Gui, Settings:Add, Text, x526 y525 w10 BackgroundTrans vGCNameSep2 Hidden, -
-	Gui, Settings:Add, DropDownList, x541 y522 w115 vGCNamePart3DDL Hidden gGCNamePartChanged Choose1, %gcNameOptions%
-	
-	; Example preview
-	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y558 w60 BackgroundTrans vGCNameExLabel Hidden, Example:
-	Gui, Settings:Font, s9 Norm c4FC3F7, Segoe UI
-	Gui, Settings:Add, Text, x275 y558 w380 BackgroundTrans vGCNameExample Hidden, P26005 - Smith - abc123xyz
-	
-	; Set saved values
-	if (Settings_GCNamePart1 != "")
-		GuiControl, Settings:ChooseString, GCNamePart1DDL, %Settings_GCNamePart1%
-	if (Settings_GCNamePart2 != "")
-		GuiControl, Settings:ChooseString, GCNamePart2DDL, %Settings_GCNamePart2%
-	if (Settings_GCNamePart3 != "")
-		GuiControl, Settings:ChooseString, GCNamePart3DDL, %Settings_GCNamePart3%
-	
-	; Update example based on saved values
-	UpdateGCNameExample()
-	
 	; Done building panel - allow change handlers to work normally
 	GC_BuildingPanel := false
 	
@@ -3004,933 +2969,220 @@ try {
 	DarkMsgBox("Mandate Request Sent", resultMsg, "success")
 }
 
-; Show dialog for setting up a GoCardless payment plan using an existing mandate
+; Launch SideKick_GC Payment Plans GUI with client data pre-filled.
+; v3.0: Payment plan creation, date bumping, duplicate checks, and instalment/single
+; modes are all handled by SideKick_GC. PS passes balance + raw album name as plan name,
+; then reads back a result file to inject payments into the .psa album.
 GC_ShowPayPlanDialog(contactData, mandateResult) {
-	global Settings_GoCardlessToken, Settings_GoCardlessEnvironment, DebugLogFile
-	global GC_PP_ContactData, GC_PP_MandateResult
-	global GC_PP_Amount, GC_PP_Count, GC_PP_DayOfMonth, GC_PP_Name
-	global GC_PP_ModeInstalment, GC_PP_ModeSingle, GC_PP_SingleInfo, GC_PP_PaymentList
-	global GC_PP_LblName, GC_PP_LblAmount, GC_PP_LblCount, GC_PP_LblMonthly, GC_PP_LblDay, GC_PP_LblDayHelp
-	global GC_PP_BtnCreate, GC_PP_BtnCreateSingles
-	global PayPlanLine, PayNo, DownpaymentLineAdded
-	global Settings_InvoiceWatchFolder
-	global GC_PP_PsaFilePath  ; Store .psa file path for display
-	global GC_PP_OrderDate    ; Store order date from .psa for plan naming
+	global DebugLogFile, PayPlanLine, PayNo, DownpaymentLineAdded
 	
-	; Initialize .psa path
-	GC_PP_PsaFilePath := ""
-	GC_PP_OrderDate := ""
-	
-	; Store data for GUI handlers
-	GC_PP_ContactData := contactData
-	GC_PP_MandateResult := mandateResult
-	
-	; Build client name from firstName + lastName
-	clientName := ""
-	if (contactData.firstName != "" || contactData.lastName != "")
-		clientName := Trim(contactData.firstName . " " . contactData.lastName)
-	if (clientName = "" && contactData.name != "")
-		clientName := contactData.name
+	; Build client info
+	clientEmail := contactData.email
+	clientName := Trim(contactData.firstName . " " . contactData.lastName)
 	if (clientName = "")
-		clientName := "Unknown Client"
+		clientName := contactData.name ? contactData.name : "Unknown Client"
+	ghlId := contactData.id
 	
-	mandateId := mandateResult.mandateId
-	bankName := mandateResult.bankName
-	
-	; Get album name from ProSelect title as default plan name
+	; Get album name from ProSelect title — passed as-is to SideKick_GC plan name field
 	WinGetTitle, psTitle, ahk_exe ProSelect.exe
-	defaultName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")
-	defaultName := RegExReplace(defaultName, "\s*-\s*ProSelect.*$", "")
-	defaultName := Trim(defaultName)
-	if (defaultName = "" || defaultName = "ProSelect")
-		defaultName := contactData.lastName ? contactData.lastName : "PayPlan"
+	albumName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")
+	albumName := RegExReplace(albumName, "\s*-\s*ProSelect.*$", "")
+	albumName := Trim(albumName)
+	if (albumName = "" || albumName = "ProSelect")
+		albumName := contactData.lastName ? contactData.lastName : "PayPlan"
 	
-	; Extract job code for XML matching (e.g., "P26014P_Barnes_ABC123" -> "P26014P")
-	jobCode := ""
-	if (RegExMatch(defaultName, "^([A-Z]\d+[A-Z])", m))
-		jobCode := m1
-	else if (InStr(defaultName, "_"))
-		jobCode := SubStr(defaultName, 1, InStr(defaultName, "_") - 1)
-	else
-		jobCode := defaultName
-	
-	; Also get surname for alternative matching (album might be "Risbey" instead of "P26014P")
-	searchTerms := []
-	if (jobCode != "")
-		searchTerms.Push(jobCode)
-	if (contactData.lastName && contactData.lastName != "")
-		searchTerms.Push(contactData.lastName)
-	; If album name starts with a name (not job code), use first word
-	if (!RegExMatch(defaultName, "^[A-Z]\d+[A-Z]") && InStr(defaultName, "_"))
-		searchTerms.Push(SubStr(defaultName, 1, InStr(defaultName, "_") - 1))
-	else if (!RegExMatch(defaultName, "^[A-Z]\d+[A-Z]") && defaultName != "")
-		searchTerms.Push(defaultName)
-	
-	; Read existing payment lines and filter for DD payments only
-	; PayPlanLine format: day,month,year,PayType,Amount
-	ddPayments := []
-	ddPaymentCount := 0
-	ddTotalAmount := 0
-	ddFirstDay := 0
-	ddCommonAmount := 0
-	
+	; Calculate DD balance from PayPlanLine if available
+	ddBalance := 0
+	ddPayMethod := "GoCardless DD"
+	ddPaylines := ""
 	startIdx := DownpaymentLineAdded ? 0 : 1
 	endIdx := DownpaymentLineAdded ? PayNo : PayNo
-	
-	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Scanning PayPlanLine " . startIdx . " to " . endIdx . "`n", %DebugLogFile%
-	
-	Loop
-	{
+	Loop {
 		idx := startIdx + A_Index - 1
 		if (idx > endIdx)
 			break
-		
 		lineData := PayPlanLine[idx]
 		if (lineData = "")
 			continue
-		
 		parts := StrSplit(lineData, ",")
 		if (parts.Length() < 5)
 			continue
-		
 		payType := parts[4]
-		payAmount := parts[5]
-		payDay := parts[1]
-		
-		; Check if this is a DD payment type (case-insensitive)
-		; Match: GoCardless, DD, Direct Debit, BACS
-		isDDPayment := false
-		if (InStr(payType, "GoCardless") || InStr(payType, "Direct Debit") || InStr(payType, " DD") || payType = "DD" || InStr(payType, "BACS"))
-			isDDPayment := true
-		
-		if (!isDDPayment) {
-			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Skipping non-DD payment: " . payType . "`n", %DebugLogFile%
-			continue
-		}
-		
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found DD payment: " . lineData . "`n", %DebugLogFile%
-		
-		ddPayments.Push(lineData)
-		ddPaymentCount++
-		ddTotalAmount += payAmount
-		
-		; Track first day and common amount for defaults
-		if (ddFirstDay = 0)
-			ddFirstDay := payDay
-		if (ddCommonAmount = 0)
-			ddCommonAmount := payAmount
-	}
-	
-	; If no DD payments found in PayPlanLine, try to read from .psa album file
-	if (ddPaymentCount = 0) {
-		; Build search terms string for logging
-		searchTermsStr := ""
-		for idx, term in searchTerms
-			searchTermsStr .= (searchTermsStr ? ", " : "") . term
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No DD payments in PayPlanLine, will read from .psa album file`n", %DebugLogFile%
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Search terms: " . searchTermsStr . "`n", %DebugLogFile%
-		
-		; Auto-save the album before reading payment data
-		ToolTip, Saving album...
-		PsConsole("saveAlbum")
-		ToolTip
-		
-		; NOW get the album folder using PSConsole getAlbumData
-		albumFolder := GetAlbumFolder()
-		if (albumFolder = "" || !FileExist(albumFolder)) {
-			DarkMsgBox("Album Not Found", "Could not determine album location.`n`nFolder: " . (albumFolder ? albumFolder : "(empty)") . "`n`nMake sure an album is open in ProSelect.", "error")
-			return
-		}
-		
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Album folder: " . albumFolder . "`n", %DebugLogFile%
-		
-		; Find .psa file in the album folder (use most recently modified)
-		psaFile := ""
-		latestTime := 0
-		Loop, Files, %albumFolder%\*.psa
-		{
-			FileGetTime, fileTime, %A_LoopFileFullPath%, M
-			if (fileTime > latestTime) {
-				latestTime := fileTime
-				psaFile := A_LoopFileFullPath
-			}
-		}
-		
-		if (psaFile = "") {
-			DarkMsgBox("Album Not Found", "No .psa album file found in:`n" . albumFolder . "`n`nMake sure the album has been saved.", "error")
-			return
-		}
-		
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found .psa file: " . psaFile . "`n", %DebugLogFile%
-		GC_PP_PsaFilePath := psaFile  ; Store for display in dialog
-		
-		; Call Python script to read payments from .psa
-		ToolTip, Reading payment data from album...
-		scriptCmd := GetScriptCommand("read_psa_payments", """" . psaFile . """")
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Running: " . scriptCmd . "`n", %DebugLogFile%
-		
-		tempResult := A_Temp . "\psa_payments_" . A_TickCount . ".txt"
-	RunCmdToFile(scriptCmd, tempResult)
-		FileRead, scriptOutput, %tempResult%
-		FileDelete, %tempResult%
-		ToolTip
-		
-		scriptOutput := Trim(scriptOutput)
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Script output: " . scriptOutput . "`n", %DebugLogFile%
-		
-		if (InStr(scriptOutput, "ERROR|")) {
-			errorMsg := StrReplace(scriptOutput, "ERROR|", "")
-			DarkMsgBox("Read Error", "Failed to read album file.`n`n" . errorMsg, "error")
-			return
-		}
-		
-		if (InStr(scriptOutput, "NO_PAYMENTS")) {
-			; Extract order date if present (NO_PAYMENTS|DD/MM/YYYY)
-			noParts := StrSplit(scriptOutput, "|")
-			if (noParts.Length() >= 2 && noParts[2] != "")
-				GC_PP_OrderDate := noParts[2]
-			; No payments at all - let user know
-			DarkMsgBox("No Payments", "No payments found in the album.`n`nAdd a payment schedule in ProSelect first.", "warning")
-			return
-		}
-		
-		if (InStr(scriptOutput, "PAYMENTS|")) {
-			; Parse payments: PAYMENTS|count|order_date|day,month,year,amount,methodName,methodID|...
-			parts := StrSplit(scriptOutput, "|")
-			paymentCount := parts[2]
-			; Extract order date (DD/MM/YYYY format)
-			if (parts[3] != "")
-				GC_PP_OrderDate := parts[3]
-			
-			Loop, %paymentCount%
-			{
-				paymentData := parts[A_Index + 3]
-				payParts := StrSplit(paymentData, ",")
-				
-				if (payParts.Length() >= 6) {
-					payDay := payParts[1]
-					payMonth := payParts[2]
-					payYear := payParts[3]
-					payAmount := payParts[4]
-					methodName := payParts[5]
-					methodID := payParts[6]
-					
-					; Check if this is a DD payment (GoCardless, DD, Direct Debit, BACS)
-					isDDPayment := false
-					if (InStr(methodName, "GoCardless") || InStr(methodName, "Direct Debit") || InStr(methodName, " DD") || methodName = "DD" || InStr(methodName, "BACS"))
-						isDDPayment := true
-					
-					if (isDDPayment) {
-						; Format: day,month,year,PayType,Amount
-						lineData := payDay . "," . payMonth . "," . payYear . ",DD," . payAmount
-						ddPayments.Push(lineData)
-						ddPaymentCount++
-						ddTotalAmount += payAmount
-						if (ddFirstDay = 0)
-							ddFirstDay := payDay
-						if (ddCommonAmount = 0)
-							ddCommonAmount := payAmount
-						FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found DD payment in .psa: " . lineData . "`n", %DebugLogFile%
-					} else {
-						FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Skipping non-DD payment: " . methodName . " - " . payAmount . "`n", %DebugLogFile%
-					}
-				}
-			}
-		} else {
-			; Unexpected script output - show it for debugging
-			DarkMsgBox("Unexpected Output", "Script returned unexpected output:`n`n" . SubStr(scriptOutput, 1, 500), "warning")
-			return
+		if (InStr(payType, "GoCardless") || InStr(payType, "Direct Debit") || InStr(payType, " DD") || payType = "DD" || InStr(payType, "BACS")) {
+			ddBalance += parts[5]
+			if (ddPayMethod = "GoCardless DD" && payType != "DD")
+				ddPayMethod := payType
+			; Build payline string: day,month,year,type,amount (semicolon-delimited)
+			if (ddPaylines != "")
+				ddPaylines .= ";"
+			ddPaylines .= lineData
 		}
 	}
 	
-	; Set defaults - use found DD payments if any, otherwise use defaults
-	defaultAmount := ddCommonAmount > 0 ? ddCommonAmount : 50.00
-	defaultCount := ddPaymentCount > 0 ? ddPaymentCount : 12
-	defaultDay := ddFirstDay > 0 ? ddFirstDay : 15
+	; Build temp result file path
+	tempResult := A_Temp . "\gc_payplan_result_" . A_TickCount . ".json"
 	
-	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Found " . ddPaymentCount . " DD payments, total £" . ddTotalAmount . "`n", %DebugLogFile%
+	; Build SideKick_GC launch command
+	gcArgs := "--gui payment-plans"
+	gcArgs .= " --client-email """ . clientEmail . """"
+	gcArgs .= " --client-name """ . clientName . """"
+	gcArgs .= " --plan-name """ . albumName . """"
+	if (ghlId != "")
+		gcArgs .= " --ghl-id """ . ghlId . """"
+	if (ddBalance > 0)
+		gcArgs .= " --balance " . ddBalance
+	gcArgs .= " --payment-method """ . ddPayMethod . """"
+	gcArgs .= " --result-file """ . tempResult . """"
 	
-	; Analyze payments to detect singles vs instalments
-	; Singles = payments with varying amounts (deposits), Instalments = recurring same amount
-	singlePayments := []
-	instalmentPayments := []
-	instalmentAmount := 0
+	; Pass mandate ID so GC can skip the lookup step
+	mandateId := mandateResult.mandateId
+	if (mandateId != "")
+		gcArgs .= " --mandate-id """ . mandateId . """"
 	
-	if (ddPayments.Length() > 0) {
-		; Count frequency of each amount to find the "instalment" amount (most common)
-		amountCounts := {}
-		for idx, payment in ddPayments {
-			parts := StrSplit(payment, ",")
-			amt := parts[5]
-			if (!amountCounts.HasKey(amt))
-				amountCounts[amt] := 0
-			amountCounts[amt]++
-		}
-		
-		; Find most common amount (this is likely the instalment amount)
-		maxCount := 0
-		for amt, cnt in amountCounts {
-			if (cnt > maxCount) {
-				maxCount := cnt
-				instalmentAmount := amt
-			}
-		}
-		
-		; If most common appears >= 3 times, treat as instalment pattern
-		if (maxCount >= 3) {
-			for idx, payment in ddPayments {
-				parts := StrSplit(payment, ",")
-				amt := parts[5]
-				if (amt = instalmentAmount)
-					instalmentPayments.Push(payment)
-				else
-					singlePayments.Push(payment)
-			}
-		} else {
-			; All different amounts - treat all as singles
-			for idx, payment in ddPayments
-				singlePayments.Push(payment)
-		}
-	}
+	; Pass payee (mandate holder) details when a different person pays
+	payeeName := mandateResult.payeeName
+	payeeEmail := mandateResult.payeeEmail
+	if (payeeName != "")
+		gcArgs .= " --payee-name """ . payeeName . """"
+	if (payeeEmail != "")
+		gcArgs .= " --payee-email """ . payeeEmail . """"
 	
-	; Build preview text
-	paymentPreview := ""
-	if (singlePayments.Length() > 0 && instalmentPayments.Length() > 0) {
-		; Calculate singles total
-		singlesTotal := 0
-		for idx, payment in singlePayments {
-			parts := StrSplit(payment, ",")
-			singlesTotal += parts[5]
-		}
-		paymentPreview := singlePayments.Length() . " single payments (£" . Format("{:.2f}", singlesTotal) . ") + " . instalmentPayments.Length() . " instalments (£" . instalmentAmount . " each)"
-	} else if (singlePayments.Length() > 0) {
-		paymentPreview := singlePayments.Length() . " single payments detected"
-	} else if (instalmentPayments.Length() > 0) {
-		paymentPreview := instalmentPayments.Length() . " instalments @ £" . Format("{:.2f}", instalmentAmount) . " each"
-	} else {
-		paymentPreview := "No DD payments found - enter details manually"
-	}
+	; Pass DD payplan lines so GC can pre-populate the schedule
+	if (ddPaylines != "")
+		gcArgs .= " --paylines """ . ddPaylines . """"
 	
-	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Preview: " . paymentPreview . "`n", %DebugLogFile%
-	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Singles: " . singlePayments.Length() . ", Instalments: " . instalmentPayments.Length() . "`n", %DebugLogFile%
+	gcCmd := GetScriptCommand("gocardless_api", gcArgs)
+	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Launching SideKick_GC`n", %DebugLogFile%
 	
-	; Update defaults to use instalment-specific values if detected
-	if (instalmentPayments.Length() > 0) {
-		defaultAmount := instalmentAmount
-		defaultCount := instalmentPayments.Length()
-		; Get day from first instalment payment
-		parts := StrSplit(instalmentPayments[1], ",")
-		defaultDay := parts[1]
-	}
+	; Launch SideKick_GC and wait for it to close
+	RunWait, %gcCmd%,, UseErrorLevel
 	
-	global GC_PP_DDPayments  ; Store DD payments for single payment mode
-	global GC_PP_SinglePayments, GC_PP_InstalmentPayments, GC_PP_InstalmentAmount
-	GC_PP_SinglePayments := singlePayments
-	GC_PP_InstalmentPayments := instalmentPayments
-	GC_PP_InstalmentAmount := instalmentAmount
-	
-	; Build plan name from naming format parts (Settings)
-	global Settings_GCNamePart1, Settings_GCNamePart2, Settings_GCNamePart3
-	
-	; Resolve each naming part to actual data
-	resolvedParts := []
-	Loop, 3 {
-		partNum := A_Index
-		partVal := Settings_GCNamePart%partNum%
-		if (partVal = "" || partVal = "(none)")
-			continue
-		resolved := ""
-		if (partVal = "Shoot No")
-			resolved := jobCode
-		else if (partVal = "Surname")
-			resolved := contactData.lastName
-		else if (partVal = "First Name")
-			resolved := contactData.firstName
-		else if (partVal = "Full Name") {
-			fn := Trim(contactData.firstName)
-			ln := Trim(contactData.lastName)
-			if (fn != "" && ln != "")
-				resolved := fn . "-" . ln
-			else
-				resolved := fn . ln
-		}
-		else if (partVal = "Order Date")
-			resolved := GC_PP_OrderDate
-		else if (partVal = "GHL ID")
-			resolved := contactData.id
-		else if (partVal = "Album Name")
-			resolved := defaultName
-		if (resolved != "")
-			resolvedParts.Push(resolved)
-	}
-	
-	; If naming parts produced a result, use it; otherwise keep defaultName
-	if (resolvedParts.Length() > 0) {
-		formattedName := ""
-		for i, part in resolvedParts {
-			if (formattedName != "")
-				formattedName .= "-"
-			formattedName .= part
-		}
-		defaultName := formattedName
-	}
-	
-	; Create dark-themed GUI
-	Gui, GCPayPlan:New, +AlwaysOnTop +ToolWindow -MinimizeBox
-	Gui, GCPayPlan:Color, 2D2D2D, 3D3D3D
-	Gui, GCPayPlan:Font, s10 cWhite, Segoe UI
-	
-	; Header
-	Gui, GCPayPlan:Add, Text, x15 y15 w350 cCCCCCC, Create GoCardless Payments
-	Gui, GCPayPlan:Font, s9 cWhite, Segoe UI
-	
-	; Client info
-	Gui, GCPayPlan:Add, Text, x15 y45 w80 cAAAAAA, Client:
-	Gui, GCPayPlan:Add, Text, x100 y45 w270, %clientName%
-	Gui, GCPayPlan:Add, Text, x15 y65 w80 cAAAAAA, Bank:
-	Gui, GCPayPlan:Add, Text, x100 y65 w270, %bankName%
-	
-	; Payment preview (detected from invoice) - wrap long text
-	Gui, GCPayPlan:Add, Text, x15 y90 w80 cAAAAAA, Detected:
-	previewColor := (singlePayments.Length() > 0 && instalmentPayments.Length() > 0) ? "00CC66" : (ddPaymentCount > 0 ? "AAAAAA" : "FF6666")
-	Gui, GCPayPlan:Add, Text, x100 y90 w270 h30 c%previewColor%, %paymentPreview%
-	
-	; Show .psa file path if we have one (just filename, full path in tooltip)
-	psaDisplayPath := GC_PP_PsaFilePath ? GC_PP_PsaFilePath : "(not loaded)"
-	SplitPath, psaDisplayPath, psaFileName
-	if (psaFileName = "")
-		psaFileName := psaDisplayPath
-	Gui, GCPayPlan:Add, Text, x15 y120 w80 cAAAAAA, Album:
-	Gui, GCPayPlan:Add, Edit, x100 y117 w270 h22 ReadOnly Background2D2D2D c888888, %psaDisplayPath%
-	
-	; Separator
-	Gui, GCPayPlan:Add, Text, x15 y145 w355 h1 0x10  ; SS_ETCHEDHORZ
-	
-	; Plan Name
-	Gui, GCPayPlan:Add, Text, x15 y160 w80 cAAAAAA, Plan Name:
-	Gui, GCPayPlan:Add, Edit, x100 y157 w270 h24 vGC_PP_Name Background3D3D3D cWhite, %defaultName%
-	
-	; Build payment list for display
-	paymentListText := ""
-	GC_PP_DDPayments := []
-	Loop, % ddPayments.Length()
-	{
-		parts := StrSplit(ddPayments[A_Index], ",")
-		if (parts.Length() >= 5) {
-			payDay := parts[1]
-			payMonth := parts[2]
-			payYear := parts[3]
-			payAmount := parts[5]
-			dateStr := Format("{:02d}/{:02d}/{}", payDay, payMonth, payYear)
-			amountStr := Format("£{:.2f}", payAmount)
-			paymentListText .= dateStr . "  " . amountStr . "`n"
-			; Store ISO date and amount for API
-			GC_PP_DDPayments.Push({date: Format("{}-{:02d}-{:02d}", payYear, payMonth, payDay), amount: payAmount})
-		}
-	}
-	if (paymentListText = "")
-		paymentListText := "(No DD payments found in invoice)"
-	
-	; Payment list (read-only)
-	Gui, GCPayPlan:Add, Text, x15 y190 cAAAAAA, Payments:
-	Gui, GCPayPlan:Add, Edit, x15 y210 w355 h270 vGC_PP_PaymentList ReadOnly Background3D3D3D cWhite, %paymentListText%
-	
-	; Store data for create function
-	global GC_PP_MandateResult, GC_PP_ContactData
-	GC_PP_MandateResult := mandateResult
-	GC_PP_ContactData := contactData
-	
-	; Buttons
-	createEnabled := (ddPaymentCount > 0) ? "" : "Disabled"
-	Gui, GCPayPlan:Add, Button, x60 y495 w130 h32 gGC_PP_CreateMixed Default %createEnabled%, Create Payments
-	Gui, GCPayPlan:Add, Button, x200 y495 w80 h32 gGC_PP_Cancel, Cancel
-	
-	Gui, GCPayPlan:Show, w385 h545, GoCardless Payments
-	return
-}
-
-GC_PP_CreateMixed:
-	global GC_PP_ContactData, GC_PP_MandateResult, GC_PP_DDPayments, GC_PP_Name
-	global GC_PP_SinglePayments, GC_PP_InstalmentPayments, GC_PP_InstalmentAmount
-	global DebugLogFile, Settings_GoCardlessEnvironment
-	
-	Gui, GCPayPlan:Submit, NoHide
-	
-	if (GC_PP_DDPayments.Length() = 0) {
-		DarkMsgBox("No Payments", "No DD payments found in the invoice to create.", "warning")
+	if (ErrorLevel) {
+		DarkMsgBox("Error", "Failed to launch SideKick_GC.", "error")
 		return
 	}
 	
-	; Check for past payment dates
-	FormatTime, todayISO, , yyyy-MM-dd
-	pastPayments := ""
-	pastCount := 0
-	earliestPastDate := ""
-	
-	for idx, payment in GC_PP_DDPayments {
-		if (payment.date < todayISO) {
-			; Format date for display (YYYY-MM-DD to DD/MM/YYYY)
-			parts := StrSplit(payment.date, "-")
-			displayDate := parts[3] . "/" . parts[2]  . "/" . parts[1]
-			pastPayments .= "   • " . displayDate . " - £" . Format("{:.2f}", payment.amount) . "`n"
-			pastCount++
-			if (earliestPastDate = "" || payment.date < earliestPastDate)
-				earliestPastDate := parts[3] . "," . parts[2] . "," . parts[1]  ; Store as D,M,YYYY
-		}
-	}
-	
-	if (pastCount > 0) {
-		; Calculate months to bump
-		FormatTime, CurrentMonth, , M
-		FormatTime, CurrentYear, , yyyy
-		FormatTime, CurrentDay, , d
-		
-		; Get day from earliest past payment
-		epParts := StrSplit(earliestPastDate, ",")
-		PaymentDay := epParts[1] + 0
-		
-		; Determine next available month
-		NextAvailMonth := CurrentMonth + 0
-		NextAvailYear := CurrentYear + 0
-		
-		; If we're past the payment day this month, use next month
-		if ((CurrentDay + 0) >= PaymentDay) {
-			NextAvailMonth++
-			if (NextAvailMonth > 12) {
-				NextAvailMonth := 1
-				NextAvailYear++
-			}
-		}
-		
-		; Get month names
-		GC_Months := {1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June"
-			, 7: "July", 8: "August", 9: "September", 10: "October", 11: "November", 12: "December"}
-		NextMonthName := GC_Months[NextAvailMonth]
-		
-		; Calculate bump from earliest payment
-		OrigMonth := epParts[2] + 0
-		OrigYear := epParts[3] + 0
-		MonthsBump := (NextAvailYear - OrigYear) * 12 + (NextAvailMonth - OrigMonth)
-		OrigMonthName := GC_Months[OrigMonth]
-		
-		msg := "⚠️ PAYMENT DATES IN THE PAST ⚠️`n`n"
-		msg .= "The following payment dates have already passed:`n`n" . pastPayments
-		msg .= "`nGoCardless will REJECT payments with past dates.`n`n"
-		msg .= "📅 Bump by " . MonthsBump . " month" . (MonthsBump > 1 ? "s" : "") . "`n"
-		msg .= "    From: " . OrigMonthName . " " . OrigYear . "`n"
-		msg .= "    To: " . NextMonthName . " " . NextAvailYear . "`n`n"
-		msg .= "Click 'Cancel' to go back and review."
-		
-		result := DarkMsgBox("Past Payment Dates", msg, "warning", {buttons: ["Bump Dates", "Cancel"]})
-		
-		if (result != "Bump Dates")
-			return
-		
-		; Bump only past-dated payments by MonthsBump months
-		for idx, payment in GC_PP_DDPayments {
-			if (payment.date >= todayISO)
-				continue  ; skip payments that are already in the future
-			parts := StrSplit(payment.date, "-")
-			pYear := parts[1] + 0
-			pMonth := parts[2] + 0
-			pDay := parts[3] + 0
-			
-			; Add months
-			pMonth += MonthsBump
-			while (pMonth > 12) {
-				pMonth -= 12
-				pYear++
-			}
-			
-			GC_PP_DDPayments[idx].date := Format("{}-{:02d}-{:02d}", pYear, pMonth, pDay)
-		}
-		
-		; Also bump GC_PP_SinglePayments (format: day,month,year,?,amount) - only past ones
-		for idx, payment in GC_PP_SinglePayments {
-			parts := StrSplit(payment, ",")
-			pDay := parts[1]
-			pMonth := parts[2] + 0
-			pYear := parts[3] + 0
-			pDateISO := Format("{}-{:02d}-{:02d}", pYear, pMonth, pDay)
-			if (pDateISO >= todayISO)
-				continue
-			
-			pMonth += MonthsBump
-			while (pMonth > 12) {
-				pMonth -= 12
-				pYear++
-			}
-			
-			GC_PP_SinglePayments[idx] := pDay . "," . pMonth . "," . pYear . "," . parts[4] . "," . parts[5]
-		}
-		
-		; Also bump GC_PP_InstalmentPayments - only past ones
-		for idx, payment in GC_PP_InstalmentPayments {
-			parts := StrSplit(payment, ",")
-			pDay := parts[1]
-			pMonth := parts[2] + 0
-			pYear := parts[3] + 0
-			pDateISO := Format("{}-{:02d}-{:02d}", pYear, pMonth, pDay)
-			if (pDateISO >= todayISO)
-				continue
-			
-			pMonth += MonthsBump
-			while (pMonth > 12) {
-				pMonth -= 12
-				pYear++
-			}
-			
-			GC_PP_InstalmentPayments[idx] := pDay . "," . pMonth . "," . pYear . "," . parts[4] . "," . parts[5]
-		}
-		
-		; Update the payments list display in the GUI
-		paymentListText := ""
-		for idx, payment in GC_PP_DDPayments {
-			parts := StrSplit(payment.date, "-")
-			dateStr := Format("{:02d}/{:02d}/{}", parts[3], parts[2], parts[1])
-			amountStr := Format("£{:.2f}", payment.amount)
-			paymentListText .= dateStr . "  " . amountStr . "`n"
-		}
-		GuiControl, GCPayPlan:, GC_PP_PaymentList, %paymentListText%
-		
-		DarkMsgBox("Dates Updated", "✅ Payment dates bumped by " . MonthsBump . " month" . (MonthsBump > 1 ? "s" : "") . ".`n`nReview the updated dates and click 'Create Payments' again.", "success")
+	; Check for result file
+	if (!FileExist(tempResult)) {
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No result file (user cancelled or no plan created)`n", %DebugLogFile%
 		return
 	}
 	
-	mandateId := GC_PP_MandateResult.mandateId
-	planName := GC_PP_Name
-	
-	; Build the payment plan JSON
-	; Format: { mandate_id, name, single_payments: [{amount, charge_date, description}], instalment: {amount, count, day_of_month} }
-	
-	planJson := "{""mandate_id"": """ . mandateId . """, ""name"": """ . planName . """"
-	
-	; Add single payments if any
-	if (GC_PP_SinglePayments.Length() > 0) {
-		planJson .= ", ""single_payments"": ["
-		for idx, payment in GC_PP_SinglePayments {
-			parts := StrSplit(payment, ",")
-			payDay := parts[1]
-			payMonth := parts[2]
-			payYear := parts[3]
-			payAmount := Round(parts[5] * 100)  ; Convert to pence
-			chargeDate := Format("{}-{:02d}-{:02d}", payYear, payMonth, payDay)
-			
-			if (idx > 1)
-				planJson .= ", "
-			planJson .= "{""amount"": " . payAmount . ", ""charge_date"": """ . chargeDate . """, ""description"": """ . planName . " - Deposit " . idx . """}"
-		}
-		planJson .= "]"
-	}
-	
-	; Add instalment schedule if any
-	if (GC_PP_InstalmentPayments.Length() > 0) {
-		; Get day from first instalment payment
-		parts := StrSplit(GC_PP_InstalmentPayments[1], ",")
-		instalDay := parts[1] + 0  ; Convert to number to remove leading zeros
-		instalCount := GC_PP_InstalmentPayments.Length()
-		; Calculate total amount (GoCardless will handle rounding on first payment)
-		instalTotalAmount := Round(GC_PP_InstalmentAmount * instalCount * 100)  ; Total in pence
-		
-		planJson .= ", ""instalment"": {""total_amount"": " . instalTotalAmount . ", ""count"": " . instalCount . ", ""day_of_month"": " . instalDay . "}"
-	}
-	
-	planJson .= "}"
-	
-	FileAppend, % A_Now . " - GC_PP_CreateMixed - planJson: " . planJson . "`n", %DebugLogFile%
-	
-	; Write JSON to temp file
-	tempJsonFile := A_Temp . "\gc_payplan_" . A_TickCount . ".json"
-	FileDelete, %tempJsonFile%
-	FileAppend, %planJson%, %tempJsonFile%
-	
-	Gui, GCPayPlan:Destroy
-	ToolTip, Creating payments...
-	
-	; Call Python script
-	envFlag := " --live"  ; Always live
-	scriptCmd := GetScriptCommand("gocardless_api", "--create-payment-plan-file """ . tempJsonFile . """" . envFlag)
-	FileAppend, % A_Now . " - GC_PP_CreateMixed - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
-	
-	tempResult := A_Temp . "\gc_payplan_result_" . A_TickCount . ".txt"
-	RunCmdToFile(scriptCmd, tempResult)
-	
-	FileRead, scriptOutput, %tempResult%
-	FileAppend, % A_Now . " - GC_PP_CreateMixed - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
+	; Read result JSON
+	FileRead, resultJson, %tempResult%
 	FileDelete, %tempResult%
-	FileDelete, %tempJsonFile%
+	resultJson := Trim(resultJson)
 	
-	ToolTip
-	
-	scriptOutput := Trim(scriptOutput)
-	
-	if (InStr(scriptOutput, "SUCCESS|")) {
-		parts := StrSplit(scriptOutput, "|")
-		; SUCCESS|payment_ids|subscription_id|summary
-		summary := parts[4]
-		
-		; Show success with option to open GoCardless
-		result := DarkMsgBox("Payments Created", "✅ GoCardless payments created successfully!`n`n" . summary, "success", {buttons: ["Open GC", "OK"]})
-		
-		if (result = "Open GC") {
-			; Open GoCardless customer page
-			customerId := GC_PP_MandateResult.customerId
-			gcUrl := "https://manage.gocardless.com/customers/" . customerId
-			Run, %gcUrl%
-		}
-	}
-	else if (InStr(scriptOutput, "ERROR|")) {
-		errorMsg := StrReplace(scriptOutput, "ERROR|", "")
-		DarkMsgBox("GoCardless Error", "Failed to create payments.`n`n" . errorMsg, "error")
-	}
-	else {
-		DarkMsgBox("GoCardless Error", "Unexpected response from GoCardless.`n`n" . SubStr(scriptOutput, 1, 200), "error")
-	}
-	return
-
-; Legacy mode change handler (kept for compatibility)
-GC_PP_ModeChange:
-	Gui, GCPayPlan:Submit, NoHide
-	GuiControlGet, isSingleMode,, GC_PP_ModeSingle
-	
-	if (isSingleMode) {
-		; Show single payment controls, hide instalment controls
-		GuiControl, Hide, GC_PP_LblAmount
-		GuiControl, Hide, GC_PP_Amount
-		GuiControl, Hide, GC_PP_LblCount
-		GuiControl, Hide, GC_PP_Count
-		GuiControl, Hide, GC_PP_LblMonthly
-		GuiControl, Hide, GC_PP_LblDay
-		GuiControl, Hide, GC_PP_DayOfMonth
-		GuiControl, Hide, GC_PP_LblDayHelp
-		GuiControl, Hide, GC_PP_BtnCreate
-		GuiControl, Show, GC_PP_SingleInfo
-		GuiControl, Show, GC_PP_PaymentList
-		GuiControl, Show, GC_PP_BtnCreateSingles
-	} else {
-		; Show instalment controls, hide single payment controls
-		GuiControl, Show, GC_PP_LblAmount
-		GuiControl, Show, GC_PP_Amount
-		GuiControl, Show, GC_PP_LblCount
-		GuiControl, Show, GC_PP_Count
-		GuiControl, Show, GC_PP_LblMonthly
-		GuiControl, Show, GC_PP_LblDay
-		GuiControl, Show, GC_PP_DayOfMonth
-		GuiControl, Show, GC_PP_LblDayHelp
-		GuiControl, Show, GC_PP_BtnCreate
-		GuiControl, Hide, GC_PP_SingleInfo
-		GuiControl, Hide, GC_PP_PaymentList
-		GuiControl, Hide, GC_PP_BtnCreateSingles
-	}
-	return
-
-GC_PP_CreateSingles:
-	global GC_PP_ContactData, GC_PP_MandateResult, GC_PP_DDPayments, GC_PP_Name, DebugLogFile, Settings_GoCardlessEnvironment
-	
-	Gui, GCPayPlan:Submit, NoHide
-	
-	if (GC_PP_DDPayments.Length() = 0) {
-		DarkMsgBox("No Payments", "No DD payments found in the PayPlan to create.", "warning")
+	if (resultJson = "" || !InStr(resultJson, "SUCCESS")) {
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Result empty or not SUCCESS`n", %DebugLogFile%
 		return
 	}
 	
-	mandateId := GC_PP_MandateResult.mandateId
-	planName := GC_PP_Name
+	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Got result: " . SubStr(resultJson, 1, 200) . "`n", %DebugLogFile%
 	
-	; Confirm creation
-	payCount := GC_PP_DDPayments.Length()
-	totalAmount := 0
-	Loop, % payCount
-		totalAmount += GC_PP_DDPayments[A_Index].amount
-	
-	MsgBox, 0x24, Create Single Payments?, Create %payCount% individual one-off payments?`n`nTotal: £%totalAmount%`n`nEach payment will be named "%planName%"
-	IfMsgBox, No
+	; Find .psa file for payment injection
+	albumFolder := GetAlbumFolder()
+	if (albumFolder = "" || !FileExist(albumFolder)) {
+		DarkMsgBox("Payments Created", "GoCardless payments created successfully!`n`n(Album folder not found — payments not injected into .psa.)", "success")
 		return
+	}
 	
-	Gui, GCPayPlan:Destroy
-	
-	; Create each payment
-	successCount := 0
-	failedCount := 0
-	createdIds := ""
-	envFlag := " --live"  ; Always live
-	
-	Loop, % payCount
+	psaFile := ""
+	latestTime := 0
+	Loop, Files, %albumFolder%\*.psa
 	{
-		payment := GC_PP_DDPayments[A_Index]
-		amountPence := Round(payment.amount * 100)
-		chargeDate := payment.date
-		description := planName
-		
-		ToolTip, Creating payment %A_Index% of %payCount%...
-		
-		; Escape quotes in description
-		descEscaped := StrReplace(description, """", "\""")
-		
-		paymentJson := "{""mandate_id"": """ . mandateId . """, ""amount"": " . amountPence . ", ""description"": """ . descEscaped . """, ""charge_date"": """ . chargeDate . """}"
-		
-		FileAppend, % A_Now . " - GC_PP_CreateSingles - paymentJson: " . paymentJson . "`n", %DebugLogFile%
-		
-		scriptCmd := GetScriptCommand("gocardless_api", "--create-payment """ . paymentJson . """" . envFlag)
-		gcOutFile := A_Temp . "\sk_gc_pay_" . A_TickCount . "_" . A_Index . ".txt"
-		RunCmdToFile(scriptCmd, gcOutFile)
-		scriptOutput := ""
-		if (FileExist(gcOutFile)) {
-			FileRead, scriptOutput, %gcOutFile%
-			FileDelete, %gcOutFile%
+		FileGetTime, fileTime, %A_LoopFileFullPath%, M
+		if (fileTime > latestTime) {
+			latestTime := fileTime
+			psaFile := A_LoopFileFullPath
 		}
-		
-		scriptOutput := Trim(scriptOutput)
-		FileAppend, % A_Now . " - GC_PP_CreateSingles - output: " . scriptOutput . "`n", %DebugLogFile%
-		
-		if (InStr(scriptOutput, "SUCCESS|")) {
-			successCount++
-			parts := StrSplit(scriptOutput, "|")
-			if (parts.Length() >= 2)
-				createdIds .= parts[2] . ","
-		} else {
-			failedCount++
-		}
-		
-		Sleep, 200  ; Small delay between API calls
 	}
 	
-	ToolTip
-	
-	; Show result
-	if (failedCount = 0) {
-		DarkMsgBox("Payments Created", "✅ Successfully created " . successCount . " one-off payments.`n`nPayments will be collected on their scheduled dates.", "success")
-	} else {
-		DarkMsgBox("Partial Success", "Created " . successCount . " payments.`n`nFailed: " . failedCount . "`n`nCheck the debug log for details.", "warning")
-	}
-	return
-
-GC_PP_Create:
-	global GC_PP_ContactData, GC_PP_MandateResult, DebugLogFile
-	global GC_PP_Amount, GC_PP_Count, GC_PP_DayOfMonth, GC_PP_Name
-	
-	Gui, GCPayPlan:Submit, NoHide
-	
-	; Validate inputs
-	if (GC_PP_Amount = "" || GC_PP_Amount <= 0) {
-		DarkMsgBox("Invalid Amount", "Please enter a valid amount.", "warning")
+	if (psaFile = "") {
+		DarkMsgBox("Payments Created", "GoCardless payments created successfully!`n`n(No .psa file found — payments not injected.)", "success")
 		return
 	}
 	
-	if (GC_PP_Count = "" || GC_PP_Count <= 0) {
-		DarkMsgBox("Invalid Count", "Please enter the number of payments.", "warning")
-		return
+	; Save album then inject payments via write_psa_payments
+	ToolTip, Saving album and injecting payments...
+	PsConsole("saveAlbum")
+	
+	; Parse payment dates from result JSON and build write_psa_payments args
+	; Result format: {"status":"SUCCESS","method":"GoCardless DD","payments":[{"date":"YYYY-MM-DD","amount_pounds":250.00},...],...}
+	writeArgs := """" . psaFile . """ --clear"
+	foundPayments := false
+	
+	; Extract method from result for payment type
+	resultMethod := ddPayMethod
+	methodPos := InStr(resultJson, """method"":")
+	if (methodPos) {
+		mStart := InStr(resultJson, """", false, methodPos + 9) + 1
+		mEnd := InStr(resultJson, """", false, mStart)
+		resultMethod := SubStr(resultJson, mStart, mEnd - mStart)
 	}
 	
-	if (GC_PP_DayOfMonth = "" || (GC_PP_DayOfMonth < -1 || GC_PP_DayOfMonth > 28 || GC_PP_DayOfMonth = 0)) {
-		DarkMsgBox("Invalid Day", "Day must be 1-28, or -1 for last day of month.", "warning")
-		return
-	}
-	
-	; Check for duplicate plan name before creating
-	mandateId := GC_PP_MandateResult.mandateId
-	planName := GC_PP_Name
-	
-	ToolTip, Checking for existing plans...
-	envFlag := " --live"  ; Always live
-	checkCmd := GetScriptCommand("gocardless_api", "--list-plans """ . mandateId . """" . envFlag)
-	gcOutFile := A_Temp . "\sk_gc_plans_" . A_TickCount . ".txt"
-	RunCmdToFile(checkCmd, gcOutFile)
-	subsOutput := ""
-	if (FileExist(gcOutFile)) {
-		FileRead, subsOutput, %gcOutFile%
-		FileDelete, %gcOutFile%
-	}
-	ToolTip
-	
-	; Check if plan name already exists
-	duplicateFound := false
-	duplicateStatus := ""
-	Loop, Parse, subsOutput, `n, `r
-	{
-		if (A_LoopField = "" || A_LoopField = "NO_PLANS")
+	; Extract each payment from the payments array
+	pos := 1
+	while (pos := InStr(resultJson, """date"":", false, pos)) {
+		; Extract date: "YYYY-MM-DD"
+		dateStart := InStr(resultJson, """", false, pos + 7) + 1
+		dateEnd := InStr(resultJson, """", false, dateStart)
+		dateStr := SubStr(resultJson, dateStart, dateEnd - dateStart)
+		
+		; Extract amount_pounds
+		amtPos := InStr(resultJson, """amount_pounds"":", false, pos)
+		if (!amtPos) {
+			pos := dateEnd
 			continue
-		parts := StrSplit(A_LoopField, "|")
-		if (parts.Length() >= 3) {
-			existingName := parts[2]
-			existingStatus := parts[3]
-			if (existingName = planName) {
-				duplicateFound := true
-				duplicateStatus := existingStatus
+		}
+		amtStart := amtPos + 16
+		amtEnd := amtStart
+		Loop {
+			ch := SubStr(resultJson, amtEnd, 1)
+			if (ch = "," || ch = "}" || ch = "]" || ch = "")
 				break
-			}
+			amtEnd++
 		}
+		amount := Trim(SubStr(resultJson, amtStart, amtEnd - amtStart))
+		
+		; Parse YYYY-MM-DD to day,month,year
+		dateParts := StrSplit(dateStr, "-")
+		if (dateParts.Length() >= 3) {
+			year := dateParts[1]
+			month := dateParts[2] + 0
+			day := dateParts[3] + 0
+			writeArgs .= " """ . day . "," . month . "," . year . "," . resultMethod . "," . amount . """"
+			foundPayments := true
+		}
+		
+		pos := amtEnd
 	}
 	
-	if (duplicateFound) {
-		MsgBox, 0x134, Duplicate Plan Name, ⚠️ A plan named "%planName%" already exists for this mandate.`n`nStatus: %duplicateStatus%`n`nDo you want to create another plan with the same name?`n`n(Tip: The system will auto-add a suffix like -1, -2)
-		IfMsgBox, No
-			return
+	if (!foundPayments) {
+		ToolTip
+		DarkMsgBox("Payments Created", "GoCardless payments created!`n`n(Could not parse payment dates for .psa injection.)", "success")
+		return
 	}
 	
-	; Convert amount to pence
-	amountPence := Round(GC_PP_Amount * 100)
+	scriptCmd := GetScriptCommand("write_psa_payments", writeArgs)
+	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Injecting payments: " . scriptCmd . "`n", %DebugLogFile%
 	
-	; Escape quotes in name for JSON
-	planNameEscaped := StrReplace(planName, """", "\""")
-	
-	instalmentJson := "{""mandate_id"": """ . mandateId . """, ""amount"": " . amountPence . ", ""name"": """ . planNameEscaped . """, ""count"": " . GC_PP_Count . ", ""day_of_month"": " . GC_PP_DayOfMonth . "}"
-	
-	FileAppend, % A_Now . " - GC_PP_Create - instalmentJson: " . instalmentJson . "`n", %DebugLogFile%
-	
-	; Write JSON to temp file to avoid command line quote issues
-	tempJsonFile := A_Temp . "\gc_instalment_" . A_TickCount . ".json"
-	FileDelete, %tempJsonFile%
-	FileAppend, %instalmentJson%, %tempJsonFile%
-	
-	; Close dialog and show progress
-	Gui, GCPayPlan:Destroy
-	ToolTip, Creating payment plan...
-	
-	; Call Python script
-	envFlag := " --live"  ; Always live
-	scriptCmd := GetScriptCommand("gocardless_api", "--create-instalment-file """ . tempJsonFile . """" . envFlag)
-	FileAppend, % A_Now . " - GC_PP_Create - scriptCmd: " . scriptCmd . "`n", %DebugLogFile%
-	
-	tempResult := A_Temp . "\gc_instalment_result_" . A_TickCount . ".txt"
-	RunCmdToFile(scriptCmd, tempResult)
-	
-	FileRead, scriptOutput, %tempResult%
-	FileAppend, % A_Now . " - GC_PP_Create - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
-	FileDelete, %tempResult%
-	FileDelete, %tempJsonFile%
-	
+	writeResult := A_Temp . "\psa_write_" . A_TickCount . ".txt"
+	RunCmdToFile(scriptCmd, writeResult)
+	FileRead, writeOutput, %writeResult%
+	FileDelete, %writeResult%
 	ToolTip
 	
-	scriptOutput := Trim(scriptOutput)
-	
-	if (InStr(scriptOutput, "SUCCESS|")) {
-		parts := StrSplit(scriptOutput, "|")
-		scheduleId := parts[2]
-		actualPlanName := parts[3]
-		paymentCount := parts[4]
-		firstDate := parts[5]
-		lastDate := parts[6]
-		
-		; Format amount for display
-		amountStr := Format("£{:.2f}", GC_PP_Amount)
-		
-		DarkMsgBox("Payment Plan Created", "✅ GoCardless payment plan created successfully!`n`n📋 Plan: " . actualPlanName . "`n💰 Amount: " . amountStr . " x " . paymentCount . " payments`n📅 Schedule: " . firstDate . " to " . lastDate . "`n🔖 Schedule ID: " . scheduleId, "success")
+	writeOutput := Trim(writeOutput)
+	if (InStr(writeOutput, "SUCCESS")) {
+		PsConsole("openAlbum", psaFile, "true")
+		Sleep, 2000
+		SoundPlay, *48
+		DarkMsgBox("Payments Created & Injected", "GoCardless payments created and injected into the album!`nThe album has been reloaded with the updated payments.", "success")
+	} else {
+		DarkMsgBox("Payments Created", "GoCardless payments created!`n`nCould not inject into .psa: " . SubStr(writeOutput, 1, 200), "warning")
 	}
-	else if (InStr(scriptOutput, "ERROR|")) {
-		errorMsg := StrReplace(scriptOutput, "ERROR|", "")
-		DarkMsgBox("GoCardless Error", "Failed to create payment plan.`n`n" . errorMsg, "error")
-	}
-	else {
-		DarkMsgBox("GoCardless Error", "Unexpected response from GoCardless.`n`n" . SubStr(scriptOutput, 1, 200), "error")
-	}
-return
-
-GC_PP_Cancel:
-GCPayPlanGuiClose:
-GCPayPlanGuiEscape:
-	Gui, GCPayPlan:Destroy
-return
+}
 
 ; Toggle handler for GoCardless enabled - controls panel enable/disable state
 Toggle_GoCardlessEnabled_Changed:
@@ -3949,9 +3201,6 @@ Toggle_GoCardlessEnabled_Changed:
 		GuiControl, Settings:Enable, GCSMSTplCombo
 		GuiControl, Settings:Enable, GCSMSTplRefresh
 		GuiControl, Settings:Enable, Toggle_GCAutoSetup
-		GuiControl, Settings:Enable, GCNamePart1DDL
-		GuiControl, Settings:Enable, GCNamePart2DDL
-		GuiControl, Settings:Enable, GCNamePart3DDL
 	} else {
 		GuiControl, Settings:Disable, GCTokenEditBtn
 		GuiControl, Settings:Disable, GCTestBtn
@@ -3961,9 +3210,6 @@ Toggle_GoCardlessEnabled_Changed:
 		GuiControl, Settings:Disable, GCSMSTplCombo
 		GuiControl, Settings:Disable, GCSMSTplRefresh
 		GuiControl, Settings:Disable, Toggle_GCAutoSetup
-		GuiControl, Settings:Disable, GCNamePart1DDL
-		GuiControl, Settings:Disable, GCNamePart2DDL
-		GuiControl, Settings:Disable, GCNamePart3DDL
 	}
 	; Recreate toolbar to reflect changes
 	CreateFloatingToolbar()
@@ -3976,62 +3222,6 @@ Toggle_GCAutoSetup_Changed:
 	Settings_GCAutoSetup := toggleState
 	IniWrite, %Settings_GCAutoSetup%, %IniFilename%, GoCardless, AutoSetup
 return
-
-; Handler for PayPlan name format dropdowns
-GCNamePartChanged:
-	Gui, Settings:Submit, NoHide
-	GuiControlGet, Settings_GCNamePart1,, GCNamePart1DDL
-	GuiControlGet, Settings_GCNamePart2,, GCNamePart2DDL
-	GuiControlGet, Settings_GCNamePart3,, GCNamePart3DDL
-	IniWrite, %Settings_GCNamePart1%, %IniFilename%, GoCardless, NamePart1
-	IniWrite, %Settings_GCNamePart2%, %IniFilename%, GoCardless, NamePart2
-	IniWrite, %Settings_GCNamePart3%, %IniFilename%, GoCardless, NamePart3
-	UpdateGCNameExample()
-return
-
-; Update the PayPlan name example based on current dropdown selections
-UpdateGCNameExample() {
-	global Settings_GCNamePart1, Settings_GCNamePart2, Settings_GCNamePart3
-	
-	; Sample data for preview
-	sampleData := {shootNo: "P26005", surname: "Smith", firstName: "John", fullName: "John Smith", orderDate: "17/02/2026", ghlId: "abc123xyz", albumName: "2026-02-17_Smith"}
-	
-	; Build example string from selected parts
-	parts := []
-	Loop, 3 {
-		partNum := A_Index
-		partVal := Settings_GCNamePart%partNum%
-		if (partVal = "" || partVal = "(none)")
-			continue
-		if (partVal = "Shoot No")
-			parts.Push(sampleData.shootNo)
-		else if (partVal = "Surname")
-			parts.Push(sampleData.surname)
-		else if (partVal = "First Name")
-			parts.Push(sampleData.firstName)
-		else if (partVal = "Full Name")
-			parts.Push(sampleData.fullName)
-		else if (partVal = "Order Date")
-			parts.Push(sampleData.orderDate)
-		else if (partVal = "GHL ID")
-			parts.Push(sampleData.ghlId)
-		else if (partVal = "Album Name")
-			parts.Push(sampleData.albumName)
-	}
-	
-	; Join with " - " separator
-	example := ""
-	for i, part in parts {
-		if (example != "")
-			example .= " - "
-		example .= part
-	}
-	
-	if (example = "")
-		example := "(no format selected)"
-	
-	GuiControl, Settings:, GCNameExample, %example%
-}
 
 GCEmailTplChanged:
 	Gui, Settings:Submit, NoHide
@@ -4820,19 +4010,10 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GCSMSTplCombo
 	GuiControl, Settings:Hide, GCSMSTplRefresh
 	GuiControl, Settings:Hide, GCNotifyHint
-	GuiControl, Settings:Hide, GCAutoGroup
 	GuiControl, Settings:Hide, GCAutoSetupLabel
 	GuiControl, Settings:Hide, Toggle_GCAutoSetup
 	GuiControl, Settings:Hide, GCAutoHint
 	GuiControl, Settings:Hide, GCWizardBtn
-	GuiControl, Settings:Hide, GCNamingLabel
-	GuiControl, Settings:Hide, GCNamePart1DDL
-	GuiControl, Settings:Hide, GCNameSep1
-	GuiControl, Settings:Hide, GCNamePart2DDL
-	GuiControl, Settings:Hide, GCNameSep2
-	GuiControl, Settings:Hide, GCNamePart3DDL
-	GuiControl, Settings:Hide, GCNameExLabel
-	GuiControl, Settings:Hide, GCNameExample
 	
 	; Hide all panels - Cardly
 	GuiControl, Settings:Hide, TabCardlyBg
@@ -5279,19 +4460,10 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GCSMSTplCombo
 		GuiControl, Settings:Show, GCSMSTplRefresh
 		GuiControl, Settings:Show, GCNotifyHint
-		GuiControl, Settings:Show, GCAutoGroup
 		GuiControl, Settings:Show, GCAutoSetupLabel
 		GuiControl, Settings:Show, Toggle_GCAutoSetup
 		GuiControl, Settings:Show, GCAutoHint
 		GuiControl, Settings:Show, GCWizardBtn
-		GuiControl, Settings:Show, GCNamingLabel
-		GuiControl, Settings:Show, GCNamePart1DDL
-		GuiControl, Settings:Show, GCNameSep1
-		GuiControl, Settings:Show, GCNamePart2DDL
-		GuiControl, Settings:Show, GCNameSep2
-		GuiControl, Settings:Show, GCNamePart3DDL
-		GuiControl, Settings:Show, GCNameExLabel
-		GuiControl, Settings:Show, GCNameExample
 		; Apply enable/disable state based on toggle
 		if (Settings_GoCardlessEnabled) {
 			GuiControl, Settings:Enable, GCTokenEditBtn
@@ -5302,9 +4474,6 @@ ShowSettingsTab(tabName)
 			GuiControl, Settings:Enable, GCSMSTplCombo
 			GuiControl, Settings:Enable, GCSMSTplRefresh
 			GuiControl, Settings:Enable, Toggle_GCAutoSetup
-			GuiControl, Settings:Enable, GCNamePart1DDL
-			GuiControl, Settings:Enable, GCNamePart2DDL
-			GuiControl, Settings:Enable, GCNamePart3DDL
 		} else {
 			GuiControl, Settings:Disable, GCTokenEditBtn
 			GuiControl, Settings:Disable, GCTestBtn
@@ -5314,9 +4483,6 @@ ShowSettingsTab(tabName)
 			GuiControl, Settings:Disable, GCSMSTplCombo
 			GuiControl, Settings:Disable, GCSMSTplRefresh
 			GuiControl, Settings:Disable, Toggle_GCAutoSetup
-			GuiControl, Settings:Disable, GCNamePart1DDL
-			GuiControl, Settings:Disable, GCNamePart2DDL
-			GuiControl, Settings:Disable, GCNamePart3DDL
 		}
 	}
 	else if (tabName = "Display")

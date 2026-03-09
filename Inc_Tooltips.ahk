@@ -329,38 +329,19 @@ CreateGeneralPanel()
 	CreateToggleSlider("Settings", "DarkMode", 630, 198, Settings_DarkMode)
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; PAYMENT DEFAULTS GROUP BOX (y260)
+	; APP SETTINGS GROUP BOX (y260)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y260 w480 h110 vGenDefaultsGroup, Payment Defaults
-	
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	
-	; Default Recurring
-	Gui, Settings:Add, Text, x210 y290 w150 BackgroundTrans vGenRecurLabel gTT_DefaultRecurring HwndHwndRecur, Default Recurring:
-	RegisterSettingsTooltip(HwndRecur, "DEFAULT PAYMENT FREQUENCY`n`nSet the pre-selected payment schedule for new plans.`nMonthly is always available. Other options can be customized.`n`nThis can be changed per-plan when creating payments.")
-	Gui, Settings:Add, DropDownList, x380 y287 w150 vSettings_DefaultRecurring_DDL, Monthly||Weekly|Bi-Weekly|4-Weekly
-	
-	; Recurring Options (editable)
-	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y325 w150 BackgroundTrans vGenRecurOptionsLabel, Recurring Options:
-	Gui, Settings:Add, Edit, x380 y322 w150 h24 vGenRecurOptionsEdit ReadOnly, Monthly, Weekly, Bi-Weekly, 4-Weekly
-	Gui, Settings:Add, Button, x540 y321 w60 h26 gEditRecurringOptions vGenRecurOptionsBtn, Edit
-	
-	; ═══════════════════════════════════════════════════════════════════════════
-	; APP SETTINGS GROUP BOX (y380)
-	; ═══════════════════════════════════════════════════════════════════════════
-	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y380 w480 h80 vGenProSelectGroup, App Settings
+	Gui, Settings:Add, GroupBox, x195 y260 w480 h80 vGenProSelectGroup, App Settings
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Buttons row
-	Gui, Settings:Add, Button, x210 y410 w110 h30 gCreateSideKickShortcut vGenShortcutBtn, 🚀 Shortcut
-	Gui, Settings:Add, Button, x330 y410 w100 h30 gOpenUserManual vGenManualBtn HwndHwndGenManual, 📖 Manual
+	Gui, Settings:Add, Button, x210 y290 w110 h30 gCreateSideKickShortcut vGenShortcutBtn, 🚀 Shortcut
+	Gui, Settings:Add, Button, x330 y290 w100 h30 gOpenUserManual vGenManualBtn HwndHwndGenManual, 📖 Manual
 	RegisterSettingsTooltip(HwndGenManual, "USER MANUAL`n`nOpen the online documentation and user guide.`nLearn about features, setup, and troubleshooting.")
-	Gui, Settings:Add, Button, x440 y410 w70 h30 gExportSettings vGenExportBtn, 📤 Export
-	Gui, Settings:Add, Button, x520 y410 w70 h30 gImportSettings vGenImportBtn, 📥 Import
+	Gui, Settings:Add, Button, x440 y290 w70 h30 gExportSettings vGenExportBtn, 📤 Export
+	Gui, Settings:Add, Button, x520 y290 w70 h30 gImportSettings vGenImportBtn, 📥 Import
 }
 
 CreateGHLPanel()

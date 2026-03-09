@@ -98,6 +98,10 @@ Source: "Release\GenerateBridgeIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Release\GenerateLightroomIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "Release\GenerateExplorerIcon.ps1"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
+; SideKick_GC (standalone GoCardless module)
+Source: "Release\SideKick_GC.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "Release\SideKick_GC.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+
 ; Unified Python CLI (replaces all individual _xxx.exe scripts)
 Source: "Release\SideKick_PS_CLI.exe"; DestDir: "{app}"; Flags: ignoreversion
 

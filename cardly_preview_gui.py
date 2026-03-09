@@ -262,7 +262,7 @@ try:
     from cardly_send_card import (
         resize_image_for_cardly, create_cardly_artwork, place_cardly_order,
         get_ghl_contact, upload_to_ghl_photos, update_ghl_contact_field,
-        _enrich_contact_address, save_to_album_folder,
+        _enrich_contact_address, save_to_album_folder, list_recent_orders,
         CARDLY_API_KEY, CARDLY_MEDIA_ID, GHL_API_KEY,
         CARDLY_WIDTH, CARDLY_HEIGHT, debug_print, DEBUG
     )
@@ -1369,6 +1369,15 @@ class CardPreviewGUI:
         self._date_refresh_btn.pack(side='right')
         ToolTip(self._date_refresh_btn, "Fetch date fields from this client's\nGHL contact record (e.g. session date,\nbirthday, anniversary).")
 
+        # Pending card indicator (alarm clock) — starts disabled, checked in background
+        self._pending_orders = []  # populated by background check
+        self._pending_btn = tk.Button(date_header_frame, text="\u23F0",
+                font=('Segoe UI', 10), width=2,
+                bg='#444444', fg='#666666',
+                relief='flat', state='disabled')
+        self._pending_btn.pack(side='right', padx=(0, 4))
+        ToolTip(self._pending_btn, "Checking for pending cards...")
+
         # Calendar button to pick a custom date
         self._date_cal_btn = tk.Button(date_header_frame, text="\U0001F4C5",
                 font=('Segoe UI', 10), width=2,
@@ -1624,6 +1633,110 @@ class CardPreviewGUI:
             messagebox.showwarning("Error", f"Failed to fetch dates: {e}")
         finally:
             self._date_refresh_btn.config(state='normal', text="\u21bb")
+
+    # ── Pending card check ─────────────────────────────────────────────────
+
+    def _check_pending_cards_bg(self):
+        """Check Cardly for existing orders for this recipient (runs in background thread)."""
+        import threading
+
+        recip_name = ""
+        if self.recipient:
+            recip_name = self.recipient.get('name', self.first_name)
+        else:
+            recip_name = self.first_name
+        if not recip_name:
+            return
+
+        def _worker():
+            try:
+                result = list_recent_orders(recipient_name=recip_name)
+                if result.get('success'):
+                    orders = result.get('orders', [])
+                    self._pending_orders = orders
+                    self.root.after(0, lambda: self._update_pending_btn(orders))
+            except Exception as e:
+                debug_print(f"Pending card check failed: {e}")
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
+    def _update_pending_btn(self, orders):
+        """Update the alarm clock button state based on pending orders found."""
+        if orders:
+            self._pending_btn.config(
+                state='normal', fg='#FFB347', cursor='hand2',
+                activebackground='#555555', activeforeground='#FFB347',
+                command=self._show_pending_cards)
+            count = len(orders)
+            ToolTip(self._pending_btn,
+                    f"{count} existing card{'s' if count != 1 else ''} found\nfor this client. Click for details.")
+        else:
+            self._pending_btn.config(state='disabled', fg='#666666')
+            ToolTip(self._pending_btn, "No pending cards found\nfor this client.")
+
+    def _show_pending_cards(self):
+        """Show a popup with details of pending/sent cards for this recipient."""
+        orders = self._pending_orders
+        if not orders:
+            return
+
+        popup = tk.Toplevel(self.root)
+        popup.title("Existing Cards")
+        popup.configure(bg='#2a2a2a')
+        popup.resizable(False, False)
+        popup.grab_set()
+        _set_window_icon(popup)
+
+        popup.update_idletasks()
+        px = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - 180
+        py = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - 100
+        popup.geometry(f'+{px}+{py}')
+
+        tk.Label(popup, text=f"\u23F0  {len(orders)} Card{'s' if len(orders) != 1 else ''} Found",
+                font=('Segoe UI', 11, 'bold'), fg='#FFB347', bg='#2a2a2a'
+                ).pack(padx=16, pady=(12, 8))
+
+        list_frame = tk.Frame(popup, bg='#2a2a2a')
+        list_frame.pack(fill='both', expand=True, padx=16, pady=(0, 8))
+
+        for i, o in enumerate(orders[:10]):  # show at most 10
+            created = (o.get('created') or '')[:10]
+            status = o.get('order_status', '?')
+            shipped = o.get('shipped')
+            est_arr = (o.get('est_max_arrival') or '')[:10]
+            label_text = o.get('label', 'Card')
+
+            if shipped:
+                state_str = f"Shipped {shipped[:10]}"
+                state_fg = '#66BB6A'
+            elif est_arr:
+                state_str = f"ETA {est_arr}"
+                state_fg = '#FFB347'
+            else:
+                state_str = status.capitalize()
+                state_fg = '#888888'
+
+            row = tk.Frame(list_frame, bg='#333333')
+            row.pack(fill='x', pady=2)
+            tk.Label(row, text=f"{created}  {label_text}",
+                    font=('Segoe UI', 9), fg='white', bg='#333333',
+                    anchor='w').pack(side='left', padx=8, pady=4)
+            tk.Label(row, text=state_str,
+                    font=('Segoe UI', 9, 'bold'), fg=state_fg, bg='#333333',
+                    anchor='e').pack(side='right', padx=8, pady=4)
+
+        if len(orders) > 10:
+            tk.Label(list_frame, text=f"... and {len(orders) - 10} more",
+                    font=('Segoe UI', 8), fg='#888888', bg='#2a2a2a'
+                    ).pack(pady=(4, 0))
+
+        tk.Button(popup, text="Close", width=10,
+                font=('Segoe UI', 9), bg='#444444', fg='white',
+                activebackground='#555555', relief='flat', cursor='hand2',
+                command=popup.destroy).pack(pady=(4, 12))
+
+    # ── Custom date picker ───────────────────────────────────────────────
 
     def _pick_custom_date(self):
         """Open a mini calendar popup for the user to pick a custom date."""
@@ -2697,6 +2810,9 @@ class CardPreviewGUI:
         self.root.geometry(f"+{x}+{y}")
 
         self.root.deiconify()  # Show the fully-built window
+
+        # Check for pending cards on Cardly in background
+        self._check_pending_cards_bg()
 
         # Highlight first thumbnail
         if self.thumb_labels:

@@ -182,12 +182,26 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
             if pid > max_id:
                 max_id = pid
 
-        # Find the target Group element
+        # Find the target Group element and its full content span
         group_pattern = rf'<Group\s+id="{target_group}"[^>]*>'
         group_match = re.search(group_pattern, order_data)
         if not group_match:
             conn.close()
             return f"ERROR|Order group {target_group} not found"
+
+        # Find the closing </Group> for the target group
+        group_end_match = re.search(
+            rf'<Group\s+id="{target_group}"[^>]*>.*?</Group>',
+            order_data,
+            re.DOTALL,
+        )
+        if not group_end_match:
+            conn.close()
+            return f"ERROR|Could not find closing tag for group {target_group}"
+
+        group_start = group_match.start()
+        group_end = group_end_match.end()
+        group_content = order_data[group_start:group_end]
 
         # Detect indentation from existing data
         # Look for existing payment lines to match indentation
@@ -198,38 +212,58 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
 
         payments_tag_indent = indent[:-1] if len(indent) > 0 else "\t\t\t\t\t"  # 5 tabs for <payments> tag
 
-        # Handle clear mode
+        # Handle clear mode — only clear payments within the TARGET group
         if clear_existing:
-            # Remove all existing payment elements
-            order_data = re.sub(
+            new_group_content = re.sub(
                 r'<payments>\s*(?:<payment[^/]*/>\s*)*</payments>',
                 '<payments>\n' + payments_tag_indent + '</payments>',
-                order_data,
-                flags=re.DOTALL
+                group_content,
+                flags=re.DOTALL,
             )
-            max_id = 0
+            order_data = order_data[:group_start] + new_group_content + order_data[group_end:]
+            # Recalculate group_end after replacement
+            group_end = group_start + len(new_group_content)
+            group_content = new_group_content
 
-        # Find the </payments> closing tag to insert before it
-        payments_close = re.search(r'(\s*)</payments>', order_data)
+        # Find the </payments> closing tag WITHIN the target group
+        payments_close = re.search(r'(\s*)</payments>', group_content)
+        payments_close_abs = None
+        if payments_close:
+            # Convert relative offset to absolute position in order_data
+            payments_close_abs_start = group_start + payments_close.start()
+            payments_close_abs = re.search(r'(\s*)</payments>', order_data[payments_close_abs_start:])
+            if payments_close_abs:
+                # Adjust match to absolute offset
+                class _AbsMatch:
+                    def __init__(self, m, offset):
+                        self._m = m
+                        self._offset = offset
+                    def start(self):
+                        return self._m.start() + self._offset
+                    def group(self, n=0):
+                        return self._m.group(n)
+                payments_close = _AbsMatch(payments_close_abs, payments_close_abs_start)
 
-        if not payments_close:
-            # No <payments> section exists - need to create one
-            # Insert after the last customer field before </Group>
-            # Look for position just before </Group> in the target group
-            group_end = re.search(
-                rf'(<Group\s+id="{target_group}"[^>]*>.*?)(</Group>)',
-                order_data,
-                re.DOTALL
-            )
-            if group_end:
-                insert_pos = group_end.start(2)
+        if not payments_close_abs:
+            # No <payments> section exists in target group — create one
+            group_end_tag = re.search(r'</Group>', order_data[group_start:group_end])
+            if group_end_tag:
+                insert_pos = group_start + group_end_tag.start()
                 new_section = (
                     f"{payments_tag_indent}<payments>\n"
                     f"{payments_tag_indent}</payments>\n"
                 )
                 order_data = order_data[:insert_pos] + new_section + order_data[insert_pos:]
-                # Re-find the closing tag
-                payments_close = re.search(r'(\s*)</payments>', order_data)
+                # Re-find the closing tag within the updated data
+                new_group_end_match = re.search(
+                    rf'<Group\s+id="{target_group}"[^>]*>.*?</Group>',
+                    order_data,
+                    re.DOTALL,
+                )
+                group_content = order_data[group_start:new_group_end_match.end()]
+                rel_close = re.search(r'(\s*)</payments>', group_content)
+                if rel_close:
+                    payments_close = _AbsMatch(rel_close, group_start)
 
         if not payments_close:
             conn.close()

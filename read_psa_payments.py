@@ -3,7 +3,7 @@
 read_psa_payments.py - Reads payment data from ProSelect .psa album files
 
 Usage:
-    python read_psa_payments.py <path_to_psa_file>
+    python read_psa_payments.py <path_to_psa_file> [--group N]
 
 Output:
     PAYMENTS|count|payment1|payment2|...
@@ -19,8 +19,13 @@ import sqlite3
 import re
 import os
 
-def read_payments_from_psa(psa_path) -> str:
-    """Read payment data from a .psa SQLite database file."""
+def read_payments_from_psa(psa_path, group: int = 0) -> str:
+    """Read payment data from a .psa SQLite database file.
+
+    Args:
+        psa_path: Path to the .psa file
+        group: If > 0, only read payments from this group ID
+    """
 
     if not os.path.exists(psa_path):
         return f"ERROR|File not found: {psa_path}"
@@ -43,9 +48,21 @@ def read_payments_from_psa(psa_path) -> str:
 
         conn.close()
 
+        # If a specific group is requested, extract only that group's content
+        if group > 0:
+            group_pattern = rf'<Group\s+id="{group}"[^>]*>(.*?)</Group>'
+            gm = re.search(group_pattern, order_data, re.DOTALL)
+            if not gm:
+                return f"ERROR|Group {group} not found in album"
+            search_data = gm.group(1)
+        else:
+            search_data = order_data
+
         # Extract order date from Group element's lastOrderChanged attribute
         order_date = ""
-        group_match = re.search(r'<Group[^>]+lastOrderChanged="(\d{4})-(\d{2})-(\d{2})', order_data)
+        group_match = re.search(r'<Group[^>]+lastOrderChanged="(\d{4})-(\d{2})-(\d{2})', search_data if group > 0 else order_data)
+        if not group_match and group > 0:
+            group_match = re.search(r'<Group[^>]+lastOrderChanged="(\d{4})-(\d{2})-(\d{2})', order_data)
         if group_match:
             order_date = f"{group_match.group(3)}/{group_match.group(2)}/{group_match.group(1)}"  # DD/MM/YYYY
 
@@ -55,7 +72,7 @@ def read_payments_from_psa(psa_path) -> str:
 
         # Find all payment elements
         payment_pattern = r'<payment\s+([^>]+)/>'
-        for match in re.finditer(payment_pattern, order_data, re.IGNORECASE):
+        for match in re.finditer(payment_pattern, search_data, re.IGNORECASE):
             attrs = match.group(1)
 
             # Extract attributes - value can be integer or decimal (e.g., "91.7" or "500")
@@ -96,7 +113,17 @@ def main() -> None:
         sys.exit(1)
 
     psa_path = sys.argv[1]
-    result = read_payments_from_psa(psa_path)
+    group = 0
+    if "--group" in sys.argv:
+        gi = sys.argv.index("--group")
+        if gi + 1 < len(sys.argv):
+            try:
+                group = int(sys.argv[gi + 1])
+            except ValueError:
+                print(f"ERROR|Invalid group: {sys.argv[gi + 1]}")
+                sys.exit(1)
+
+    result = read_payments_from_psa(psa_path, group=group)
     print(result)
 
 

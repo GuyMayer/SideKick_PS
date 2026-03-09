@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     2.5.54
-; Build Date:  2026-03-05
+; Version:     3.0.1
+; Build Date:  2026-03-09
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -283,11 +283,13 @@ global Toolbar_AutoScaleCooldown := 0 ; Tick count of last auto-scale rebuild (d
 global Settings_ToolbarOffsetX := 0  ; Toolbar X offset from default position (Ctrl+Click grab handle to adjust)
 global Settings_ToolbarOffsetY := 0  ; Toolbar Y offset from default position
 global Toolbar_IsDragging := false   ; True when user is dragging the toolbar
+global Toolbar_LastPsHwnd := ""      ; Last known active ProSelect main window HWND
 global Toolbar_LastBGColor := ""     ; Last detected background color (cached)
 global Toolbar_LastBGCheckTime := 0  ; Timestamp of last BG color check
 global Toolbar_LastPosX := -1        ; Last toolbar X position (for detecting moves)
 global Toolbar_LastPosY := -1        ; Last toolbar Y position (for detecting moves)
 global Toolbar_FirstShowDone := false ; Track first show for delayed BG re-sample
+global Toolbar_PSWindowReadySince := 0 ; Tick when ProSelect main window first seen valid
 global GC_ButtonHBitmap := 0         ; HBITMAP handle for GC button image
 
 ; Toolbar button visibility settings
@@ -315,9 +317,6 @@ global Settings_GCSMSTemplateName := "(none selected)"  ; GHL SMS template name 
 global Settings_GCAutoSetup := false         ; Auto prompt GoCardless setup after invoice sync with future payments
 global GC_TemplateRefreshing := false        ; Flag to prevent saving during template refresh
 global GC_BuildingPanel := false             ; Flag to prevent saving during initial panel build
-global Settings_GCNamePart1 := "Shoot No"    ; PayPlan name format part 1
-global Settings_GCNamePart2 := "Surname"     ; PayPlan name format part 2
-global Settings_GCNamePart3 := "(none)"      ; PayPlan name format part 3
 global Settings_QRCode_Text1 := ""
 global Settings_QRCode_Text2 := ""
 global Settings_QRCode_Text3 := ""
@@ -341,6 +340,7 @@ global QR_CachedFiles := []  ; Array of cached file paths
 global Settings_PrintTemplate_PayPlan := "PayPlan"
 global Settings_PrintTemplate_Standard := "Terms of Sale"
 global Settings_PrintTemplateOptions := ""  ; Cached template options from ProSelect Print dialog
+global Settings_PSPaymentMethods := ""  ; Cached payment methods from ProSelect Payments Setup dialog
 global Settings_QuickPrintPrinter := ""  ; Selected printer for Quick Print (empty = system default)
 global Settings_EmailTemplateID := ""
 global Settings_EmailTemplateName := "SELECT"
@@ -473,9 +473,54 @@ LastButtonY := 0
 LoadGHLCredentials()
 
 FileAppend, % A_Now . " - Loading settings from INI...`n", %DebugLogFile%
+; Auto-restore corrupted INI from last-known-good backup
+CheckINIHealth()
 ; Load settings from INI
 LoadSettings()
 FileAppend, % A_Now . " - Settings loaded`n", %DebugLogFile%
+; Save a rolling "last known good" backup if INI looks healthy
+BackupINIIfHealthy()
+
+; Auto-load payment methods and print templates from ProSelect data on first run
+if (Settings_PSPaymentMethods = "" || Settings_PrintTemplateOptions = "") {
+	psDataFile := FindProSelectDataFile()
+	if (psDataFile != "") {
+		FileRead, xmlContent, %psDataFile%
+		if (Settings_PSPaymentMethods = "") {
+			methodsList := ""
+			pos := 1
+			while (pos := RegExMatch(xmlContent, "i)<PaymentType\s[^>]*name=""([^""]+)""", match, pos)) {
+				if (match1 != "") {
+					if (methodsList != "")
+						methodsList .= "|"
+					methodsList .= match1
+				}
+				pos += StrLen(match)
+			}
+			if (methodsList != "") {
+				Settings_PSPaymentMethods := methodsList
+				IniWrite, %Settings_PSPaymentMethods%, %IniFilename%, GoCardless, PSPaymentMethods
+			}
+		}
+		if (Settings_PrintTemplateOptions = "") {
+			tplList := ""
+			pos := 1
+			while (pos := RegExMatch(xmlContent, "i)<NoteItem\s+Type=""0"">\s*<Title><!\[CDATA\[([^\]]+)\]\]></Title>", match, pos)) {
+				if (match1 != "") {
+					if (tplList != "")
+						tplList .= "|"
+					tplList .= match1
+				}
+				pos += StrLen(match)
+			}
+			if (tplList != "") {
+				Settings_PrintTemplateOptions := tplList
+				IniWrite, %Settings_PrintTemplateOptions%, %IniFilename%, Toolbar, PrintTemplateOptions
+			}
+		}
+		xmlContent := ""
+	}
+}
 
 ; Pre-generate QR codes for faster display
 GenerateQRCache()
@@ -558,7 +603,11 @@ PayValue=
 PayValu1=
 ; Recurring options: Monthly, Weekly, Bi-Weekly (2 weeks), 4-Weekly
 Recurring = Monthly||Weekly|Bi-Weekly|4-Weekly
-PayType = Gocardles DD||Credit Card|Cash|Online
+; Use cached ProSelect payment methods if available, otherwise hardcoded fallback
+if (Settings_PSPaymentMethods != "")
+	PayType := RegExReplace(Settings_PSPaymentMethods, "^([^|]+)", "$1|")
+else
+	PayType = GoCardless DD||Credit Card|Cash|Online
 PayDayL = Select||1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th|11th|12th|13th|14th|15th|16th|17th|18th|19th|20th|21st|22nd|23rd|24th|25th|26th|27th|28th|Last Day
 Global PayMonthL
 ;PayMonthL = January|February|March|April|May|June|July|August|September|October|November|December
@@ -744,19 +793,18 @@ FormatTime, EarliestDDDay, %EarliestDDDate%, d
 
 GuiSetup()
 
-; Read payment types from Payline window ComboBox1
-ControlGet, PayTypeList, List, , ComboBox1, Add Payment, Date
-if (PayTypeList != "")
-{
-	; Convert newline-separated list to pipe-separated, make first item default
-	PayType := StrReplace(PayTypeList, "`n", "|")
-	; Add || after first item to make it the default
-	PayType := RegExReplace(PayType, "^([^|]+)", "$1|")
-}
-else
-{
-	; Fallback to hardcoded list if can't read from window
-	PayType := "GoCardless DD||Credit Card|Cash|Online"
+; Read payment types: prefer cached ProSelect methods, then live ComboBox, then hardcoded
+if (Settings_PSPaymentMethods != "") {
+	PayType := RegExReplace(Settings_PSPaymentMethods, "^([^|]+)", "$1|")
+} else {
+	; Try reading from Payline window ComboBox1
+	ControlGet, PayTypeList, List, , ComboBox1, Add Payment, Date
+	if (PayTypeList != "") {
+		PayType := StrReplace(PayTypeList, "`n", "|")
+		PayType := RegExReplace(PayType, "^([^|]+)", "$1|")
+	} else {
+		PayType := "GoCardless DD||Credit Card|Cash|Online"
+	}
 }
 
 ;DisplayText := "Balance Due: " . PayDue
@@ -802,7 +850,12 @@ Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 Gui, PP:Add, Text, x40 y90 w100 h25 BackgroundTrans, Amount:
 Gui, PP:Font, s10 Norm cBlack, Segoe UI
 Gui, PP:Add, Edit, x150 y87 w70 h28 vDownpaymentAmount gRecalcFromNo, 
-Gui, PP:Add, DropDownList, x250 y87 w140 h2000 vDownpaymentMethod, Credit Card||GoCardless DD|Bank Transfer
+; Build downpayment method list from cached ProSelect methods or hardcoded fallback
+if (Settings_PSPaymentMethods != "")
+	DownpaymentMethodList := RegExReplace(Settings_PSPaymentMethods, "^([^|]+)", "$1|")
+else
+	DownpaymentMethodList := "Credit Card||GoCardless DD|Bank Transfer"
+Gui, PP:Add, DropDownList, x250 y87 w140 h2000 vDownpaymentMethod, %DownpaymentMethodList%
 Gui, PP:Add, DateTime, x410 y87 w110 h28 vDownpaymentDate Choose%A_Now%, dd/MM/yy
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
@@ -1463,36 +1516,75 @@ LoadGHLCredentials() {
 }
 
 ; Save GHL API credentials to JSON file
+; Uses read-modify-write to preserve fields not managed by this function
 SaveGHLCredentials() {
 	global GHL_API_Key, GHL_LocationID, Settings_GoCardlessToken
 	global Settings_Cardly_ApiKey, Settings_Cardly_MediaID, Settings_Cardly_MediaName, Settings_Cardly_DashboardURL
 	
 	credFile := GetCredentialsFilePath()
 	
+	; Read existing credentials to preserve fields we don't own
+	existingGcToken := ""
+	existingApiKey := ""
+	existingLocId := ""
+	existingCardlyKey := ""
+	existingCardlyMediaId := ""
+	existingCardlyMediaName := ""
+	existingCardlyDashboardUrl := ""
+	if (FileExist(credFile)) {
+		FileRead, existingJson, %credFile%
+		if (!ErrorLevel && existingJson != "") {
+			if (RegExMatch(existingJson, """gc_token_b64"":\s*""([^""]*?)""", m))
+				existingGcToken := m1
+			if (RegExMatch(existingJson, """api_key_b64"":\s*""([^""]*?)""", m))
+				existingApiKey := m1
+			if (RegExMatch(existingJson, """location_id"":\s*""([^""]*?)""", m))
+				existingLocId := m1
+			if (RegExMatch(existingJson, """cardly_api_key_b64"":\s*""([^""]*?)""", m))
+				existingCardlyKey := m1
+			if (RegExMatch(existingJson, """cardly_media_id"":\s*""([^""]*?)""", m))
+				existingCardlyMediaId := m1
+			if (RegExMatch(existingJson, """cardly_media_name"":\s*""([^""]*?)""", m))
+				existingCardlyMediaName := m1
+			if (RegExMatch(existingJson, """cardly_dashboard_url"":\s*""([^""]*?)""", m))
+				existingCardlyDashboardUrl := m1
+		}
+	}
+	
 	; Encode API key to Base64 for storage
 	apiKeyB64 := ""
 	if (GHL_API_Key != "")
 		apiKeyB64 := Base64_Encode(GHL_API_Key)
 	
-	; Encode GoCardless token to Base64 for storage
+	; Encode GoCardless token to Base64 — preserve existing if not loaded
 	gcTokenB64 := ""
 	if (Settings_GoCardlessToken != "")
 		gcTokenB64 := Base64_Encode(Settings_GoCardlessToken)
+	else if (existingGcToken != "")
+		gcTokenB64 := existingGcToken
 	
 	; Encode Cardly API key to Base64 for storage
 	cardlyApiKeyB64 := ""
 	if (Settings_Cardly_ApiKey != "")
 		cardlyApiKeyB64 := Base64_Encode(Settings_Cardly_ApiKey)
+	else if (existingCardlyKey != "")
+		cardlyApiKeyB64 := existingCardlyKey
+	
+	; Use current values, falling back to existing file values
+	mediaId := Settings_Cardly_MediaID != "" ? Settings_Cardly_MediaID : existingCardlyMediaId
+	mediaName := Settings_Cardly_MediaName != "" ? Settings_Cardly_MediaName : existingCardlyMediaName
+	dashUrl := Settings_Cardly_DashboardURL != "" ? Settings_Cardly_DashboardURL : existingCardlyDashboardUrl
+	locId := GHL_LocationID != "" ? GHL_LocationID : existingLocId
 	
 	; Build JSON content - simple format, no library needed
 	jsonContent := "{"
 	jsonContent .= "`n  ""api_key_b64"": """ . apiKeyB64 . ""","
-	jsonContent .= "`n  ""location_id"": """ . GHL_LocationID . ""","
+	jsonContent .= "`n  ""location_id"": """ . locId . ""","
 	jsonContent .= "`n  ""gc_token_b64"": """ . gcTokenB64 . ""","
 	jsonContent .= "`n  ""cardly_api_key_b64"": """ . cardlyApiKeyB64 . ""","
-	jsonContent .= "`n  ""cardly_media_id"": """ . Settings_Cardly_MediaID . ""","
-	jsonContent .= "`n  ""cardly_media_name"": """ . Settings_Cardly_MediaName . ""","
-	jsonContent .= "`n  ""cardly_dashboard_url"": """ . Settings_Cardly_DashboardURL . """"
+	jsonContent .= "`n  ""cardly_media_id"": """ . mediaId . ""","
+	jsonContent .= "`n  ""cardly_media_name"": """ . mediaName . ""","
+	jsonContent .= "`n  ""cardly_dashboard_url"": """ . dashUrl . """"
 	jsonContent .= "`n}"
 	
 	; Write to file
@@ -1527,7 +1619,7 @@ GetPythonPath() {
 ; Returns: full path to .exe if exists, otherwise full path to .py
 GetScriptPath(scriptName) {
 	; Script name mapping - internal names to cryptic filenames (for exe distribution)
-	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc", "gocardless_api": "_gca", "cardly_preview_gui": "_cpg", "cardly_send_card": "_csc", "write_psa_payments": "_wpp", "read_psa_payments": "_rpp", "read_psa_images": "_rpi", "stale_mandates_gui": "_smg"}
+	static scriptMap := {"sync_ps_invoice": "_sps", "validate_license": "_vlk", "create_ghl_contactsheet": "_ccs", "upload_ghl_media": "_upm", "fetch_ghl_contact": "_fgc", "update_ghl_contact": "_ugc", "cardly_preview_gui": "_cpg", "cardly_send_card": "_csc", "write_psa_payments": "_wpp", "read_psa_payments": "_rpp", "read_psa_images": "_rpi", "detect_psa_group": "_dpg"}
 	
 	; Get the actual filename (use mapped name for production, original for dev)
 	if (A_IsCompiled && scriptMap.HasKey(scriptName)) {
@@ -1558,9 +1650,34 @@ GetScriptPath(scriptName) {
 ; args: command line arguments to pass
 ; Returns: the command string to run
 GetScriptCommand(scriptName, args := "") {
+	; ── SideKick_GC standalone module (replaces embedded GC Python scripts) ──
+	; When SideKick_GC.exe (or dev-mode .py) exists, gocardless_api and
+	; stale_mandates_gui redirect to it. CLI args are identical.
+	static gcScripts := {"gocardless_api": 1, "stale_mandates_gui": 1}
+	if (gcScripts.HasKey(scriptName)) {
+		gcCmd := ""
+		gcExe := A_ScriptDir . "\SideKick_GC.exe"
+		gcPy  := A_ScriptDir . "\..\SideKick_GC\SideKick_GC.py"
+		if (FileExist(gcExe)) {
+			gcCmd := """" . gcExe . """"
+		} else if (FileExist(gcPy)) {
+			pythonPath := GetPythonPath()
+			if (InStr(pythonPath, " "))
+				gcCmd := """" . pythonPath . """ """ . gcPy . """"
+			else
+				gcCmd := pythonPath . " """ . gcPy . """"
+		}
+		if (gcCmd != "") {
+			if (scriptName = "stale_mandates_gui")
+				return gcCmd . " --gui stale-mandates"
+			return gcCmd . " " . args
+		}
+	}
+	
 	; ── Unified CLI mapping (internal name → kebab-case subcommand) ──
 	; When SideKick_PS_CLI.exe exists it replaces the 11+ individual exes.
-	static subcommandMap := {"sync_ps_invoice": "sync-invoice", "validate_license": "validate-license", "create_ghl_contactsheet": "create-contactsheet", "upload_ghl_media": "upload-media", "gocardless_api": "gocardless", "cardly_preview_gui": "cardly-preview", "cardly_send_card": "cardly-send", "write_psa_payments": "write-psa", "read_psa_payments": "read-psa", "read_psa_images": "read-psa-images", "stale_mandates_gui": "stale-mandates"}
+	; GC scripts are excluded — they're handled by SideKick_GC.exe above.
+	static subcommandMap := {"sync_ps_invoice": "sync-invoice", "validate_license": "validate-license", "create_ghl_contactsheet": "create-contactsheet", "upload_ghl_media": "upload-media", "cardly_preview_gui": "cardly-preview", "cardly_send_card": "cardly-send", "write_psa_payments": "write-psa", "read_psa_payments": "read-psa", "read_psa_images": "read-psa-images", "detect_psa_group": "detect-group"}
 	
 	unifiedExe := A_ScriptDir . "\SideKick_PS_CLI.exe"
 	if (A_IsCompiled && FileExist(unifiedExe) && subcommandMap.HasKey(scriptName)) {
@@ -1582,6 +1699,15 @@ GetScriptCommand(scriptName, args := "") {
 		return """" . pythonPath . """ """ . scriptPath . """ " . args
 	else
 		return pythonPath . " """ . scriptPath . """ " . args
+}
+
+; Find the ProSelect data XML file (contains PaymentTypes, NoteItems/print templates, etc.)
+; Returns the full path or "" if not found.
+FindProSelectDataFile() {
+	dataFile := A_AppData . "\ProSelect\ProSelect_Data.xml"
+	if (FileExist(dataFile))
+		return dataFile
+	return ""
 }
 
 ; Run a command and capture its stdout output reliably
@@ -1764,9 +1890,12 @@ CreateFloatingToolbar()
 	; Calculate toolbar position and sample background color BEFORE creating GUI
 	; This ensures we sample the actual screen content, not our own toolbar
 	initialBgColor := Settings_ToolbarLastBGColor ? Settings_ToolbarLastBGColor : "333333"  ; Use saved color or fallback
-	if (Settings_ToolbarAutoBG) {
-		; Get ProSelect window position
-		WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
+	if (Settings_ToolbarAutoBG && Toolbar_PSWindowReadySince > 0 && (A_TickCount - Toolbar_PSWindowReadySince) >= 2000) {
+		; Get ProSelect window position (use tracked window)
+		if (Toolbar_LastPsHwnd != "")
+			WinGetPos, psX, psY, psW, psH, ahk_id %Toolbar_LastPsHwnd%
+		else
+			WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
 		if (psX != "" && psW != "") {
 			; Calculate where toolbar will be positioned
 			closeButtonOffset := Round(300 * DPI_Scale)
@@ -2337,23 +2466,48 @@ GenerateExplorerIcon(colorHex) {
 
 ; =====================================================
 PositionToolbar:
-; Only show toolbar when ProSelect is the active window
+; Only show toolbar when ProSelect is the active window (or our own script windows like the toolbar)
 WinGet, activeExe, ProcessName, A
-if (activeExe != "ProSelect.exe")
+WinGet, _activePID, PID, A
+_ownPID := DllCall("GetCurrentProcessId", "UInt")
+if (activeExe != "ProSelect.exe" && _activePID != _ownPID)
 {
 	Gui, Toolbar:Hide
+	Toolbar_PSWindowReadySince := 0  ; Reset - PS not active
 	return
 }
 
-; Get active window info
-WinGetTitle, psTitle, A
-WinGetPos, psX, psY, psW, psH, A
+; When ProSelect is the active window, use it directly and remember it.
+; When our own toolbar has focus, re-use the last known ProSelect window.
+if (activeExe = "ProSelect.exe") {
+	WinGet, _ptActiveHwnd, ID, A
+	WinGetTitle, _ptActiveTitle, A
+	WinGetPos, _ptAX, _ptAY, _ptAW, _ptAH, A
+	; Only accept if it looks like the main window (not a dialog)
+	if (_ptAW >= 800 && _ptAH >= 600 && _ptActiveTitle != "" && _ptActiveTitle != "ProSelect") {
+		Toolbar_LastPsHwnd := _ptActiveHwnd
+	} else {
+		; Active ProSelect window is a dialog — hide toolbar
+		Gui, Toolbar:Hide
+		return
+	}
+}
+
+; Use the last known good ProSelect window
+if (Toolbar_LastPsHwnd = "") {
+	Gui, Toolbar:Hide
+	Toolbar_PSWindowReadySince := 0
+	return
+}
+WinGetTitle, psTitle, ahk_id %Toolbar_LastPsHwnd%
+WinGetPos, psX, psY, psW, psH, ahk_id %Toolbar_LastPsHwnd%
 
 ; Don't show toolbar during splash screen - only hide if title is empty or just "ProSelect"
 if (psTitle = "" || psTitle = "ProSelect")
 {
 	; Still on splash screen or loading - hide toolbar
 	Gui, Toolbar:Hide
+	Toolbar_PSWindowReadySince := 0  ; Reset - not main window yet
 	return
 }
 
@@ -2364,34 +2518,17 @@ if (psX = "" || psY = "" || psW = "" || psH = "")
 	return
 }
 
-; Find the main ProSelect window (largest one) and compare
-; If active window is significantly smaller, it's a dialog
-WinGet, psWindows, List, ahk_exe ProSelect.exe
-maxW := 0
-maxH := 0
-Loop, %psWindows%
-{
-	thisHwnd := psWindows%A_Index%
-	WinGetPos,,, thisW, thisH, ahk_id %thisHwnd%
-	if (thisW > maxW)
-		maxW := thisW
-	if (thisH > maxH)
-		maxH := thisH
-}
-
-; If this window is less than 80% of the largest window size, it's a dialog
-if (psW < maxW * 0.8 || psH < maxH * 0.8)
-{
-	Gui, Toolbar:Hide
-	return
-}
-
-; Also skip if window is too small to be main window
+; Skip if window is too small to be main window
 if (psW < 800 || psH < 600)
 {
 	Gui, Toolbar:Hide
+	Toolbar_PSWindowReadySince := 0  ; Reset - not a valid main window
 	return
 }
+
+; Track when ProSelect's main window first became valid
+if (Toolbar_PSWindowReadySince = 0)
+	Toolbar_PSWindowReadySince := A_TickCount
 
 ; Room detection disabled - always show camera as active
 ; Show maroon camera icon (capture always available)
@@ -2480,6 +2617,7 @@ if (tbWidth = "") {
 	return
 }
 closeButtonOffset := Round(300 * DPI_Scale)
+tbHeight := Round(43 * DPI_Scale * Settings_ToolbarScale)
 newX := psX + psW - (tbWidth + closeButtonOffset)
 ; Y offset: position toolbar at very top of window title bar area
 newY := psY
@@ -2489,6 +2627,16 @@ if (!Toolbar_IsDragging) {
 	newX := newX + Settings_ToolbarOffsetX
 	newY := newY + Settings_ToolbarOffsetY
 }
+
+; Clamp toolbar to within 10px of the ProSelect window edges
+if (newX < psX - 10)
+	newX := psX - 10
+if (newX + tbWidth > psX + psW + 10)
+	newX := psX + psW + 10 - tbWidth
+if (newY < psY - 10)
+	newY := psY - 10
+if (newY + tbHeight > psY + psH + 10)
+	newY := psY + psH + 10 - tbHeight
 
 ; Ensure toolbar stays within screen bounds
 SysGet, monitorCount, MonitorCount
@@ -2502,7 +2650,6 @@ psCenterY := psY + (psH // 2)
 foundMonitor := false
 
 ; Check each monitor to find which one contains the ProSelect window
-tbHeight := Round(43 * DPI_Scale * Settings_ToolbarScale)
 Loop, %monitorCount% {
 	SysGet, mon, MonitorWorkArea, %A_Index%
 	if (psCenterX >= monLeft && psCenterX <= monRight && psCenterY >= monTop && psCenterY <= monBottom) {
@@ -2512,7 +2659,8 @@ Loop, %monitorCount% {
 			newX := monLeft
 		if (newX + tbWidth > monRight)
 			newX := monRight - tbWidth
-		; Allow Y to go above work area top (into title bar)
+		if (newY < monTop)
+			newY := monTop
 		if (newY + tbHeight > monBottom)
 			newY := monBottom - tbHeight
 		break
@@ -2573,6 +2721,10 @@ UpdateToolbarBackground:
 	if (!Settings_ToolbarAutoBG)
 		return
 	
+	; Don't sample until ProSelect has been in its main window for at least 2 seconds
+	if (Toolbar_PSWindowReadySince = 0 || (A_TickCount - Toolbar_PSWindowReadySince) < 2000)
+		return
+	
 	; Get current toolbar position
 	WinGetPos, tbX, tbY, tbW, tbH, ahk_id %ToolbarHwnd%
 	if (tbX = "" || tbW = "")
@@ -2621,8 +2773,11 @@ Toolbar_GrabHandle:
 {
 	global Settings_ToolbarOffsetX, Settings_ToolbarOffsetY, Toolbar_IsDragging, ToolbarHwnd, toolbarWidth
 	
-	; Get ProSelect window position as reference
-	WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
+	; Get ProSelect window position as reference (use tracked window)
+	if (Toolbar_LastPsHwnd != "")
+		WinGetPos, psX, psY, psW, psH, ahk_id %Toolbar_LastPsHwnd%
+	else
+		WinGetPos, psX, psY, psW, psH, ahk_exe ProSelect.exe
 	if (psX = "" || psW = "")
 		return
 	
@@ -2644,13 +2799,25 @@ Toolbar_GrabHandle:
 	Toolbar_IsDragging := true
 	SetTimer, PositionToolbar, Off  ; Stop auto-positioning during drag
 	
-	; Track mouse movement while button held
+	; Pre-compute toolbar height for clamp calculations
+	_dragTbH := Round(43 * DPI_Scale * Settings_ToolbarScale)
+	
+	; Track mouse movement while button held — clamp to within 10px of ProSelect window
 	while (GetKeyState("LButton", "P")) {
 		MouseGetPos, currentMouseX, currentMouseY
 		deltaX := currentMouseX - startMouseX
 		deltaY := currentMouseY - startMouseY
 		newTbX := startTbX + deltaX
 		newTbY := startTbY + deltaY
+		; Clamp to ProSelect window bounds + 10px margin
+		if (newTbX < psX - 10)
+			newTbX := psX - 10
+		if (newTbX + tbWidth > psX + psW + 10)
+			newTbX := psX + psW + 10 - tbWidth
+		if (newTbY < psY - 10)
+			newTbY := psY - 10
+		if (newTbY + _dragTbH > psY + psH + 10)
+			newTbY := psY + psH + 10 - _dragTbH
 		Gui, Toolbar:Show, x%newTbX% y%newTbY% NoActivate
 		Sleep, 16  ; ~60fps
 	}
@@ -2664,11 +2831,17 @@ Toolbar_GrabHandle:
 	
 	Toolbar_IsDragging := false
 	SaveSettings()
-	SetTimer, PositionToolbar, 200  ; Resume auto-positioning
 	
-	; Recreate toolbar to sample background at new position (avoids flashing hide/show)
+	; Defer toolbar rebuild to a timer so this g-label thread fully exits first.
+	; Destroying the toolbar GUI inside its own g-label handler confuses AHK v1's
+	; thread tracking and blocks subsequent clicks on the new grab handle.
 	if (Settings_ToolbarAutoBG)
-		CreateFloatingToolbar()
+		SetTimer, DeferredToolbarRebuild, -100
+	else
+		SetTimer, PositionToolbar, 200  ; Resume timer when no rebuild needed
+	
+	; Reactivate ProSelect AFTER saving so PositionToolbar timer sees PS as active
+	WinActivate, ahk_exe ProSelect.exe
 	
 	ToolTip, Position saved!
 	SetTimer, RemoveGrabTooltip, -1000
@@ -2677,6 +2850,12 @@ Return
 
 RemoveGrabTooltip:
 ToolTip
+Return
+
+; Deferred toolbar rebuild after drag — runs outside the g-label thread
+DeferredToolbarRebuild:
+CreateFloatingToolbar()
+WinActivate, ahk_exe ProSelect.exe
 Return
 
 Toolbar_ToggleSort:
@@ -4443,9 +4622,12 @@ Toolbar_GoCardless:
 	hasSMS := (Settings_GCSMSTemplateName != "" && Settings_GCSMSTemplateName != "SELECT")
 	
 	if (!hasEmail && !hasSMS) {
-		DarkMsgBox("No Template Selected", "No mandate found for " . clientName . ".`n`nPlease select an Email or SMS template in Settings > GoCardless to send mandate requests.", "warning")
-		ShowSettingsTab("GoCardless")
-		Gui, Settings:Show
+		; Templates are now managed in SideKick_GC settings
+		result := DarkMsgBox("No Template Selected", "No mandate found for " . clientName . ".`n`nPlease configure an Email or SMS template in GoCardless Settings to send mandate requests.", "warning", {buttons: ["Open GC Settings", "Cancel"]})
+		if (result = "Open GC Settings") {
+			gcCmd := GetScriptCommand("gocardless_api", "--gui settings")
+			Run, %gcCmd%,, UseErrorLevel
+		}
 		return
 	}
 	
@@ -4488,13 +4670,17 @@ GC_SearchMandateByNameOrEmail(contactData) {
 	; Wait for user input
 	global GCSearchResult := ""
 	WinWaitClose, ahk_id %GCSearchHwnd%
-	searchTerm := GCSearchResult
+	searchTerm := Trim(GCSearchResult)
 	
 	if (searchTerm = "")
 		return
 	
 	; Detect if it's an email (contains @) or a name
 	isEmail := InStr(searchTerm, "@") > 0
+	
+	; Strip all spaces from email input (users often paste with stray spaces)
+	if (isEmail)
+		searchTerm := StrReplace(searchTerm, " ", "")
 	searchType := isEmail ? "email" : "name"
 	
 	ToolTip, Searching for mandate by %searchType%: %searchTerm%...
@@ -4542,6 +4728,10 @@ GC_SearchMandateByNameOrEmail(contactData) {
 		mandateResult.plans := (parts.Length() >= 6) ? parts[6] : ""
 		foundName := (parts.Length() >= 7) ? parts[7] : searchTerm
 		foundEmail := (parts.Length() >= 8) ? parts[8] : ""
+		
+		; Store payee (mandate holder) details — used when a different person pays
+		mandateResult.payeeName := foundName
+		mandateResult.payeeEmail := foundEmail
 		
 		; Show success and offer to create payment plan
 		plansMsg := "`n`n✅ No Existing Plans"
@@ -6089,29 +6279,19 @@ Settings_GoCardlessEnabled := Toggle_GoCardlessEnabled_State
 IniWrite, %Settings_GoCardlessEnabled%, %IniFilename%, GoCardless, Enabled
 ; Enable/disable controls and recreate toolbar
 if (Settings_GoCardlessEnabled) {
-	GuiControl, Settings:Enable, GCTokenEditBtn
 	GuiControl, Settings:Enable, GCTestBtn
+	GuiControl, Settings:Enable, GCOpenSettingsBtn
 	GuiControl, Settings:Enable, GCDashboardBtn
-	GuiControl, Settings:Enable, GCEmailTplCombo
-	GuiControl, Settings:Enable, GCEmailTplRefresh
-	GuiControl, Settings:Enable, GCSMSTplCombo
-	GuiControl, Settings:Enable, GCSMSTplRefresh
+	GuiControl, Settings:Enable, GCEmptyMandatesBtn
+	GuiControl, Settings:Enable, GCStaleMandatesBtn
 	GuiControl, Settings:Enable, Toggle_GCAutoSetup
-	GuiControl, Settings:Enable, GCNamePart1DDL
-	GuiControl, Settings:Enable, GCNamePart2DDL
-	GuiControl, Settings:Enable, GCNamePart3DDL
 } else {
-	GuiControl, Settings:Disable, GCTokenEditBtn
 	GuiControl, Settings:Disable, GCTestBtn
+	GuiControl, Settings:Disable, GCOpenSettingsBtn
 	GuiControl, Settings:Disable, GCDashboardBtn
-	GuiControl, Settings:Disable, GCEmailTplCombo
-	GuiControl, Settings:Disable, GCEmailTplRefresh
-	GuiControl, Settings:Disable, GCSMSTplCombo
-	GuiControl, Settings:Disable, GCSMSTplRefresh
+	GuiControl, Settings:Disable, GCEmptyMandatesBtn
+	GuiControl, Settings:Disable, GCStaleMandatesBtn
 	GuiControl, Settings:Disable, Toggle_GCAutoSetup
-	GuiControl, Settings:Disable, GCNamePart1DDL
-	GuiControl, Settings:Disable, GCNamePart2DDL
-	GuiControl, Settings:Disable, GCNamePart3DDL
 }
 CreateFloatingToolbar()
 Return
@@ -9186,44 +9366,27 @@ RefreshPrintTemplatesSilent:
 {
 	global Settings_PrintTemplateOptions, Settings_PrintTemplate_PayPlan, Settings_PrintTemplate_Standard
 	
-	if !WinExist("ahk_exe ProSelect.exe")
+	psDataFile := FindProSelectDataFile()
+	if (psDataFile = "")
 		return
 	
-	; Print menu requires an open album
-	WinGetTitle, psTitle, ahk_exe ProSelect.exe
-	if (psTitle = "ProSelect" || psTitle = "ProSelect - Untitled")
-		return
+	FileRead, xmlContent, %psDataFile%
 	
-	WinActivate, ahk_exe ProSelect.exe
-	WinWaitActive, ahk_exe ProSelect.exe,, 2
-	
-	delay := Settings_MenuDelay
-	Send, !f
-	Sleep, %delay%
-	Send, p
-	Sleep, %delay%
-	Send, {Right}
-	Sleep, %delay%
-	Send, {Enter}
-	Sleep, 1000
-	
-	WinWait, Print Order/Invoice Report, , 3
-	if ErrorLevel {
-		return
+	cbList := ""
+	pos := 1
+	while (pos := RegExMatch(xmlContent, "i)<NoteItem\s+Type=""0"">\s*<Title><!\[CDATA\[([^\]]+)\]\]></Title>", match, pos)) {
+		if (match1 != "") {
+			if (cbList != "")
+				cbList .= "|"
+			cbList .= match1
+		}
+		pos += StrLen(match)
 	}
+	xmlContent := ""
 	
-	ControlGet, cbList, List,, ComboBox5, Print Order/Invoice Report
-	if (ErrorLevel || cbList = "") {
-		Send, {Escape}
+	if (cbList = "")
 		return
-	}
 	
-	Send, {Escape}
-	Sleep, 200
-	
-	Gui, Settings:Show
-	
-	StringReplace, cbList, cbList, `n, |, All
 	Settings_PrintTemplateOptions := cbList
 	
 	GuiControl, Settings:, PrintPayPlanCombo, |SELECT|%cbList%
@@ -9240,6 +9403,40 @@ RefreshPrintTemplatesSilent:
 		GuiControl, Settings:ChooseString, PrintStandardCombo, SELECT
 	
 	IniWrite, %Settings_PrintTemplateOptions%, %IniFilename%, Toolbar, PrintTemplateOptions
+	
+	return
+}
+
+; ============================================================================
+; Silent refresh for ProSelect Payment Methods (no dialogs) - used by Setup Wizard
+; ============================================================================
+RefreshPaymentMethodsSilent:
+{
+	global Settings_PSPaymentMethods
+	
+	psDataFile := FindProSelectDataFile()
+	if (psDataFile = "")
+		return
+	
+	FileRead, xmlContent, %psDataFile%
+	
+	methodsList := ""
+	pos := 1
+	while (pos := RegExMatch(xmlContent, "i)<PaymentType\s[^>]*name=""([^""]+)""", match, pos)) {
+		if (match1 != "") {
+			if (methodsList != "")
+				methodsList .= "|"
+			methodsList .= match1
+		}
+		pos += StrLen(match)
+	}
+	xmlContent := ""
+	
+	if (methodsList = "")
+		return
+	
+	Settings_PSPaymentMethods := methodsList
+	IniWrite, %Settings_PSPaymentMethods%, %IniFilename%, GoCardless, PSPaymentMethods
 	
 	return
 }
@@ -9508,10 +9705,14 @@ GHLWizardApiKeyStep:
 		}
 	}
 	
-	; Now fetch templates if ProSelect is running
+	; Now fetch templates and payment methods if ProSelect is running
 	if WinExist("ahk_exe ProSelect.exe") {
 		ToolTip, Loading ProSelect templates...
 		Gosub, RefreshPrintTemplatesSilent
+		Sleep, 300
+		
+		ToolTip, Loading ProSelect payment methods...
+		Gosub, RefreshPaymentMethodsSilent
 		Sleep, 300
 	}
 	
