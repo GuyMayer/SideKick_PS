@@ -16,6 +16,39 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.3 (2026-03-09)
+
+### New Features
+- **Email PDF toolbar button**: New toolbar button emails invoice PDF to client via GHL email template
+- **Email PDF settings**: GHL email template selector in Print tab + toggle in Toolbar settings tab
+- **Email PDF print-then-email flow**: Follows the same Print-to-PDF procedure (print → save → copy) then emails the generated PDF automatically
+
+### Fixes
+- **Email PDF template persistence**: Opening/closing Settings no longer wipes the saved PDF email template when the template cache is empty
+- **Toolbar settings show/hide**: Email PDF toggle now properly hidden/shown when switching settings tabs
+
+---
+
+## v3.0.2 (2026-03-09)
+
+### New Features
+- **Silent GoCardless plan creation**: When all payment data is available (mandate + paylines from album), creates the GoCardless instalment schedule silently via CLI — no GUI window opened
+- **Auto-detect silent mode**: `GC_ShowPayPlanDialog` reads payment data from the .psa file when PayPlanLine globals are empty (toolbar/search flow), and goes silent when mandate ID and DD paylines are both available
+- **GoCardless plan cancellation on Replace**: Cancels active instalment schedules, subscriptions, and pending one-off payments on the mandate before creating a new plan
+- **Replace PayPlan button**: Mandate dialogs show "Replace PayPlan" when existing plans are detected, "Add PayPlan" when none
+
+### Fixes
+- **PayPlan .psa injection newline bug**: JSON amount parser now stops at `\n`/`\r` and trims whitespace — fixes broken `write_psa_payments` args from pretty-printed result JSON
+- **Pending deposit not cancelled**: `cancel_mandate_plans` now cancels pending one-off payments (deposits) alongside instalment schedules and subscriptions
+
+### SideKick_GC v1.2.0
+- **`--silent` CLI flag**: Create payment plans headlessly — requires `--mandate-id`, `--paylines`, `--plan-name`; writes result file and exits without GUI
+- **`--cancel-plans` CLI command**: Cancel all active plans on a mandate (subscriptions, instalments, and pending one-off payments)
+- **`cancel_mandate_plans()` API**: Iterates all plans on a mandate and cancels active ones
+- **`cancel_payment()` API**: Cancel individual pending payments
+
+---
+
 ## v3.0.1 (2026-03-09)
 
 ### New Features

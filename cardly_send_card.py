@@ -86,7 +86,7 @@ def _load_cardly_credentials():
     for cred_path in possible_paths:
         if os.path.exists(cred_path):
             try:
-                with open(cred_path, 'r', encoding='utf-8') as f:
+                with open(cred_path, 'r', encoding='utf-8-sig') as f:
                     content = f.read()
 
                 # Try new format (base64 encoded in shared credentials.json)
@@ -633,8 +633,19 @@ def get_template_media_id(template_id: str) -> str:
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             data = response.json()
+            tpl_data = data.get('data', {})
+            # Log template variable definitions so we can verify expected names
+            tpl_vars = tpl_data.get('variables', tpl_data.get('fields', []))
+            if tpl_vars:
+                print(f"[Cardly] Template '{tpl_data.get('name', template_id)}' "
+                      f"expects variables: {tpl_vars}")
+            else:
+                # Try pages/messages for variable placeholders
+                pages = tpl_data.get('pages', [])
+                if pages:
+                    print(f"[Cardly] Template pages: {pages}")
             # Template has nested media object with its ID
-            media = data.get('data', {}).get('media', {})
+            media = tpl_data.get('media', {})
             return media.get('id')
     except Exception:
         pass
@@ -791,17 +802,24 @@ def place_cardly_order(artwork_id: str, recipient: dict, message: str = "",
     # Determine if using template mode
     use_template = template_id and is_template_id(template_id)
 
+    # Always log template/variable diagnostics (helps debug missing "Dear fName")
+    print(f"[Cardly Order] template_id={template_id!r}  "
+          f"is_template={use_template}  first_name={first_name!r}")
+
     if use_template:
         # Template-based order: Uses template with variables + artwork for front
+        fName_val = first_name or cardly_recipient.get("firstName", "")
         line_item = {
             "template": template_id,
             "artwork": artwork_id,
             "recipient": cardly_recipient,
             "variables": {
-                "fName": first_name or cardly_recipient.get("firstName", ""),
+                "fName": fName_val,
                 "message": message
             }
         }
+        print(f"[Cardly Order] Sending variables: fName={fName_val!r}  "
+              f"message={message[:50]!r}{'...' if len(message) > 50 else ''}")
         debug_print(f"Placing TEMPLATE order: {template_id}")
     else:
         # Artwork-only order: Simple card with just the artwork

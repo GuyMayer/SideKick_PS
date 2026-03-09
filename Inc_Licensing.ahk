@@ -869,6 +869,15 @@ CreateShortcutsPanel()
 	Gui, Settings:Font, s10 Norm c%lblColorCardly%, Segoe UI
 	Gui, Settings:Add, Text, x255 y494 w380 BackgroundTrans vSCLabel_Cardly gToggleTB_Cardly, Cardly  —  Send postcard via Cardly
 	
+	; Email PDF button (📧) - Blue background
+	iconBgEmailPDF := Settings_ShowBtn_EmailPDF ? "0066AA" : "444444"
+	iconFgEmailPDF := Settings_ShowBtn_EmailPDF ? "FFFFFF" : "888888"
+	lblColorEmailPDF := Settings_ShowBtn_EmailPDF ? labelColor : "666666"
+	Gui, Settings:Font, s14, Segoe UI
+	Gui, Settings:Add, Text, x215 y525 w30 h28 Center Background%iconBgEmailPDF% c%iconFgEmailPDF% vSCIcon_EmailPDF gToggleTB_EmailPDF, 📧
+	Gui, Settings:Font, s10 Norm c%lblColorEmailPDF%, Segoe UI
+	Gui, Settings:Add, Text, x255 y529 w380 BackgroundTrans vSCLabel_EmailPDF gToggleTB_EmailPDF, Email PDF  —  Email PDF to client via GHL
+	
 	; SD Download button (📥) — note: managed separately in File Management
 	Gui, Settings:Font, s14, Segoe UI
 	Gui, Settings:Add, Text, x215 y560 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
@@ -989,6 +998,9 @@ CreatePrintPanel()
 				tplList .= "|" . parts[2]
 			}
 		}
+	} else if (Settings_EmailTemplateName != "" && Settings_EmailTemplateName != "(none selected)" && Settings_EmailTemplateName != "SELECT") {
+		; Cache empty but a template was previously saved — add it so combo shows the saved selection
+		tplList .= "|" . Settings_EmailTemplateName
 	}
 	Gui, Settings:Add, ComboBox, x310 y333 w200 r10 vPrintEmailTplCombo gPrintEmailTplChanged Choose1, %tplList%
 	; Select saved value if it exists
@@ -1020,7 +1032,7 @@ CreatePrintPanel()
 	; PDF OUTPUT GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y440 w480 h150 vPrintPDFGroup, PDF Output
+	Gui, Settings:Add, GroupBox, x195 y440 w480 h210 vPrintPDFGroup, PDF Output
 
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y468 w300 h22 BackgroundTrans vPrintEnablePDFLabel HwndHwndPrintEnablePDF, Enable Print to PDF
@@ -1037,8 +1049,33 @@ CreatePrintPanel()
 	Gui, Settings:Add, Button, x595 y527 w60 h24 gBrowsePDFOutputFolder vPrintPDFCopyBrowse HwndHwndPrintPDFBrowse, Browse
 	RegisterSettingsTooltip(HwndPrintPDFBrowse, "Browse for PDF copy folder")
 
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y565 w95 h22 BackgroundTrans vPrintPDFEmailTplLabel HwndHwndPrintPDFEmailTpl, Email Tpl:
+	RegisterSettingsTooltip(HwndPrintPDFEmailTpl, "PDF EMAIL TEMPLATE`n`nSelect a GHL email template for emailing PDFs to clients.`nThe PDF will be attached to the email.`n`nClick 🔄 to fetch templates from GHL.")
+	; Build template list for ComboBox
+	pdfTplList := "(none selected)"
+	if (GHL_CachedEmailTemplates != "") {
+		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2) {
+				pdfTplList .= "|" . parts[2]
+			}
+		}
+	} else if (Settings_PDFEmailTemplateName != "" && Settings_PDFEmailTemplateName != "(none selected)") {
+		; Cache empty but a template was previously saved — add it so combo shows the saved selection
+		pdfTplList .= "|" . Settings_PDFEmailTemplateName
+	}
+	Gui, Settings:Add, ComboBox, x310 y563 w200 r10 vPrintPDFEmailTplCombo Choose1, %pdfTplList%
+	if (Settings_PDFEmailTemplateName != "" && Settings_PDFEmailTemplateName != "(none selected)")
+		GuiControl, Settings:ChooseString, PrintPDFEmailTplCombo, %Settings_PDFEmailTemplateName%
+	Gui, Settings:Add, Button, x515 y562 w40 h27 gRefreshPrintPDFEmailTemplates vPrintPDFEmailTplRefresh HwndHwndPrintPDFEmailRefresh, 🔄
+	RegisterSettingsTooltip(HwndPrintPDFEmailRefresh, "REFRESH EMAIL TEMPLATES`n`nFetch available email templates from GHL.")
+
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y558 w440 BackgroundTrans vPrintPDFHint, PDF is always saved to the album folder. Leave blank to skip copying.
+	Gui, Settings:Add, Text, x210 y595 w440 BackgroundTrans vPrintPDFEmailHint, GHL email template used when emailing PDF to client. PDF is always saved to album folder.
 
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -1255,6 +1292,52 @@ RefreshPrintEmailTemplates:
 	else
 		GuiControl, Settings:ChooseString, PrintEmailTplCombo, SELECT
 	
+	DarkMsgBox("Templates Loaded", "Loaded " . StrSplit(result, "`n").MaxIndex() . " email templates from GHL.", "success", {timeout: 2})
+return
+
+RefreshPrintPDFEmailTemplates:
+	; Refresh email templates for PDF Email dropdown - reuses cached data from room email refresh
+	ToolTip, Fetching email templates from GHL...
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
+	if (scriptCmd = "") {
+		ToolTip
+		DarkMsgBox("Error", "Script not found: sync_ps_invoice", "error")
+		return
+	}
+	tempFile := A_Temp . "\ghl_email_templates.json"
+	FileDelete, %tempFile%
+	tempCmd := A_Temp . "\sk_pdf_email_tpl_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileAppend, % "@" . scriptCmd . " > """ . tempFile . """ 2>&1`n", %tempCmd%
+	RunWait, %ComSpec% /c "%tempCmd%", , Hide
+	FileDelete, %tempCmd%
+	FileRead, result, %tempFile%
+	FileDelete, %tempFile%
+	ToolTip
+	if (InStr(result, "ERROR") || result = "") {
+		DarkMsgBox("Error", "Failed to fetch email templates.", "error")
+		return
+	}
+	GHL_CachedEmailTemplates := result
+	cachedForIni := StrReplace(result, "`n", "<>")
+	cachedForIni := StrReplace(cachedForIni, "`r", "")
+	IniWrite, %cachedForIni%, %IniFilename%, GHL, CachedEmailTemplates
+	; Rebuild the dropdown
+	newPdfTplList := "(none selected)"
+	Loop, Parse, result, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2) {
+			newPdfTplList .= "|" . parts[2]
+		}
+	}
+	GuiControl, Settings:, PrintPDFEmailTplCombo, |%newPdfTplList%
+	if (Settings_PDFEmailTemplateName != "" && Settings_PDFEmailTemplateName != "(none selected)")
+		GuiControl, Settings:ChooseString, PrintPDFEmailTplCombo, %Settings_PDFEmailTemplateName%
+	else
+		GuiControl, Settings:ChooseString, PrintPDFEmailTplCombo, (none selected)
 	DarkMsgBox("Templates Loaded", "Loaded " . StrSplit(result, "`n").MaxIndex() . " email templates from GHL.", "success", {timeout: 2})
 return
 
@@ -3019,11 +3102,64 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		}
 	}
 	
+	; If PayPlanLine was empty (toolbar/search flow), read payments from .psa file
+	if (ddPaylines = "") {
+		psaPath := GetAlbumPath()
+		if (psaPath != "" && FileExist(psaPath)) {
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - PayPlanLine empty, reading from .psa: " . psaPath . "`n", %DebugLogFile%
+			readCmd := GetScriptCommand("read_psa_payments", """" . psaPath . """")
+			tempPsaRead := A_Temp . "\gc_psa_read_" . A_TickCount . ".txt"
+			RunCmdToFile(readCmd, tempPsaRead)
+			FileRead, psaOutput, %tempPsaRead%
+			FileDelete, %tempPsaRead%
+			psaOutput := Trim(psaOutput)
+			
+			if (InStr(psaOutput, "PAYMENTS|")) {
+				; Format: PAYMENTS|count|order_date|day,month,year,amount,methodName,methodID|...
+				psaParts := StrSplit(psaOutput, "|")
+				Loop {
+					pidx := 3 + A_Index  ; Skip PAYMENTS|count|order_date
+					if (pidx > psaParts.Length())
+						break
+					pData := psaParts[pidx]
+					if (pData = "")
+						continue
+					pp := StrSplit(pData, ",")
+					if (pp.Length() < 5)
+						continue
+					; pp: day,month,year,amount,methodName,methodID
+					pMethod := pp[5]
+					if (InStr(pMethod, "GoCardless") || InStr(pMethod, "Direct Debit") || InStr(pMethod, " DD") || pMethod = "DD" || InStr(pMethod, "BACS")) {
+						pAmount := pp[4]
+						ddBalance += pAmount
+						if (ddPayMethod = "GoCardless DD" && pMethod != "DD")
+							ddPayMethod := pMethod
+						; Convert to payline format: day,month,year,type,amount
+						; Year from .psa is 4-digit, convert to 2-digit for consistency
+						pYear := pp[3]
+						if (StrLen(pYear) = 4)
+							pYear := SubStr(pYear, 3)
+						payline := pp[1] . "," . pp[2] . "," . pYear . "," . pMethod . "," . pAmount
+						if (ddPaylines != "")
+							ddPaylines .= ";"
+						ddPaylines .= payline
+					}
+				}
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Read " . (ddPaylines != "" ? "DD paylines from .psa" : "no DD payments in .psa") . "`n", %DebugLogFile%
+			}
+		}
+	}
+	
 	; Build temp result file path
 	tempResult := A_Temp . "\gc_payplan_result_" . A_TickCount . ".json"
 	
-	; Build SideKick_GC launch command
-	gcArgs := "--gui payment-plans"
+	; Auto-detect: go silent when we have all required data, GUI when anything is missing
+	mandateId := mandateResult.mandateId
+	silent := (mandateId != "" && ddPaylines != "")
+	if (silent)
+		gcArgs := "--silent"
+	else
+		gcArgs := "--gui payment-plans"
 	gcArgs .= " --client-email """ . clientEmail . """"
 	gcArgs .= " --client-name """ . clientName . """"
 	gcArgs .= " --plan-name """ . albumName . """"
@@ -3035,7 +3171,6 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	gcArgs .= " --result-file """ . tempResult . """"
 	
 	; Pass mandate ID so GC can skip the lookup step
-	mandateId := mandateResult.mandateId
 	if (mandateId != "")
 		gcArgs .= " --mandate-id """ . mandateId . """"
 	
@@ -3051,20 +3186,49 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	if (ddPaylines != "")
 		gcArgs .= " --paylines """ . ddPaylines . """"
 	
+	; Silent mode needs --live flag since it runs as CLI command
+	if (silent)
+		gcArgs .= " --live"
+	
 	gcCmd := GetScriptCommand("gocardless_api", gcArgs)
-	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Launching SideKick_GC`n", %DebugLogFile%
+	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Launching SideKick_GC" . (silent ? " (silent)" : "") . "`n", %DebugLogFile%
 	
-	; Launch SideKick_GC and wait for it to close
-	RunWait, %gcCmd%,, UseErrorLevel
-	
-	if (ErrorLevel) {
-		DarkMsgBox("Error", "Failed to launch SideKick_GC.", "error")
-		return
+	if (silent) {
+		; Silent mode: capture stdout for SUCCESS/ERROR check
+		ToolTip, Creating GoCardless payment plan...
+		tempStdout := A_Temp . "\gc_silent_" . A_TickCount . ".txt"
+		RunCmdToFile(gcCmd, tempStdout)
+		FileRead, silentOutput, %tempStdout%
+		FileDelete, %tempStdout%
+		silentOutput := Trim(silentOutput)
+		ToolTip
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Silent result: " . silentOutput . "`n", %DebugLogFile%
+		
+		if (InStr(silentOutput, "ERROR|")) {
+			errorMsg := StrReplace(silentOutput, "ERROR|", "")
+			DarkMsgBox("GoCardless Error", "Failed to create payment plan:`n`n" . errorMsg, "error")
+			return
+		}
+		if (!InStr(silentOutput, "SUCCESS|")) {
+			DarkMsgBox("GoCardless Error", "Unexpected response:`n`n" . SubStr(silentOutput, 1, 300), "error")
+			return
+		}
+	} else {
+		; GUI mode: launch and wait for user to close
+		RunWait, %gcCmd%,, UseErrorLevel
+		
+		if (ErrorLevel) {
+			DarkMsgBox("Error", "Failed to launch SideKick_GC.", "error")
+			return
+		}
 	}
 	
 	; Check for result file
 	if (!FileExist(tempResult)) {
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No result file (user cancelled or no plan created)`n", %DebugLogFile%
+		if (silent)
+			DarkMsgBox("GoCardless Error", "Plan creation reported success but no result file was written.", "error")
+		else
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No result file (user cancelled or no plan created)`n", %DebugLogFile%
 		return
 	}
 	
@@ -3139,11 +3303,11 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		amtEnd := amtStart
 		Loop {
 			ch := SubStr(resultJson, amtEnd, 1)
-			if (ch = "," || ch = "}" || ch = "]" || ch = "")
+			if (ch = "," || ch = "}" || ch = "]" || ch = "" || ch = "`n" || ch = "`r")
 				break
 			amtEnd++
 		}
-		amount := Trim(SubStr(resultJson, amtStart, amtEnd - amtStart))
+		amount := Trim(SubStr(resultJson, amtStart, amtEnd - amtStart), " `t`r`n")
 		
 		; Parse YYYY-MM-DD to day,month,year
 		dateParts := StrSplit(dateStr, "-")
@@ -3327,7 +3491,7 @@ RefreshGCSMSTemplates:
 	GHL_CachedSMSTemplates := result
 	
 	; Save to INI for persistence
-	iniValue := StrReplace(result, "`n", "§§")
+	iniValue := StrReplace(result, "`n", "<>")
 	iniValue := StrReplace(iniValue, "`r", "")
 	IniWrite, %iniValue%, %IniFilename%, GHL, CachedSMSTemplates
 	
@@ -3399,7 +3563,7 @@ RefreshGCEmailTemplates:
 	GHL_CachedEmailTemplates := result
 	
 	; Save to INI for persistence (use same format as Print tab)
-	iniValue := StrReplace(result, "`n", "§§")
+	iniValue := StrReplace(result, "`n", "<>")
 	iniValue := StrReplace(iniValue, "`r", "")
 	IniWrite, %iniValue%, %IniFilename%, GHL, CachedEmailTemplates
 	
@@ -3546,6 +3710,183 @@ CreateDisplayPanel()
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
 
+CreateSoundsPanel()
+{
+	global
+	
+	; Theme-aware colors
+	if (Settings_DarkMode) {
+		headerColor := "4FC3F7"
+		textColor := "FFFFFF"
+		labelColor := "CCCCCC"
+		mutedColor := "888888"
+		groupColor := "666666"
+	} else {
+		headerColor := "0078D4"
+		textColor := "1E1E1E"
+		labelColor := "444444"
+		mutedColor := "666666"
+		groupColor := "999999"
+	}
+	
+	; Sounds panel container (initially hidden)
+	Gui, Settings:Add, Text, x190 y10 w510 h680 BackgroundTrans vPanelSounds Hidden
+	
+	; Section header
+	Gui, Settings:Font, s16 c%headerColor%, Segoe UI
+	Gui, Settings:Add, Text, x200 y20 w400 BackgroundTrans vSndHeader Hidden, 🔊 Pace Button Sounds
+	
+	; Description
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x200 y50 w460 BackgroundTrans vSndDesc Hidden, Audio feedback for pace buttons. Triggered by mouse click on the pace buttons or keyboard 1`, 2`, 3 while ProSelect is active.
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; ENABLE TOGGLE — y80
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y82 w300 BackgroundTrans vSndEnableLabel Hidden, Enable Pace Button Sounds
+	CreateToggleSlider("Settings", "PaceSoundsEnabled", 630, 80, Settings_PaceSoundsEnabled)
+	Gui, Settings:Add, Text, x210 y107 w300 BackgroundTrans vSndKeyLabel Hidden, Key Sounds (1, 2, 3)
+	CreateToggleSlider("Settings", "PaceKeySounds", 630, 105, Settings_PaceKeySounds)
+	Gui, Settings:Add, Text, x210 y132 w300 BackgroundTrans vSndClickLabel Hidden, Click Sounds (mouse)
+	CreateToggleSlider("Settings", "PaceClickSounds", 630, 130, Settings_PaceClickSounds)
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; SOUND FOLDER — y160
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y162 w50 BackgroundTrans vSndFolderLabel Hidden, Folder:
+	Gui, Settings:Add, Edit, x265 y160 w310 h22 cBlack vSndFolderEdit Hidden, %Settings_PaceSoundFolder%
+	Gui, Settings:Add, Button, x580 y159 w65 h24 gSndFolderBrowse vSndFolderBrowseBtn Hidden, Browse
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; YES BUTTON (top) — y195
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y195 w480 h100 vSndGroup1 Hidden, ✅ Yes (Button 1 / Key 1)
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y220 w50 BackgroundTrans vSndLabel1 Hidden, Sound:
+	Gui, Settings:Add, DropDownList, x265 y218 w310 vSndDDL1 Hidden
+	Gui, Settings:Add, Text, x210 y248 w50 BackgroundTrans vSndVolLabel1 Hidden, Vol:
+	Gui, Settings:Add, Slider, x265 y245 w245 h25 Range1-10 TickInterval1 gSndVolChange vSndVol1 Hidden, %Settings_PaceVolume1%
+	Gui, Settings:Add, Text, x515 y248 w25 BackgroundTrans vSndVolVal1 Hidden, %Settings_PaceVolume1%
+	Gui, Settings:Add, Button, x580 y245 w65 h22 gSndTest1 vSndTest1 Hidden, ▶ Test
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; MAYBE BUTTON (middle) — y305
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y305 w480 h100 vSndGroup2 Hidden, 🤔 Maybe (Button 2 / Key 2)
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y330 w50 BackgroundTrans vSndLabel2 Hidden, Sound:
+	Gui, Settings:Add, DropDownList, x265 y328 w310 vSndDDL2 Hidden
+	Gui, Settings:Add, Text, x210 y358 w50 BackgroundTrans vSndVolLabel2 Hidden, Vol:
+	Gui, Settings:Add, Slider, x265 y355 w245 h25 Range1-10 TickInterval1 gSndVolChange vSndVol2 Hidden, %Settings_PaceVolume2%
+	Gui, Settings:Add, Text, x515 y358 w25 BackgroundTrans vSndVolVal2 Hidden, %Settings_PaceVolume2%
+	Gui, Settings:Add, Button, x580 y355 w65 h22 gSndTest2 vSndTest2 Hidden, ▶ Test
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; NO BUTTON (bottom) — y415
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y415 w480 h100 vSndGroup3 Hidden, ❌ No (Button 3 / Key 3)
+	
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y440 w50 BackgroundTrans vSndLabel3 Hidden, Sound:
+	Gui, Settings:Add, DropDownList, x265 y438 w310 vSndDDL3 Hidden
+	Gui, Settings:Add, Text, x210 y468 w50 BackgroundTrans vSndVolLabel3 Hidden, Vol:
+	Gui, Settings:Add, Slider, x265 y465 w245 h25 Range1-10 TickInterval1 gSndVolChange vSndVol3 Hidden, %Settings_PaceVolume3%
+	Gui, Settings:Add, Text, x515 y468 w25 BackgroundTrans vSndVolVal3 Hidden, %Settings_PaceVolume3%
+	Gui, Settings:Add, Button, x580 y465 w65 h22 gSndTest3 vSndTest3 Hidden, ▶ Test
+	
+	; ═══════════════════════════════════════════════════════════════════════════
+	; HINTS — y530
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x200 y530 w460 BackgroundTrans vSndHint Hidden, Supports .wav and .mp3 files. Select (none) for a default beep tone.`nTrigger: click the pace buttons in ProSelect or press 1`, 2`, 3 on the keyboard.
+	
+	; Populate dropdowns from folder
+	PopulateSoundDDLs()
+	
+	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
+}
+
+; Sounds panel event handlers
+SndFolderBrowse:
+	FileSelectFolder, sndFolder, *%Settings_PaceSoundFolder%, 3, Select Sound Folder
+	if (sndFolder != "") {
+		GuiControl, Settings:, SndFolderEdit, %sndFolder%
+		Settings_PaceSoundFolder := sndFolder
+		PopulateSoundDDLs()
+		SaveSettings()
+	}
+Return
+
+SndVolChange:
+	GuiControlGet, _sv1, Settings:, SndVol1
+	GuiControlGet, _sv2, Settings:, SndVol2
+	GuiControlGet, _sv3, Settings:, SndVol3
+	GuiControl, Settings:, SndVolVal1, %_sv1%
+	GuiControl, Settings:, SndVolVal2, %_sv2%
+	GuiControl, Settings:, SndVolVal3, %_sv3%
+Return
+
+SndTest1:
+SndTest2:
+SndTest3:
+	sndTestIdx := SubStr(A_ThisLabel, 0)
+	GuiControlGet, testFile, Settings:, SndDDL%sndTestIdx%
+	if (testFile != "" && testFile != "(none)") {
+		GuiControlGet, testFolder, Settings:, SndFolderEdit
+		GuiControlGet, testVol, Settings:, SndVol%sndTestIdx%
+		testFullPath := testFolder . "\" . testFile
+		if FileExist(testFullPath) {
+			; Use WMP COM for independent volume (won't affect system/music)
+			if (!IsObject(PaceSoundPlayer))
+				PaceSoundPlayer := ComObjCreate("WMPlayer.OCX")
+			PaceSoundPlayer.settings.volume := testVol * 10
+			PaceSoundPlayer.URL := testFullPath
+			PaceSoundPlayer.controls.play()
+		} else {
+			SoundBeep, 800, 150
+		}
+	} else {
+		SoundBeep, 800, 150
+	}
+Return
+
+PopulateSoundDDLs() {
+	global Settings_PaceSoundFolder, Settings_PaceSound1, Settings_PaceSound2, Settings_PaceSound3
+	; Build file list from folder
+	fileList := "(none)|"
+	folder := Settings_PaceSoundFolder
+	Loop, Files, %folder%\*.wav
+		fileList .= A_LoopFileName . "|"
+	Loop, Files, %folder%\*.mp3
+		fileList .= A_LoopFileName . "|"
+	; Remove trailing pipe
+	fileList := RTrim(fileList, "|")
+	; Update all 3 DDLs
+	GuiControl, Settings:, SndDDL1, |%fileList%
+	GuiControl, Settings:, SndDDL2, |%fileList%
+	GuiControl, Settings:, SndDDL3, |%fileList%
+	; Pre-select current values
+	sel1 := Settings_PaceSound1
+	sel2 := Settings_PaceSound2
+	sel3 := Settings_PaceSound3
+	if (sel1 = "")
+		sel1 := "(none)"
+	if (sel2 = "")
+		sel2 := "(none)"
+	if (sel3 = "")
+		sel3 := "(none)"
+	GuiControl, Settings:ChooseString, SndDDL1, %sel1%
+	GuiControl, Settings:ChooseString, SndDDL2, %sel2%
+	GuiControl, Settings:ChooseString, SndDDL3, %sel3%
+}
+
 CreateDeveloperPanel()
 {
 	global
@@ -3661,6 +4002,7 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, TabGoCardlessBg
 	GuiControl, Settings:Hide, TabDisplayBg
 	GuiControl, Settings:Hide, TabCardlyBg
+	GuiControl, Settings:Hide, TabSoundsBg
 	GuiControl, Settings:Hide, TabDeveloperBg
 	
 	; Hide all panels - General
@@ -3921,6 +4263,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, SCIcon_Cardly
 	GuiControl, Settings:Hide, SCLabel_Cardly
 	GuiControl, Settings:Hide, Toggle_ShowBtn_Cardly
+	GuiControl, Settings:Hide, SCIcon_EmailPDF
+	GuiControl, Settings:Hide, SCLabel_EmailPDF
 	GuiControl, Settings:Hide, SCInfoNote
 	
 	; Hide all panels - Print
@@ -3956,6 +4300,10 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, PrintPDFCopyBrowse
 	GuiControl, Settings:Hide, PrintPDFHint
 	GuiControl, Settings:Hide, PrintPDFBtn
+	GuiControl, Settings:Hide, PrintPDFEmailTplLabel
+	GuiControl, Settings:Hide, PrintPDFEmailTplCombo
+	GuiControl, Settings:Hide, PrintPDFEmailTplRefresh
+	GuiControl, Settings:Hide, PrintPDFEmailHint
 	
 	; Hide all panels - Developer
 	GuiControl, Settings:Hide, PanelDeveloper
@@ -4089,6 +4437,43 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, DisplayImg3Edit
 	GuiControl, Settings:Hide, DisplayImg3Btn
 	GuiControl, Settings:Hide, DisplayImagesHint
+	
+	; Hide all panels - Sounds
+	GuiControl, Settings:Hide, TabSoundsBg
+	GuiControl, Settings:Hide, PanelSounds
+	GuiControl, Settings:Hide, SndHeader
+	GuiControl, Settings:Hide, SndDesc
+	GuiControl, Settings:Hide, SndEnableLabel
+	GuiControl, Settings:Hide, Toggle_PaceSoundsEnabled
+	GuiControl, Settings:Hide, SndKeyLabel
+	GuiControl, Settings:Hide, Toggle_PaceKeySounds
+	GuiControl, Settings:Hide, SndClickLabel
+	GuiControl, Settings:Hide, Toggle_PaceClickSounds
+	GuiControl, Settings:Hide, SndFolderLabel
+	GuiControl, Settings:Hide, SndFolderEdit
+	GuiControl, Settings:Hide, SndFolderBrowseBtn
+	GuiControl, Settings:Hide, SndGroup1
+	GuiControl, Settings:Hide, SndLabel1
+	GuiControl, Settings:Hide, SndDDL1
+	GuiControl, Settings:Hide, SndVolLabel1
+	GuiControl, Settings:Hide, SndVol1
+	GuiControl, Settings:Hide, SndVolVal1
+	GuiControl, Settings:Hide, SndTest1
+	GuiControl, Settings:Hide, SndGroup2
+	GuiControl, Settings:Hide, SndLabel2
+	GuiControl, Settings:Hide, SndDDL2
+	GuiControl, Settings:Hide, SndVolLabel2
+	GuiControl, Settings:Hide, SndVol2
+	GuiControl, Settings:Hide, SndVolVal2
+	GuiControl, Settings:Hide, SndTest2
+	GuiControl, Settings:Hide, SndGroup3
+	GuiControl, Settings:Hide, SndLabel3
+	GuiControl, Settings:Hide, SndDDL3
+	GuiControl, Settings:Hide, SndVolLabel3
+	GuiControl, Settings:Hide, SndVol3
+	GuiControl, Settings:Hide, SndVolVal3
+	GuiControl, Settings:Hide, SndTest3
+	GuiControl, Settings:Hide, SndHint
 	
 	; Show selected tab
 	if (tabName = "General")
@@ -4396,6 +4781,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, SCIcon_Cardly
 		GuiControl, Settings:Show, SCLabel_Cardly
 		GuiControl, Settings:Show, Toggle_ShowBtn_Cardly
+		GuiControl, Settings:Show, SCIcon_EmailPDF
+		GuiControl, Settings:Show, SCLabel_EmailPDF
 		GuiControl, Settings:Show, SCInfoNote
 	}
 	else if (tabName = "Print")
@@ -4432,6 +4819,10 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, PrintPDFCopyBrowse
 		GuiControl, Settings:Show, PrintPDFHint
 		GuiControl, Settings:Show, PrintPDFBtn
+		GuiControl, Settings:Show, PrintPDFEmailTplLabel
+		GuiControl, Settings:Show, PrintPDFEmailTplCombo
+		GuiControl, Settings:Show, PrintPDFEmailTplRefresh
+		GuiControl, Settings:Show, PrintPDFEmailHint
 	}
 	else if (tabName = "GoCardless")
 	{
@@ -4571,6 +4962,46 @@ ShowSettingsTab(tabName)
 		if (Settings_Cardly_MessageField != "")
 			GuiControl, Settings:ChooseString, CrdMsgFieldDDL, %Settings_Cardly_MessageField%
 	}
+	else if (tabName = "Sounds")
+	{
+		GuiControl, Settings:Show, TabSoundsBg
+		GuiControl, Settings:Show, PanelSounds
+		GuiControl, Settings:Show, SndHeader
+		GuiControl, Settings:Show, SndDesc
+		GuiControl, Settings:Show, SndEnableLabel
+		GuiControl, Settings:Show, Toggle_PaceSoundsEnabled
+		GuiControl, Settings:Show, SndKeyLabel
+		GuiControl, Settings:Show, Toggle_PaceKeySounds
+		GuiControl, Settings:Show, SndClickLabel
+		GuiControl, Settings:Show, Toggle_PaceClickSounds
+		GuiControl, Settings:Show, SndFolderLabel
+		GuiControl, Settings:Show, SndFolderEdit
+		GuiControl, Settings:Show, SndFolderBrowseBtn
+		GuiControl, Settings:Show, SndGroup1
+		GuiControl, Settings:Show, SndLabel1
+		GuiControl, Settings:Show, SndDDL1
+		GuiControl, Settings:Show, SndVolLabel1
+		GuiControl, Settings:Show, SndVol1
+		GuiControl, Settings:Show, SndVolVal1
+		GuiControl, Settings:Show, SndTest1
+		GuiControl, Settings:Show, SndGroup2
+		GuiControl, Settings:Show, SndLabel2
+		GuiControl, Settings:Show, SndDDL2
+		GuiControl, Settings:Show, SndVolLabel2
+		GuiControl, Settings:Show, SndVol2
+		GuiControl, Settings:Show, SndVolVal2
+		GuiControl, Settings:Show, SndTest2
+		GuiControl, Settings:Show, SndGroup3
+		GuiControl, Settings:Show, SndLabel3
+		GuiControl, Settings:Show, SndDDL3
+		GuiControl, Settings:Show, SndVolLabel3
+		GuiControl, Settings:Show, SndVol3
+		GuiControl, Settings:Show, SndVolVal3
+		GuiControl, Settings:Show, SndTest3
+		GuiControl, Settings:Show, SndHint
+		; Refresh dropdowns from current folder
+		PopulateSoundDDLs()
+	}
 	else if (tabName = "Developer")
 	{
 		GuiControl, Settings:Show, TabDeveloperBg
@@ -4647,6 +5078,10 @@ Return
 
 SettingsTabCardly:
 ShowSettingsTab("Cardly")
+Return
+
+SettingsTabSounds:
+ShowSettingsTab("Sounds")
 Return
 
 SettingsTabDeveloper:

@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "3.0.1"
+#define MyAppVersion "3.0.3"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -214,6 +214,10 @@ begin
     end;
   end;
 end;
+
+
+
+
 
 
 

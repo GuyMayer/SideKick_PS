@@ -169,6 +169,20 @@ LoadSettings()
 	IniRead, Settings_StartOnBoot, %IniFilename%, Settings, StartOnBoot, 0
 	IniRead, Settings_ShowTrayIcon, %IniFilename%, Settings, ShowTrayIcon, 1
 	IniRead, Settings_EnableSounds, %IniFilename%, Settings, EnableSounds, 1
+	IniRead, Settings_PaceSoundsEnabled, %IniFilename%, Sounds, PaceSoundsEnabled, 0
+	IniRead, Settings_PaceKeySounds, %IniFilename%, Sounds, PaceKeySounds, 1
+	IniRead, Settings_PaceClickSounds, %IniFilename%, Sounds, PaceClickSounds, 1
+	IniRead, Settings_PaceSoundFolder, %IniFilename%, Sounds, PaceSoundFolder, C:\Windows\Media
+	; OS-aware defaults: Win11 gets modern sounds, Win10 gets classic
+	defSnd1 := IsWin11 ? "Windows Notify Email.wav" : "chimes.wav"
+	defSnd2 := IsWin11 ? "Windows Notify Calendar.wav" : "notify.wav"
+	defSnd3 := IsWin11 ? "Windows Exclamation.wav" : "chord.wav"
+	IniRead, Settings_PaceSound1, %IniFilename%, Sounds, PaceSound1, %defSnd1%
+	IniRead, Settings_PaceSound2, %IniFilename%, Sounds, PaceSound2, %defSnd2%
+	IniRead, Settings_PaceSound3, %IniFilename%, Sounds, PaceSound3, %defSnd3%
+	IniRead, Settings_PaceVolume1, %IniFilename%, Sounds, PaceVolume1, 5
+	IniRead, Settings_PaceVolume2, %IniFilename%, Sounds, PaceVolume2, 5
+	IniRead, Settings_PaceVolume3, %IniFilename%, Sounds, PaceVolume3, 5
 	IniRead, Settings_AutoDetectPS, %IniFilename%, Settings, AutoDetectPS, 1
 	IniRead, Settings_DefaultRecurring, %IniFilename%, Settings, DefaultRecurring, Monthly
 	IniRead, Settings_RecurringOptions, %IniFilename%, Settings, RecurringOptions, Weekly,Bi-Weekly,4-Weekly
@@ -195,12 +209,20 @@ LoadSettings()
 	IniRead, Settings_AutoAddOppTags, %IniFilename%, GHL, AutoAddOppTags, 1
 	IniRead, GHL_CachedTags, %IniFilename%, GHL, CachedTags, %A_Space%
 	IniRead, GHL_CachedOppTags, %IniFilename%, GHL, CachedOppTags, %A_Space%
-	; Load cached email templates (stored with §§ as newline separator)
+	; One-time migration: clear cached templates that used old §§ separator
+	; (§§ got corrupted through AHK v1 ANSI encoding round-trips)
+	IniRead, cacheMigrated, %IniFilename%, GHL, CacheSeparatorMigrated, 0
+	if (cacheMigrated != 1) {
+		IniDelete, %IniFilename%, GHL, CachedEmailTemplates
+		IniDelete, %IniFilename%, GHL, CachedSMSTemplates
+		IniWrite, 1, %IniFilename%, GHL, CacheSeparatorMigrated
+	}
+	; Load cached email templates (stored with <> as newline separator)
 	IniRead, cachedEmailTpls, %IniFilename%, GHL, CachedEmailTemplates, %A_Space%
-	GHL_CachedEmailTemplates := StrReplace(cachedEmailTpls, "§§", "`n")
-	; Load cached SMS templates (stored with §§ as newline separator)
+	GHL_CachedEmailTemplates := StrReplace(cachedEmailTpls, "<>", "`n")
+	; Load cached SMS templates (stored with <> as newline separator)
 	IniRead, cachedSMSTpls, %IniFilename%, GHL, CachedSMSTemplates, %A_Space%
-	GHL_CachedSMSTemplates := StrReplace(cachedSMSTpls, "§§", "`n")
+	GHL_CachedSMSTemplates := StrReplace(cachedSMSTpls, "<>", "`n")
 	IniRead, Settings_RoundingInDeposit, %IniFilename%, GHL, RoundingInDeposit, 1
 	IniRead, Settings_GHLInvoiceWarningShown, %IniFilename%, GHL, InvoiceWarningShown, 0
 	IniRead, Settings_MediaFolderID, %IniFilename%, GHL, MediaFolderID, %A_Space%
@@ -254,6 +276,7 @@ LoadSettings()
 	IniRead, Settings_ShowBtn_Print, %IniFilename%, Toolbar, ShowBtn_Print, 1
 	IniRead, Settings_ShowBtn_QRCode, %IniFilename%, Toolbar, ShowBtn_QRCode, 1
 	IniRead, Settings_ShowBtn_GoCardless, %IniFilename%, Toolbar, ShowBtn_GoCardless, 0
+	IniRead, Settings_ShowBtn_EmailPDF, %IniFilename%, Toolbar, ShowBtn_EmailPDF, 0
 	IniRead, Settings_ToolbarOffsetX, %IniFilename%, Toolbar, OffsetX, 0
 	IniRead, Settings_ToolbarOffsetY, %IniFilename%, Toolbar, OffsetY, 0
 	IniRead, Settings_ToolbarScale, %IniFilename%, Toolbar, Scale, 0.9
@@ -285,6 +308,8 @@ LoadSettings()
 	IniRead, Settings_QuickPrintPrinter, %IniFilename%, Toolbar, QuickPrintPrinter, %A_Space%
 	IniRead, Settings_EmailTemplateID, %IniFilename%, Toolbar, EmailTemplateID, %A_Space%
 	IniRead, Settings_EmailTemplateName, %IniFilename%, Toolbar, EmailTemplateName, SELECT
+	IniRead, Settings_PDFEmailTemplateID, %IniFilename%, Toolbar, PDFEmailTemplateID, %A_Space%
+	IniRead, Settings_PDFEmailTemplateName, %IniFilename%, Toolbar, PDFEmailTemplateName, (none selected)
 	IniRead, Settings_RoomCaptureFolder, %IniFilename%, Toolbar, RoomCaptureFolder, Album Folder
 	IniRead, Settings_EnablePDF, %IniFilename%, Toolbar, EnablePDF, 0
 	IniRead, Settings_PDFOutputFolder, %IniFilename%, Toolbar, PDFOutputFolder, %A_Space%
@@ -381,6 +406,16 @@ SaveSettings()
 	IniWrite, %Settings_StartOnBoot%, %IniFilename%, Settings, StartOnBoot
 	IniWrite, %Settings_ShowTrayIcon%, %IniFilename%, Settings, ShowTrayIcon
 	IniWrite, %Settings_EnableSounds%, %IniFilename%, Settings, EnableSounds
+	IniWrite, %Settings_PaceSoundsEnabled%, %IniFilename%, Sounds, PaceSoundsEnabled
+	IniWrite, %Settings_PaceKeySounds%, %IniFilename%, Sounds, PaceKeySounds
+	IniWrite, %Settings_PaceClickSounds%, %IniFilename%, Sounds, PaceClickSounds
+	IniWrite, %Settings_PaceSoundFolder%, %IniFilename%, Sounds, PaceSoundFolder
+	IniWrite, %Settings_PaceSound1%, %IniFilename%, Sounds, PaceSound1
+	IniWrite, %Settings_PaceSound2%, %IniFilename%, Sounds, PaceSound2
+	IniWrite, %Settings_PaceSound3%, %IniFilename%, Sounds, PaceSound3
+	IniWrite, %Settings_PaceVolume1%, %IniFilename%, Sounds, PaceVolume1
+	IniWrite, %Settings_PaceVolume2%, %IniFilename%, Sounds, PaceVolume2
+	IniWrite, %Settings_PaceVolume3%, %IniFilename%, Sounds, PaceVolume3
 	IniWrite, %Settings_AutoDetectPS%, %IniFilename%, Settings, AutoDetectPS
 	IniWrite, %Settings_DefaultRecurring%, %IniFilename%, Settings, DefaultRecurring
 	IniWrite, %Settings_DefaultPayType%, %IniFilename%, Settings, DefaultPayType
@@ -475,6 +510,9 @@ SaveSettings()
 	IniWrite, %Settings_QuickPrintPrinter%, %IniFilename%, Toolbar, QuickPrintPrinter
 	IniWrite, %Settings_EmailTemplateID%, %IniFilename%, Toolbar, EmailTemplateID
 	IniWrite, %Settings_EmailTemplateName%, %IniFilename%, Toolbar, EmailTemplateName
+	IniWrite, %Settings_PDFEmailTemplateID%, %IniFilename%, Toolbar, PDFEmailTemplateID
+	IniWrite, %Settings_PDFEmailTemplateName%, %IniFilename%, Toolbar, PDFEmailTemplateName
+	IniWrite, %Settings_ShowBtn_EmailPDF%, %IniFilename%, Toolbar, ShowBtn_EmailPDF
 	IniWrite, %Settings_RoomCaptureFolder%, %IniFilename%, Toolbar, RoomCaptureFolder
 	IniWrite, %Settings_EnablePDF%, %IniFilename%, Toolbar, EnablePDF
 	IniWrite, %Settings_PDFOutputFolder%, %IniFilename%, Toolbar, PDFOutputFolder
@@ -1173,13 +1211,142 @@ if (InStr(pyOutput, "SUCCESS|")) {
 	reloadResult := PsConsole("openAlbum", psaPath, "true")
 	Sleep, 2000  ; Give ProSelect time to reload
 	
-	; Play ding sound and show success message
-	SoundPlay, *48
-	successMsg := ""
-	if (useClear)
-		successMsg .= "Old PayPlan removed.`n"
-	successMsg .= countAdded . " payment(s) written to album successfully."
-	DarkMsgBox("PayPlan Updated", successMsg, "success")
+	; Step 8: GoCardless plan management — cancel old plans and/or create new ones
+	; Only when GoCardless is enabled AND we replaced the old PayPlan (useClear)
+	if (Settings_GoCardlessEnabled && useClear) {
+		; Check if old payments had GoCardless DD (from readOutput parsed earlier)
+		oldHasGC := false
+		if (InStr(readOutput, "PAYMENTS|")) {
+			; readOutput contains: PAYMENTS|count|...|day,month,year,amount,method,methodID|...
+			Loop, Parse, readOutput, |
+			{
+				if (InStr(A_LoopField, "GoCardless") || InStr(A_LoopField, "Direct Debit") || InStr(A_LoopField, "BACS")) {
+					oldHasGC := true
+					break
+				}
+				; Check for standalone "DD" in method position (4th comma-field)
+				eParts := StrSplit(A_LoopField, ",")
+				if (eParts.Length() >= 5 && (eParts[5] = "DD" || InStr(eParts[5], " DD"))) {
+					oldHasGC := true
+					break
+				}
+			}
+		}
+		
+		; Check if new payments have GoCardless DD
+		newHasGC := false
+		Loop %TotalPaymentsToEnter%
+		{
+			PaymentIndex := StartIndex + A_Index - 1
+			lineData := PayPlanLine[PaymentIndex]
+			if (lineData = "")
+				continue
+			parts := StrSplit(lineData, ",")
+			if (parts.Length() >= 4) {
+				payMethod := parts[4]
+				if (InStr(payMethod, "GoCardless") || InStr(payMethod, "Direct Debit") || payMethod = "DD" || InStr(payMethod, " DD") || InStr(payMethod, "BACS")) {
+					newHasGC := true
+					break
+				}
+			}
+		}
+		
+		FileAppend, % A_Now . " - UpdatePS - GoCardless check: oldHasGC=" . oldHasGC . " newHasGC=" . newHasGC . "`n", %DebugLogFile%
+		
+		if (oldHasGC || newHasGC) {
+			; GoCardless DD is involved — need to update GC side
+			if (oldHasGC && newHasGC)
+				gcMsg := "The PayPlan has been updated in the album.`n`nThe old GoCardless plan should be cancelled and a new one created to match.`n`nWould you like to update GoCardless now?"
+			else if (oldHasGC)
+				gcMsg := "The PayPlan has been updated in the album.`n`nThe old GoCardless plan still needs to be cancelled.`n`nWould you like to cancel it now?"
+			else
+				gcMsg := "The PayPlan has been updated in the album.`n`nThe new payments use GoCardless DD but no plan exists on GoCardless yet.`n`nWould you like to create one now?"
+			
+			gcPrompt := DarkMsgBox("Update GoCardless?", gcMsg, "question", {buttons: ["Update GoCardless", "Skip"]})
+			
+			if (gcPrompt = "Update GoCardless") {
+				FileAppend, % A_Now . " - UpdatePS - User chose to update GoCardless`n", %DebugLogFile%
+				
+				; Get client email — try GHL_ContactData first, then fall back to PSA
+				gcClientEmail := ""
+				if (GHL_ContactData != "" && GHL_ContactData.HasKey("email") && GHL_ContactData.email != "")
+					gcClientEmail := GHL_ContactData.email
+				
+				if (gcClientEmail = "") {
+					; Try to get email from PSConsole album data
+					ToolTip, Looking up client email...
+					albumInfo := PsConsole("getAlbumData")
+					if (RegExMatch(albumInfo, "email=""([^""]+)""", emailMatch))
+						gcClientEmail := emailMatch1
+					ToolTip
+				}
+				
+				if (gcClientEmail = "") {
+					FileAppend, % A_Now . " - UpdatePS - Cannot identify client email for GoCardless`n", %DebugLogFile%
+					DarkMsgBox("GoCardless", "Could not find client email to update GoCardless.`n`nPlease use the GoCardless button on the toolbar to manage the plan manually.", "warning")
+				} else {
+					; Look up mandate
+					ToolTip, Checking GoCardless mandate...
+					mandateResult := GC_CheckCustomerMandate(gcClientEmail)
+					ToolTip
+					
+					if (mandateResult.error) {
+						FileAppend, % A_Now . " - UpdatePS - Mandate check failed: " . mandateResult.error . "`n", %DebugLogFile%
+						DarkMsgBox("GoCardless Error", "Could not check mandate status.`n`n" . mandateResult.error, "error")
+					} else if (!mandateResult.hasMandate) {
+						FileAppend, % A_Now . " - UpdatePS - No active mandate found`n", %DebugLogFile%
+						DarkMsgBox("No Mandate", "No active GoCardless mandate found for " . gcClientEmail . ".`n`nPlease set up a mandate first using the GoCardless button on the toolbar.", "warning")
+					} else {
+						; Cancel old plans if they existed
+						if (oldHasGC) {
+							ToolTip, Cancelling old GoCardless plans...
+							FileAppend, % A_Now . " - UpdatePS - Cancelling old GC plans for mandate " . mandateResult.mandateId . "`n", %DebugLogFile%
+							envFlag := " --live"
+							cancelCmd := GetScriptCommand("gocardless_api", "--cancel-plans """ . mandateResult.mandateId . """" . envFlag)
+							if (cancelCmd != "") {
+								tempCancel := A_Temp . "\sk_gc_cancel_" . A_TickCount . ".txt"
+								RunCmdToFile(cancelCmd, tempCancel)
+								FileRead, cancelOutput, %tempCancel%
+								FileDelete, %tempCancel%
+								cancelOutput := Trim(cancelOutput)
+								FileAppend, % A_Now . " - UpdatePS - Cancel result: " . cancelOutput . "`n", %DebugLogFile%
+								
+								if (InStr(cancelOutput, "SUCCESS|"))
+									FileAppend, % A_Now . " - UpdatePS - Old GoCardless plans cancelled successfully`n", %DebugLogFile%
+								else if (InStr(cancelOutput, "NO_ACTIVE_PLANS"))
+									FileAppend, % A_Now . " - UpdatePS - No active GC plans to cancel`n", %DebugLogFile%
+								else
+									DarkMsgBox("GoCardless Warning", "Could not cancel old GoCardless plans.`n`n" . cancelOutput . "`n`nPlease cancel them manually in GoCardless.", "warning")
+							}
+							ToolTip
+						}
+						
+						; Create new plan if new payments have GC DD
+						if (newHasGC) {
+							FileAppend, % A_Now . " - UpdatePS - Launching GC_ShowPayPlanDialog for new plan`n", %DebugLogFile%
+							GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+						} else {
+							; Old plans cancelled, no new GC plan needed
+							SoundPlay, *48
+							DarkMsgBox("GoCardless Updated", "Old GoCardless plans have been cancelled.", "success")
+						}
+					}
+				}
+			} else {
+				FileAppend, % A_Now . " - UpdatePS - User skipped GoCardless update`n", %DebugLogFile%
+			}
+		}
+	}
+	
+	; Show success message (skip if GC_ShowPayPlanDialog already showed one)
+	if (!(Settings_GoCardlessEnabled && useClear && newHasGC && gcPrompt = "Update GoCardless")) {
+		SoundPlay, *48
+		successMsg := ""
+		if (useClear)
+			successMsg .= "Old PayPlan removed.`n"
+		successMsg .= countAdded . " payment(s) written to album successfully."
+		DarkMsgBox("PayPlan Updated", successMsg, "success")
+	}
 	
 } else {
 	; Failed

@@ -1,20 +1,25 @@
 ﻿{
-  "version": "3.0.1",
+  "version": "3.0.3",
   "build_date": "2026-03-09",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Multi-client PayPlan targeting, existing plan Replace/Add, toolbar multi-monitor fix",
+  "release_notes": "Email PDF toolbar button — print-then-email flow, template settings, persistence fix",
   "changelog": [
-    "NEW: Multi-client PayPlan group detection — automatically targets the correct client in multi-group ProSelect albums by matching balance",
-    "NEW: Ambiguous balance prompt — when multiple groups share the same balance, a DarkMsgBox lets the user pick the correct client",
-    "NEW: Existing PayPlan detection — checks for existing payments before writing and offers Replace, Add, or Cancel",
-    "NEW: PayPlan success dialog — announces how many payments were written, and confirms old plan removal when Replace was used",
-    "FIX: Toolbar multi-monitor positioning — toolbar now tracks the last active ProSelect window instead of picking the largest, fixing wrong-monitor placement",
-    "FIX: Toolbar dialog hiding — toolbar hides when ProSelect dialogs (Client Setup, Print, etc.) are active",
-    "FIX: Toolbar drag — deferred toolbar rebuild after drag prevents AHK v1 g-label thread blocking on subsequent drags",
-    "FIX: Toolbar background sampling — uses tracked ProSelect window for correct screen color on multi-monitor setups",
-    "IMPROVED: GoCardless prompt removed from PayPlan flow — success dialog shown instead of auto-launching SideKick_GC",
-    "IMPROVED: write_psa_payments --clear scoped to target group only in multi-client albums",
-    "IMPROVED: read_psa_payments --group N support for reading payments from a specific client group",
+    "NEW: Email PDF toolbar button — emails invoice PDF to client via GHL email template",
+    "NEW: Email PDF settings — GHL email template selector in Print tab + toggle in Toolbar settings",
+    "NEW: Email PDF print-then-email flow — follows same Print-to-PDF procedure then emails the generated PDF",
+    "FIX: Email PDF template persistence — Settings no longer wipes saved template when cache is empty",
+    "FIX: Toolbar settings show/hide — Email PDF toggle properly hidden/shown on tab switch",
+    "----------",
+    "NEW: Silent GoCardless plan creation — creates instalment schedule via CLI without opening GUI when all data is available",
+    "NEW: Auto-detect silent mode — reads payment data from .psa when toolbar/search triggers plan creation",
+    "NEW: GoCardless plan cancellation on Replace — cancels active plans before creating new ones",
+    "NEW: Replace PayPlan button — shown when existing plans detected on mandate",
+    "FIX: PayPlan .psa injection newline bug — JSON amount parser now handles newlines in pretty-printed result",
+    "FIX: Pending deposit cancellation — cancel_mandate_plans now cancels pending one-off payments too",
+    "NEW: SideKick_GC --silent CLI flag for headless plan creation",
+    "NEW: SideKick_GC --cancel-plans CLI command to cancel all active plans on a mandate",
+    "NEW: SideKick_GC cancel_mandate_plans() and cancel_payment() API functions",
+    "----------",
     "----------",
     "NEW: GoCardless integration — standalone SideKick_GC.exe replaces embedded Python GC scripts",
     "NEW: GoCardless Payment Plans — launch SideKick_GC GUI with client details pre-filled from ProSelect",
@@ -177,7 +182,7 @@
   ],
   "versions": [
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
@@ -189,7 +194,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
@@ -217,7 +222,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
@@ -229,7 +234,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
@@ -242,7 +247,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
@@ -258,7 +263,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
@@ -272,7 +277,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
@@ -281,7 +286,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
@@ -301,7 +306,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
@@ -315,7 +320,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
@@ -326,7 +331,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
@@ -338,7 +343,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
@@ -349,7 +354,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
@@ -360,7 +365,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
@@ -369,7 +374,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
@@ -381,7 +386,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
@@ -391,7 +396,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
@@ -403,7 +408,7 @@
       ]
     },
     {
-      "version": "3.0.1",
+      "version": "3.0.3",
       "build_date": "2026-03-09",
       "release_notes": "Major GHL integration release",
       "changelog": [

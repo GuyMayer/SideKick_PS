@@ -510,30 +510,61 @@ $timestampServers = @(
     "http://timestamp.digicert.com",
     "http://timestamp.sectigo.com"
 )
+$signingAvailable = $false
 
 if (Test-Path $signtoolExe) {
-    $exesToSign = Get-ChildItem "$ReleaseDir\*.exe" -ErrorAction SilentlyContinue
-    $signedCount = 0
-    $signFailCount = 0
-    
-    foreach ($exe in $exesToSign) {
-        $signed = $false
-        foreach ($tsServer in $timestampServers) {
-            $signResult = & "$signtoolExe" sign /tr $tsServer /td sha256 /fd sha256 /sha1 $certThumbprint $exe.FullName 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host "  [SIGNED] $($exe.Name)" -ForegroundColor Green
-                $signedCount++
-                $signed = $true
-                break
+    # Quick test: verify signing cert is accessible (avoids smart card dialog hanging over RDP)
+    $testExe = (Get-ChildItem "$ReleaseDir\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($testExe) {
+        $testJob = Start-Job -ScriptBlock {
+            param($tool, $thumb, $ts, $file)
+            & $tool sign /tr $ts /td sha256 /fd sha256 /sha1 $thumb $file 2>&1
+            $LASTEXITCODE
+        } -ArgumentList $signtoolExe, $certThumbprint, $timestampServers[0], $testExe.FullName
+        $testCompleted = $testJob | Wait-Job -Timeout 30
+        if ($testCompleted) {
+            $testResult = Receive-Job $testJob
+            $testExit = $testResult[-1]
+            if ($testExit -eq 0) {
+                $signingAvailable = $true
+                Write-Host "  [SIGNED] $($testExe.Name)" -ForegroundColor Green
+            }
+        } else {
+            Stop-Job $testJob -ErrorAction SilentlyContinue
+            Write-Host "  [SKIP] Signing timed out (smart card dialog blocked - likely RDP session)" -ForegroundColor Yellow
+        }
+        Remove-Job $testJob -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($signingAvailable) {
+        # Sign remaining EXEs (first one already signed above)
+        $exesToSign = Get-ChildItem "$ReleaseDir\*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $testExe.FullName }
+        $signedCount = 1
+        $signFailCount = 0
+        
+        foreach ($exe in $exesToSign) {
+            $signed = $false
+            foreach ($tsServer in $timestampServers) {
+                $signResult = & "$signtoolExe" sign /tr $tsServer /td sha256 /fd sha256 /sha1 $certThumbprint $exe.FullName 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "  [SIGNED] $($exe.Name)" -ForegroundColor Green
+                    $signedCount++
+                    $signed = $true
+                    break
+                }
+            }
+            if (!$signed) {
+                Write-Host "  [FAIL]   $($exe.Name) - all timestamp servers failed" -ForegroundColor Red
+                Write-BuildLog "Signing failed: $($exe.Name)" "ERROR"
+                $signFailCount++
             }
         }
-        if (!$signed) {
-            Write-Host "  [FAIL]   $($exe.Name) - all timestamp servers failed" -ForegroundColor Red
-            Write-BuildLog "Signing failed: $($exe.Name)" "ERROR"
-            $signFailCount++
-        }
+        Write-Host "  Summary: $signedCount signed, $signFailCount failed" -ForegroundColor $(if ($signFailCount -gt 0) { 'Yellow' } else { 'Gray' })
+    } else {
+        Write-Host "  [SKIP] Smart card not accessible - EXEs will be unsigned" -ForegroundColor Yellow
+        Write-Host "  (Disconnect RDP and reconnect, or sign manually later)" -ForegroundColor Yellow
+        Write-BuildLog "Signing skipped: smart card not accessible" "WARN"
     }
-    Write-Host "  Summary: $signedCount signed, $signFailCount failed" -ForegroundColor $(if ($signFailCount -gt 0) { 'Yellow' } else { 'Gray' })
 } else {
     Write-Host "  [SKIP] signtool.exe not found at: $signtoolExe" -ForegroundColor Yellow
     Write-Host "  Install Windows SDK to enable code signing" -ForegroundColor Yellow
@@ -616,14 +647,48 @@ New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
 if (Test-Path $InnoCompiler) {
     Write-Host "  Compiling installer with Inno Setup..." -ForegroundColor Gray
     $signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-    $isccOutput = cmd /c "`"$InnoCompiler`" /Q `"/SMsSign=`"`"$signtoolExe`"`" sign /tr http://time.certum.pl /td sha256 /fd sha256 /sha1 0A8665226386555FD6AE7BD4EC3A240624887AD9 `$f`" `"$issFile`" 2>&1"
-    $isccExitCode = $LASTEXITCODE
-    
     $installerPath = "$ArchiveDir\SideKick_PS_Setup.exe"
+
+    if ($signingAvailable) {
+        # Build with integrated signing
+        $isccOutput = cmd /c "`"$InnoCompiler`" /Q `"/SMsSign=`"`"$signtoolExe`"`" sign /tr http://time.certum.pl /td sha256 /fd sha256 /sha1 0A8665226386555FD6AE7BD4EC3A240624887AD9 `$f`" `"$issFile`" 2>&1"
+        $isccExitCode = $LASTEXITCODE
+    }
+
+    if (!$signingAvailable -or !(Test-Path $installerPath)) {
+        # Build without signing (fallback for RDP / smart card issues)
+        # Must strip SignTool/SignedUninstaller from .iss or ISCC will error
+        if ($signingAvailable) {
+            Write-Host "  Signed build failed, retrying without signing..." -ForegroundColor Yellow
+        } else {
+            Write-Host "  Building without signing (smart card unavailable)..." -ForegroundColor Yellow
+        }
+        $issContent = Get-Content $issFile -Raw
+        $issBackup = $issContent
+        $issContent = $issContent -replace '(?m)^SignTool=.*$', ';SignTool=MsSign  ; disabled for unsigned build'
+        $issContent = $issContent -replace '(?m)^SignedUninstaller=.*$', ';SignedUninstaller=yes  ; disabled for unsigned build'
+        Set-Content $issFile $issContent
+        $isccOutput = cmd /c "`"$InnoCompiler`" /Q `"$issFile`" 2>&1"
+        $isccExitCode = $LASTEXITCODE
+        # Restore original .iss
+        Set-Content $issFile $issBackup
+    }
+    
     if (Test-Path $installerPath) {
         $installerSize = [math]::Round((Get-Item $installerPath).Length / 1MB, 2)
         Write-Host "  Created: SideKick_PS_Setup.exe - $installerSize MB" -ForegroundColor Green
         Write-BuildLog "Installer created: SideKick_PS_Setup.exe ($installerSize MB)"
+
+        # Try to sign the installer separately if signing is available but integrated signing failed
+        if ($signingAvailable) {
+            foreach ($tsServer in $timestampServers) {
+                $signResult = & "$signtoolExe" sign /tr $tsServer /td sha256 /fd sha256 /sha1 $certThumbprint $installerPath 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "  [SIGNED] SideKick_PS_Setup.exe" -ForegroundColor Green
+                    break
+                }
+            }
+        }
     } else {
         Write-BuildLog "ISCC failed (exit code $isccExitCode): $isccOutput" "ERROR"
     }

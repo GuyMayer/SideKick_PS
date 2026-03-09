@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.1
+; Version:     3.0.3
 ; Build Date:  2026-03-09
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -118,7 +118,7 @@ global IconFont := DetectIconFont()
 FileAppend, % A_Now . " - Icon Font: " . IconFont . "`n", %DebugLogFile%
 
 ; Set icon codepoints based on detected font
-global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_IDCard, Icon_Camera, Icon_ReviewOrder, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_QRCode, Icon_Download, Icon_Settings, Icon_FolderOpen
+global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_IDCard, Icon_Camera, Icon_ReviewOrder, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_EmailPDF, Icon_QRCode, Icon_Download, Icon_Settings, Icon_FolderOpen
 if (InStr(IconFont, "Phosphor")) {
 	; Phosphor Icons codepoints (thin outline icons)
 	Icon_User := 0xEC28
@@ -131,6 +131,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Refresh := 0xE074
 	Icon_Print := 0xEACC
 	Icon_PDFDoc := 0xE65E  ; FilePdf / FileText
+	Icon_EmailPDF := 0xE5F6  ; EnvelopeSimple
 	Icon_QRCode := 0xEAE8
 	Icon_Download := 0xE59A
 	Icon_Settings := 0xE79A
@@ -147,6 +148,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Refresh := 0xF021
 	Icon_Print := 0xF02F
 	Icon_PDFDoc := 0xF1C1  ; file-pdf
+	Icon_EmailPDF := 0xF0E0  ; envelope
 	Icon_QRCode := 0xF029
 	Icon_Download := 0xF019
 	Icon_Settings := 0xF013
@@ -163,6 +165,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Refresh := 0xE72C
 	Icon_Print := 0xE749
 	Icon_PDFDoc := 0xE9F9  ; ReadingMode / Document with lines
+	Icon_EmailPDF := 0xE715  ; Mail
 	Icon_QRCode := 0xED14
 	Icon_Download := 0xE896
 	Icon_Settings := 0xE713
@@ -230,6 +233,20 @@ global Settings_DarkMode := true  ; Default to dark mode
 global Settings_StartOnBoot := 0
 global Settings_ShowTrayIcon := 1
 global Settings_EnableSounds := 1
+global Settings_PaceSoundsEnabled := 0  ; Master enable for pace button sounds
+global Settings_PaceKeySounds := 1     ; Enable keyboard 1/2/3 triggers
+global Settings_PaceClickSounds := 1   ; Enable mouse click triggers
+global Settings_PaceSoundFolder := "C:\Windows\Media"  ; Folder to scan for sound files
+; OS-aware defaults: Win11 (build 22000+) uses modern sounds, Win10 uses classic
+RegRead, _osBuild, HKLM, SOFTWARE\Microsoft\Windows NT\CurrentVersion, CurrentBuildNumber
+global IsWin11 := (_osBuild >= 22000)
+global Settings_PaceSound1 := IsWin11 ? "Windows Notify Email.wav" : "chimes.wav"
+global Settings_PaceSound2 := IsWin11 ? "Windows Notify Calendar.wav" : "notify.wav"
+global Settings_PaceSound3 := IsWin11 ? "Windows Exclamation.wav" : "chord.wav"
+global Settings_PaceVolume1 := 5  ; Volume for Yes (1-10)
+global Settings_PaceVolume2 := 5  ; Volume for Maybe (1-10)
+global Settings_PaceVolume3 := 5  ; Volume for No (1-10)
+global PaceSoundPlayer := ""  ; Persistent WMP COM object for pace sounds
 global Settings_AutoDetectPS := 1
 global Settings_DefaultRecurring := "Monthly"
 global Settings_DefaultPayType := "Gocardles DD"
@@ -273,6 +290,8 @@ global Settings_PDFOutputFolder := ""       ; Secondary folder to copy PDF outpu
 global Settings_PDFPrintBtnOffsetRight := 0  ; Print button X offset from right edge (calibrated)
 global Settings_PDFPrintBtnOffsetBottom := 0 ; Print button Y offset from bottom edge (calibrated)
 global PDF_CalibrationMode := false          ; True when Ctrl+Shift+Click triggers calibration
+global PDF_EmailAfterSave := false           ; True when Email PDF button triggers print-then-email
+global PDF_EmailContactId := ""               ; Contact ID for email-after-save flow
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow, Auto
 global Settings_ToolbarAutoBG := true         ; Auto-detect background color for toolbar (default ON)
 global Settings_ToolbarLastBGColor := "333333" ; Last known good toolbar background color
@@ -290,6 +309,7 @@ global Toolbar_LastPosX := -1        ; Last toolbar X position (for detecting mo
 global Toolbar_LastPosY := -1        ; Last toolbar Y position (for detecting moves)
 global Toolbar_FirstShowDone := false ; Track first show for delayed BG re-sample
 global Toolbar_PSWindowReadySince := 0 ; Tick when ProSelect main window first seen valid
+global Toolbar_SkipReadyGuard := false  ; Bypass 2s readiness check on return from alt-tab
 global GC_ButtonHBitmap := 0         ; HBITMAP handle for GC button image
 
 ; Toolbar button visibility settings
@@ -344,6 +364,9 @@ global Settings_PSPaymentMethods := ""  ; Cached payment methods from ProSelect 
 global Settings_QuickPrintPrinter := ""  ; Selected printer for Quick Print (empty = system default)
 global Settings_EmailTemplateID := ""
 global Settings_EmailTemplateName := "SELECT"
+global Settings_ShowBtn_EmailPDF := false  ; Email PDF to client button
+global Settings_PDFEmailTemplateID := ""       ; GHL email template ID for PDF emails
+global Settings_PDFEmailTemplateName := "(none selected)"  ; GHL email template name for PDF emails
 
 ; Rooms button calibration (OCR-detected at startup)
 global RoomsBtn_Calibrated := false  ; Whether calibration has been done
@@ -1524,6 +1547,9 @@ SaveGHLCredentials() {
 	credFile := GetCredentialsFilePath()
 	
 	; Read existing credentials to preserve fields we don't own
+	; IMPORTANT: Use [^""]+ (one-or-more) not [^""]*? (zero-or-more) so that
+	; empty JSON values "" are NOT matched — this prevents wiping existing keys
+	; when the in-memory variable happens to be blank.
 	existingGcToken := ""
 	existingApiKey := ""
 	existingLocId := ""
@@ -1534,27 +1560,29 @@ SaveGHLCredentials() {
 	if (FileExist(credFile)) {
 		FileRead, existingJson, %credFile%
 		if (!ErrorLevel && existingJson != "") {
-			if (RegExMatch(existingJson, """gc_token_b64"":\s*""([^""]*?)""", m))
+			if (RegExMatch(existingJson, """gc_token_b64"":\s*""([^""]+)""", m))
 				existingGcToken := m1
-			if (RegExMatch(existingJson, """api_key_b64"":\s*""([^""]*?)""", m))
+			if (RegExMatch(existingJson, """api_key_b64"":\s*""([^""]+)""", m))
 				existingApiKey := m1
-			if (RegExMatch(existingJson, """location_id"":\s*""([^""]*?)""", m))
+			if (RegExMatch(existingJson, """location_id"":\s*""([^""]+)""", m))
 				existingLocId := m1
-			if (RegExMatch(existingJson, """cardly_api_key_b64"":\s*""([^""]*?)""", m))
+			if (RegExMatch(existingJson, """cardly_api_key_b64"":\s*""([^""]+)""", m))
 				existingCardlyKey := m1
-			if (RegExMatch(existingJson, """cardly_media_id"":\s*""([^""]*?)""", m))
+			if (RegExMatch(existingJson, """cardly_media_id"":\s*""([^""]+)""", m))
 				existingCardlyMediaId := m1
-			if (RegExMatch(existingJson, """cardly_media_name"":\s*""([^""]*?)""", m))
+			if (RegExMatch(existingJson, """cardly_media_name"":\s*""([^""]+)""", m))
 				existingCardlyMediaName := m1
-			if (RegExMatch(existingJson, """cardly_dashboard_url"":\s*""([^""]*?)""", m))
+			if (RegExMatch(existingJson, """cardly_dashboard_url"":\s*""([^""]+)""", m))
 				existingCardlyDashboardUrl := m1
 		}
 	}
 	
-	; Encode API key to Base64 for storage
+	; Encode API key to Base64 for storage — preserve existing if not loaded
 	apiKeyB64 := ""
 	if (GHL_API_Key != "")
 		apiKeyB64 := Base64_Encode(GHL_API_Key)
+	else if (existingApiKey != "")
+		apiKeyB64 := existingApiKey
 	
 	; Encode GoCardless token to Base64 — preserve existing if not loaded
 	gcTokenB64 := ""
@@ -1563,7 +1591,7 @@ SaveGHLCredentials() {
 	else if (existingGcToken != "")
 		gcTokenB64 := existingGcToken
 	
-	; Encode Cardly API key to Base64 for storage
+	; Encode Cardly API key to Base64 for storage — preserve existing if not loaded
 	cardlyApiKeyB64 := ""
 	if (Settings_Cardly_ApiKey != "")
 		cardlyApiKeyB64 := Base64_Encode(Settings_Cardly_ApiKey)
@@ -1588,6 +1616,12 @@ SaveGHLCredentials() {
 	jsonContent .= "`n}"
 	
 	; Write to file
+	; Backup existing credentials before overwriting (mirrors INI lastgood pattern)
+	if (FileExist(credFile)) {
+		FileGetSize, credSize, %credFile%
+		if (credSize > 50)
+			FileCopy, %credFile%, %credFile%.lastgood, 1
+	}
 	FileDelete, %credFile%
 	FileAppend, %jsonContent%, %credFile%, UTF-8
 	
@@ -1846,6 +1880,8 @@ CreateFloatingToolbar()
 		btnCount++
 	if (Settings_EnablePDF)
 		btnCount++
+	if (Settings_ShowBtn_EmailPDF)
+		btnCount++
 	if (Settings_ShowBtn_QRCode)
 		btnCount++
 	if (Settings_SDCardEnabled)
@@ -1859,7 +1895,7 @@ CreateFloatingToolbar()
 	
 	; Determine which sections have visible buttons (for separator logic)
 	hasGHLButtons := (Settings_ShowBtn_Client || Settings_ShowBtn_Invoice || Settings_ShowBtn_OpenGHL)
-	hasShortcutButtons := (Settings_ShowBtn_Camera || Settings_ShowBtn_ReviewOrder || Settings_ShowBtn_OpenFolder || Settings_ShowBtn_Photoshop || Settings_ShowBtn_Refresh || Settings_ShowBtn_Sort || Settings_ShowBtn_Print || Settings_EnablePDF || Settings_ShowBtn_QRCode || Settings_SDCardEnabled)
+	hasShortcutButtons := (Settings_ShowBtn_Camera || Settings_ShowBtn_ReviewOrder || Settings_ShowBtn_OpenFolder || Settings_ShowBtn_Photoshop || Settings_ShowBtn_Refresh || Settings_ShowBtn_Sort || Settings_ShowBtn_Print || Settings_EnablePDF || Settings_ShowBtn_EmailPDF || Settings_ShowBtn_QRCode || Settings_SDCardEnabled)
 	hasServiceButtons := (Settings_GoCardlessEnabled || Settings_ShowBtn_Cardly)
 	separatorCount := 0
 	if (hasGHLButtons && (hasShortcutButtons || hasServiceButtons))
@@ -1890,7 +1926,8 @@ CreateFloatingToolbar()
 	; Calculate toolbar position and sample background color BEFORE creating GUI
 	; This ensures we sample the actual screen content, not our own toolbar
 	initialBgColor := Settings_ToolbarLastBGColor ? Settings_ToolbarLastBGColor : "333333"  ; Use saved color or fallback
-	if (Settings_ToolbarAutoBG && Toolbar_PSWindowReadySince > 0 && (A_TickCount - Toolbar_PSWindowReadySince) >= 2000) {
+	if (Settings_ToolbarAutoBG && Toolbar_PSWindowReadySince > 0 && (Toolbar_SkipReadyGuard || (A_TickCount - Toolbar_PSWindowReadySince) >= 2000)) {
+		Toolbar_SkipReadyGuard := false
 		; Get ProSelect window position (use tracked window)
 		if (Toolbar_LastPsHwnd != "")
 			WinGetPos, psX, psY, psW, psH, ahk_id %Toolbar_LastPsHwnd%
@@ -2082,6 +2119,14 @@ CreateFloatingToolbar()
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
 		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundMaroon c%iconColor% gToolbar_PDFDoc vTB_PDFDoc +HwndTB_PDFDoc_Hwnd, % Chr(Icon_PDFDoc)
 		ToolbarTooltips[TB_PDFDoc_Hwnd] := "Print to PDF"
+		nextX += btnSpacing
+	}
+	
+	; Email PDF button (envelope icon) - email PDF to client via GHL template
+	if (Settings_ShowBtn_EmailPDF) {
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background0066AA c%iconColor% gToolbar_EmailPDF vTB_EmailPDF +HwndTB_EmailPDF_Hwnd, % Chr(Icon_EmailPDF)
+		ToolbarTooltips[TB_EmailPDF_Hwnd] := "Email PDF to Client"
 		nextX += btnSpacing
 	}
 	
@@ -2527,8 +2572,15 @@ if (psW < 800 || psH < 600)
 }
 
 ; Track when ProSelect's main window first became valid
-if (Toolbar_PSWindowReadySince = 0)
+if (Toolbar_PSWindowReadySince = 0) {
 	Toolbar_PSWindowReadySince := A_TickCount
+	; Rebuild toolbar with fresh BG sample before showing (toolbar is still hidden)
+	if (Toolbar_FirstShowDone && Settings_ToolbarAutoBG) {
+		Toolbar_SkipReadyGuard := true
+		CreateFloatingToolbar()
+		return  ; Let next PositionToolbar cycle show the correctly-colored toolbar
+	}
+}
 
 ; Room detection disabled - always show camera as active
 ; Show maroon camera icon (capture always available)
@@ -3557,7 +3609,257 @@ Toolbar_PrintToPDF:
 	; Restore original default printer
 	if (origPrinter != "")
 		RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
+	
+	; If Email PDF triggered this flow, email the generated PDF now
+	if (PDF_EmailAfterSave && FileExist(pdfFullPath)) {
+		; Check if a template is configured
+		if (Settings_PDFEmailTemplateID = "" || Settings_PDFEmailTemplateName = "(none selected)") {
+			ShowPDFEmailDialog(PDF_EmailContactId, pdfFullPath)
+		} else {
+			SendPDFEmail(PDF_EmailContactId, pdfFullPath, Settings_PDFEmailTemplateID)
+		}
+		PDF_EmailAfterSave := false
+		PDF_EmailContactId := ""
+	} else if (PDF_EmailAfterSave) {
+		DarkMsgBox("Email PDF", "PDF was not generated successfully.`nEmail was not sent.", "warning")
+		PDF_EmailAfterSave := false
+		PDF_EmailContactId := ""
+	}
 Return
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; EMAIL PDF TO CLIENT - Same flow as Save PDF, then emails the result
+; Uses the full Print-to-PDF flow and emails the generated PDF afterwards
+; ═══════════════════════════════════════════════════════════════════════════════
+Toolbar_EmailPDF:
+{
+	global Settings_PDFEmailTemplateID, Settings_PDFEmailTemplateName
+	global GHL_ContactData, PDF_EmailAfterSave, PDF_EmailContactId
+	
+	; Check ProSelect is running
+	if !WinExist("ahk_exe ProSelect.exe") {
+		DarkMsgBox("Email PDF", "ProSelect is not running.", "error")
+		Return
+	}
+	
+	; Resolve contact ID before starting PDF flow
+	emailContactId := ""
+	if (GHL_ContactData && GHL_ContactData.success && GHL_ContactData.id != "") {
+		emailContactId := GHL_ContactData.id
+	} else {
+		WinGetTitle, psTitle, ahk_exe ProSelect.exe
+		albumName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")
+		albumName := RegExReplace(albumName, "\s*-\s*ProSelect.*$", "")
+		if (InStr(albumName, "_")) {
+			albumParts := StrSplit(albumName, "_")
+			idx := albumParts.MaxIndex()
+			while (idx >= 1) {
+				part := albumParts[idx]
+				if (StrLen(part) >= 15 && RegExMatch(part, "^[A-Za-z0-9]+$")) {
+					emailContactId := part
+					break
+				}
+				idx--
+			}
+		}
+	}
+	
+	if (emailContactId = "") {
+		DarkMsgBox("No Contact", "Could not find GHL contact ID.`n`nFetch a client from GHL first using the Client button,`nor ensure the album name contains a GHL contact ID.", "warning")
+		Return
+	}
+	
+	; Set flag so PrintToPDF will email after saving
+	PDF_EmailAfterSave := true
+	PDF_EmailContactId := emailContactId
+	
+	; Run the same Print-to-PDF flow (email happens at the end)
+	Gosub, Toolbar_PrintToPDF
+	
+	; Clear flag (in case flow aborted early)
+	PDF_EmailAfterSave := false
+	PDF_EmailContactId := ""
+	Return
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; ShowPDFEmailDialog - Template picker for PDF email (similar to Room email)
+; ═══════════════════════════════════════════════════════════════════════════════
+ShowPDFEmailDialog(contactId, pdfPath)
+{
+	global GHL_CachedEmailTemplates, Settings_PDFEmailTemplateID, Settings_PDFEmailTemplateName
+	global PDFEmail_ContactId, PDFEmail_PDFPath, PDFEmail_SelectedTplName
+	global PDFEmail_TplIDs, PDFEmail_TplNames
+	
+	PDFEmail_ContactId := contactId
+	PDFEmail_PDFPath := pdfPath
+	
+	; Build template list from cached templates
+	PDFEmail_TplIDs := []
+	PDFEmail_TplNames := []
+	tplDropdown := "(none - use default)|"
+	
+	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2) {
+			PDFEmail_TplIDs.Push(parts[1])
+			PDFEmail_TplNames.Push(parts[2])
+			tplDropdown .= parts[2] . "|"
+		}
+	}
+	
+	; Create template picker GUI
+	Gui, PDFEmail:New, +AlwaysOnTop +ToolWindow
+	Gui, PDFEmail:Color, 1a1a2e
+	Gui, PDFEmail:Font, s11 cWhite, Segoe UI
+	Gui, PDFEmail:Add, Text, x20 y15 w360, 📧 Email PDF to Client
+	Gui, PDFEmail:Font, s10 c888888, Segoe UI
+	Gui, PDFEmail:Add, Text, x20 y45 w360, Select an email template:
+	Gui, PDFEmail:Font, s10 cWhite, Segoe UI
+	Gui, PDFEmail:Add, DropDownList, x20 y70 w320 vPDFEmail_SelectedTplName, %tplDropdown%
+	Gui, PDFEmail:Add, Button, x345 y69 w35 h24 gPDFEmailRefresh, 🔄
+	
+	; Pre-select the default template if configured
+	if (Settings_PDFEmailTemplateName != "" && Settings_PDFEmailTemplateName != "(none selected)")
+		GuiControl, PDFEmail:ChooseString, PDFEmail_SelectedTplName, %Settings_PDFEmailTemplateName%
+	else
+		GuiControl, PDFEmail:Choose, PDFEmail_SelectedTplName, 1
+	
+	; Show PDF filename
+	SplitPath, pdfPath, pdfFilename
+	Gui, PDFEmail:Font, s9 c888888, Segoe UI
+	Gui, PDFEmail:Add, Text, x20 y105 w360, PDF: %pdfFilename%
+	Gui, PDFEmail:Add, Button, x100 y140 w100 gPDFEmailSend Default, 📧 Send
+	Gui, PDFEmail:Add, Button, x220 y140 w100 gPDFEmailCancel, Cancel
+	
+	Gui, PDFEmail:Show, w400 h185, Email PDF to Client
+	return
+}
+
+PDFEmailSend:
+{
+	global PDFEmail_SelectedTplName, PDFEmail_TplIDs, PDFEmail_TplNames
+	global PDFEmail_ContactId, PDFEmail_PDFPath
+	global Settings_PDFEmailTemplateID, Settings_PDFEmailTemplateName, IniFilename
+	
+	Gui, PDFEmail:Submit
+	
+	; Find selected template ID
+	selectedTemplateID := ""
+	if (PDFEmail_SelectedTplName != "(none - use default)" && PDFEmail_SelectedTplName != "") {
+		Loop, % PDFEmail_TplNames.Length()
+		{
+			if (PDFEmail_TplNames[A_Index] = PDFEmail_SelectedTplName) {
+				selectedTemplateID := PDFEmail_TplIDs[A_Index]
+				break
+			}
+		}
+		; Save selected template as default for next time
+		Settings_PDFEmailTemplateName := PDFEmail_SelectedTplName
+		Settings_PDFEmailTemplateID := selectedTemplateID
+		IniWrite, %Settings_PDFEmailTemplateID%, %IniFilename%, Toolbar, PDFEmailTemplateID
+		IniWrite, %Settings_PDFEmailTemplateName%, %IniFilename%, Toolbar, PDFEmailTemplateName
+	}
+	
+	SendPDFEmail(PDFEmail_ContactId, PDFEmail_PDFPath, selectedTemplateID)
+	return
+}
+
+PDFEmailCancel:
+PDFEmailGuiClose:
+PDFEmailGuiEscape:
+Gui, PDFEmail:Destroy
+return
+
+PDFEmailRefresh:
+{
+	global GHL_CachedEmailTemplates, IniFilename, PDFEmail_TplIDs, PDFEmail_TplNames
+	global Settings_PDFEmailTemplateName
+	
+	ToolTip, Fetching email templates from GHL...
+	scriptCmd := GetScriptCommand("sync_ps_invoice", "--list-email-templates")
+	
+	tempOutput := A_Temp . "\ghl_templates_" . A_TickCount . ".txt"
+	RunCmdToFile(scriptCmd, tempOutput)
+	ToolTip
+	
+	FileRead, tplOutput, %tempOutput%
+	FileDelete, %tempOutput%
+	
+	if (InStr(tplOutput, "API_ERROR") || InStr(tplOutput, "ERROR|") || tplOutput = "") {
+		DarkMsgBox("API Error", "Could not load email templates from GHL.`nCheck API connection.", "warning")
+		return
+	}
+	
+	; Update cached templates
+	GHL_CachedEmailTemplates := tplOutput
+	cachedForIni := StrReplace(tplOutput, "`n", "<>")
+	cachedForIni := StrReplace(cachedForIni, "`r", "")
+	IniWrite, %cachedForIni%, %IniFilename%, GHL, CachedEmailTemplates
+	
+	; Rebuild dropdown
+	PDFEmail_TplIDs := []
+	PDFEmail_TplNames := []
+	newList := "(none - use default)|"
+	Loop, Parse, tplOutput, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2) {
+			PDFEmail_TplIDs.Push(parts[1])
+			PDFEmail_TplNames.Push(parts[2])
+			newList .= parts[2] . "|"
+		}
+	}
+	
+	GuiControl, PDFEmail:, PDFEmail_SelectedTplName, |%newList%
+	if (Settings_PDFEmailTemplateName != "" && Settings_PDFEmailTemplateName != "(none selected)")
+		GuiControl, PDFEmail:ChooseString, PDFEmail_SelectedTplName, %Settings_PDFEmailTemplateName%
+	else
+		GuiControl, PDFEmail:Choose, PDFEmail_SelectedTplName, 1
+	return
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; SendPDFEmail - Sends the PDF to the contact via GHL email template
+; Uses the same sync_ps_invoice script as room capture email
+; ═══════════════════════════════════════════════════════════════════════════════
+SendPDFEmail(contactId, pdfPath, templateId := "")
+{
+	global IniFilename
+	
+	; Run sync_ps_invoice with --send-room-email (reuses the same email mechanism)
+	emailArgs := "--send-room-email " . contactId . " """ . pdfPath . """"
+	if (templateId != "")
+		emailArgs .= " --email-template " . templateId
+	
+	emailCmd := GetScriptCommand("sync_ps_invoice", emailArgs)
+	ToolTip, 📧 Sending PDF email...
+	RunWait, %emailCmd%, %A_ScriptDir%, Hide
+	
+	; Check result
+	resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+	if FileExist(resultFile) {
+		FileRead, emailResultJson, %resultFile%
+		if InStr(emailResultJson, """success"": true") {
+			RegExMatch(emailResultJson, """contact_email"":\s*""([^""]+)""", emailMatch)
+			SplitPath, pdfPath, pdfFilename
+			ToolTip
+			DarkMsgBox("Email Sent", "📧 PDF emailed successfully!`n`nSent to: " . emailMatch1 . "`nFile: " . pdfFilename, "info", {timeout: 5})
+		} else {
+			RegExMatch(emailResultJson, """error"":\s*""([^""]+)""", errMatch)
+			ToolTip
+			DarkMsgBox("Email Failed", "Could not send email.`n`n" . errMatch1, "error")
+		}
+	} else {
+		ToolTip
+		DarkMsgBox("Email Failed", "No result returned from email send.", "error")
+	}
+}
 
 ; ═══════════════════════════════════════════════════════════════════════════════
 ; GetAlbumFolder() - Gets the current album's folder path from ProSelect
@@ -4592,20 +4894,44 @@ Toolbar_GoCardless:
 		
 		; Build message - default to "No Existing Plans", only show plans if we have real content
 		plansMsg := "`n`n✅ No Existing Plans"
+		hasExistingPlans := false
 		if (existingPlans != "") {
 			; Only show if there's actual plan text (not just whitespace)
 			cleanPlans := RegExReplace(existingPlans, "^\s+|\s+$")
 			if (StrLen(cleanPlans) > 0) {
 				plansMsg := "`n`n⚠️ Existing Plans:`n" . cleanPlans
+				hasExistingPlans := true
 			}
 		}
 		
-		; Dark dialog with custom buttons
+		; Dark dialog with custom buttons — Replace when existing plans, Add when none
 		msg := "✅ " . clientName . " has an active Direct Debit mandate." . plansMsg
+		if (hasExistingPlans)
+			result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Replace PayPlan", "Cancel"]})
+		else
+			result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
 		
-		result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
-		
-		if (result = "Add PayPlan") {
+		if (result = "Replace PayPlan" || result = "Add PayPlan") {
+			; Cancel existing plans before creating new one
+			if (hasExistingPlans) {
+				ToolTip, Cancelling old GoCardless plans...
+				FileAppend, % A_Now . " - Toolbar_GoCardless - Cancelling old plans for mandate " . mandateId . "`n", %DebugLogFile%
+				envFlag := " --live"
+				cancelCmd := GetScriptCommand("gocardless_api", "--cancel-plans """ . mandateId . """" . envFlag)
+				if (cancelCmd != "") {
+					tempCancel := A_Temp . "\sk_gc_cancel_" . A_TickCount . ".txt"
+					RunCmdToFile(cancelCmd, tempCancel)
+					FileRead, cancelOutput, %tempCancel%
+					FileDelete, %tempCancel%
+					cancelOutput := Trim(cancelOutput)
+					FileAppend, % A_Now . " - Toolbar_GoCardless - Cancel result: " . cancelOutput . "`n", %DebugLogFile%
+					
+					if (InStr(cancelOutput, "ERROR|")) {
+						DarkMsgBox("GoCardless Warning", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless.", "warning")
+					}
+				}
+				ToolTip
+			}
 			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
 		}
 		else if (result = "Open GC Client") {
@@ -4735,17 +5061,42 @@ GC_SearchMandateByNameOrEmail(contactData) {
 		
 		; Show success and offer to create payment plan
 		plansMsg := "`n`n✅ No Existing Plans"
+		hasExistingPlans := false
 		if (mandateResult.plans != "") {
 			cleanPlans := RegExReplace(mandateResult.plans, "^\s+|\s+$")
-			if (StrLen(cleanPlans) > 0)
+			if (StrLen(cleanPlans) > 0) {
 				plansMsg := "`n`n⚠️ Existing Plans:`n" . cleanPlans
+				hasExistingPlans := true
+			}
 		}
 		
 		msg := "✅ Found mandate for " . foundName . plansMsg
+		if (hasExistingPlans)
+			result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Replace PayPlan", "Cancel"]})
+		else
+			result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
 		
-		result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
-		
-		if (result = "Add PayPlan") {
+		if (result = "Replace PayPlan" || result = "Add PayPlan") {
+			; Cancel existing plans before creating new one
+			if (hasExistingPlans) {
+				ToolTip, Cancelling old GoCardless plans...
+				FileAppend, % A_Now . " - GC_SearchMandate - Cancelling old plans for mandate " . mandateResult.mandateId . "`n", %DebugLogFile%
+				envFlag := " --live"
+				cancelCmd := GetScriptCommand("gocardless_api", "--cancel-plans """ . mandateResult.mandateId . """" . envFlag)
+				if (cancelCmd != "") {
+					tempCancel := A_Temp . "\sk_gc_cancel_" . A_TickCount . ".txt"
+					RunCmdToFile(cancelCmd, tempCancel)
+					FileRead, cancelOutput, %tempCancel%
+					FileDelete, %tempCancel%
+					cancelOutput := Trim(cancelOutput)
+					FileAppend, % A_Now . " - GC_SearchMandate - Cancel result: " . cancelOutput . "`n", %DebugLogFile%
+					
+					if (InStr(cancelOutput, "ERROR|")) {
+						DarkMsgBox("GoCardless Warning", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless.", "warning")
+					}
+				}
+				ToolTip
+			}
 			GC_ShowPayPlanDialog(contactData, mandateResult)
 		}
 		else if (result = "Open GC Client") {
@@ -6070,8 +6421,8 @@ Gui, Settings:Add, Text, x15 y20 w150 BackgroundTrans Center, SideKick Hub
 Gui, Settings:Font, s11 c%textColor%, Segoe UI
 
 ; Tab buttons with highlight indicator
-global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts, TabPrint, TabGoCardless, TabDisplay, TabCardly
-global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg, TabPrintBg, TabGoCardlessBg, TabDisplayBg, TabCardlyBg
+global TabGeneral, TabGHL, TabHotkeys, TabFiles, TabLicense, TabAbout, TabShortcuts, TabPrint, TabGoCardless, TabDisplay, TabCardly, TabSounds
+global TabGeneralBg, TabGHLBg, TabHotkeysBg, TabFilesBg, TabLicenseBg, TabAboutBg, TabDeveloperBg, TabShortcutsBg, TabPrintBg, TabGoCardlessBg, TabDisplayBg, TabCardlyBg, TabSoundsBg
 
 ; General tab
 Gui, Settings:Add, Progress, x0 y60 w4 h35 Background0078D4 vTabGeneralBg Hidden
@@ -6117,13 +6468,17 @@ Gui, Settings:Add, Text, x15 y425 w160 h25 BackgroundTrans gSettingsTabGoCardles
 Gui, Settings:Add, Progress, x0 y460 w4 h35 Background0078D4 vTabCardlyBg Hidden
 Gui, Settings:Add, Text, x15 y465 w160 h25 BackgroundTrans gSettingsTabCardly vTabCardly, 📮  Cardly
 
+; Sounds tab
+Gui, Settings:Add, Progress, x0 y500 w4 h35 Background0078D4 vTabSoundsBg Hidden
+Gui, Settings:Add, Text, x15 y505 w160 h25 BackgroundTrans gSettingsTabSounds vTabSounds, 🔊  Sounds
+
 ; Developer tab (only for dev location)
-Gui, Settings:Add, Progress, x0 y500 w4 h35 Background0078D4 vTabDeveloperBg Hidden
-Gui, Settings:Add, Text, x15 y505 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
+Gui, Settings:Add, Progress, x0 y540 w4 h35 Background0078D4 vTabDeveloperBg Hidden
+Gui, Settings:Add, Text, x15 y545 w160 h25 BackgroundTrans gSettingsTabDeveloper vTabDeveloper Hidden, 🛠  Developer
 
 ; Version above logo
 Gui, Settings:Font, s9 c%mutedColor%, Segoe UI
-Gui, Settings:Add, Text, x15 y530 w150 BackgroundTrans Center, v%ScriptVersion%
+Gui, Settings:Add, Text, x15 y570 w150 BackgroundTrans Center, v%ScriptVersion%
 
 ; SideKick Logo at bottom of sidebar - transparent PNG, use appropriate version for theme
 logoPathDark := A_ScriptDir . "\SideKick_Logo_2025_Dark.png"
@@ -6132,18 +6487,18 @@ logoPath := Settings_DarkMode ? logoPathDark : logoPathLight
 
 if FileExist(logoPath) {
 	; Add background patch to match sidebar color for logo area
-	Gui, Settings:Add, Progress, x20 y548 w140 h130 Background%sidebarBg% Disabled
+	Gui, Settings:Add, Progress, x20 y588 w140 h100 Background%sidebarBg% Disabled
 	; Add logo on top (clickable - opens website)
-	Gui, Settings:Add, Picture, x20 y548 w140 h130 vSettingsLogo BackgroundTrans gSettingsLogoClick, %logoPath%
+	Gui, Settings:Add, Picture, x20 y588 w140 h100 vSettingsLogo BackgroundTrans gSettingsLogoClick, %logoPath%
 } else {
 	; Fallback text if logo not found
 	Gui, Settings:Font, s14 cFF8C00, Segoe UI
-	Gui, Settings:Add, Text, x15 y580 w150 h40 BackgroundTrans Center gSettingsLogoClick, 🚀 SIDEKICK
+	Gui, Settings:Add, Text, x15 y620 w150 h40 BackgroundTrans Center gSettingsLogoClick, 🚀 SIDEKICK
 }
 
 ; Website link below logo
 Gui, Settings:Font, s8 Underline c4FC3F7, Segoe UI
-Gui, Settings:Add, Text, x15 y682 w150 BackgroundTrans Center gSettingsWebLinkClick vSettingsWebLink, ps.ghl-sidekick.com
+Gui, Settings:Add, Text, x15 y692 w150 BackgroundTrans Center gSettingsWebLinkClick vSettingsWebLink, ps.ghl-sidekick.com
 Gui, Settings:Font, s8 Norm, Segoe UI
 
 ; Main content area background
@@ -6161,6 +6516,7 @@ CreatePrintPanel()
 CreateGoCardlessPanel()
 CreateDisplayPanel()
 CreateCardlyPanel()
+CreateSoundsPanel()
 CreateDeveloperPanel()
 
 ; Show Developer tab only for dev location
@@ -6262,6 +6618,27 @@ Return
 ToggleClick_EnableSounds:
 Toggle_EnableSounds_State := !Toggle_EnableSounds_State
 UpdateToggleSlider("Settings", "EnableSounds", Toggle_EnableSounds_State, 590)
+Return
+
+ToggleClick_PaceSoundsEnabled:
+Toggle_PaceSoundsEnabled_State := !Toggle_PaceSoundsEnabled_State
+Settings_PaceSoundsEnabled := Toggle_PaceSoundsEnabled_State
+UpdateToggleSlider("Settings", "PaceSoundsEnabled", Toggle_PaceSoundsEnabled_State, 590)
+SaveSettings()
+Return
+
+ToggleClick_PaceKeySounds:
+Toggle_PaceKeySounds_State := !Toggle_PaceKeySounds_State
+Settings_PaceKeySounds := Toggle_PaceKeySounds_State
+UpdateToggleSlider("Settings", "PaceKeySounds", Toggle_PaceKeySounds_State, 590)
+SaveSettings()
+Return
+
+ToggleClick_PaceClickSounds:
+Toggle_PaceClickSounds_State := !Toggle_PaceClickSounds_State
+Settings_PaceClickSounds := Toggle_PaceClickSounds_State
+UpdateToggleSlider("Settings", "PaceClickSounds", Toggle_PaceClickSounds_State, 590)
+SaveSettings()
 Return
 
 ToggleClick_AutoDetectPS:
@@ -8004,6 +8381,11 @@ Settings_ShowBtn_Cardly := !Settings_ShowBtn_Cardly
 GoSub, UpdateTBButtonStates
 Return
 
+ToggleTB_EmailPDF:
+Settings_ShowBtn_EmailPDF := !Settings_ShowBtn_EmailPDF
+GoSub, UpdateTBButtonStates
+Return
+
 UpdateTBButtonStates:
 ; Update visual appearance of toolbar button icons and labels based on enabled state
 ; Theme colors
@@ -8185,6 +8567,20 @@ if (!Settings_ShowBtn_Cardly)
 	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
 GuiControl, Settings:Font, SCLabel_Cardly
 
+; Email PDF button
+if (Settings_ShowBtn_EmailPDF) {
+	GuiControl, Settings:+Background0066AA, SCIcon_EmailPDF
+	Gui, Settings:Font, s14 cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_EmailPDF
+	Gui, Settings:Font, s14 c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_EmailPDF
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_EmailPDF)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_EmailPDF
+
 Return
 
 ; Button handlers
@@ -8194,6 +8590,7 @@ Gui, Settings:Submit, NoHide
 Settings_StartOnBoot := Toggle_StartOnBoot_State
 Settings_ShowTrayIcon := Toggle_ShowTrayIcon_State
 Settings_EnableSounds := Toggle_EnableSounds_State
+Settings_PaceSoundsEnabled := Toggle_PaceSoundsEnabled_State
 Settings_AutoDetectPS := Toggle_AutoDetectPS_State
 Settings_GHL_Enabled := Toggle_GHL_Enabled_State
 Settings_GHL_AutoLoad := Toggle_GHL_AutoLoad_State
@@ -8213,6 +8610,14 @@ Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 Settings_SDCardEnabled := Toggle_SDCardEnabled_State
+; Sounds tab - pace button sound selections and folder
+Settings_PaceSoundFolder := SndFolderEdit
+sndSel1 := SndDDL1
+sndSel2 := SndDDL2
+sndSel3 := SndDDL3
+Settings_PaceSound1 := (sndSel1 = "(none)") ? "" : sndSel1
+Settings_PaceSound2 := (sndSel2 = "(none)") ? "" : sndSel2
+Settings_PaceSound3 := (sndSel3 = "(none)") ? "" : sndSel3
 ; Toolbar button visibility - already updated directly by ToggleTB_* handlers
 ; QR Code text fields from Display tab
 Settings_QRCode_Text1 := DisplayQREdit1
@@ -8252,7 +8657,8 @@ if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)" && Print
 			break
 		}
 	}
-} else {
+} else if (GHL_CachedEmailTemplates != "") {
+	; Only clear if templates were loaded (user explicitly chose SELECT)
 	Settings_EmailTemplateName := "(none selected)"
 	Settings_EmailTemplateID := ""
 }
@@ -8261,6 +8667,26 @@ Settings_RoomCaptureFolder := PrintRoomFolderCombo
 ; PDF settings from Print tab
 Settings_EnablePDF := Toggle_EnablePDF_State
 Settings_PDFOutputFolder := PrintPDFCopyEdit
+; PDF Email template from Print tab combo box
+; Only update if templates were loaded in combo (don't wipe saved selection when cache is empty)
+if (PrintPDFEmailTplCombo != "" && PrintPDFEmailTplCombo != "(none selected)") {
+	Settings_PDFEmailTemplateName := PrintPDFEmailTplCombo
+	Settings_PDFEmailTemplateID := ""
+	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2 && parts[2] = PrintPDFEmailTplCombo) {
+			Settings_PDFEmailTemplateID := parts[1]
+			break
+		}
+	}
+} else if (GHL_CachedEmailTemplates != "") {
+	; Only clear if templates were loaded (user explicitly chose "none")
+	Settings_PDFEmailTemplateName := "(none selected)"
+	Settings_PDFEmailTemplateID := ""
+}
 ; GHL settings from edit controls
 Settings_GHLTags := GHLTagsEdit
 Settings_GHLOppTags := GHLOppTagsEdit
@@ -8324,6 +8750,9 @@ Gui, Settings:Submit, NoHide
 Settings_StartOnBoot := Toggle_StartOnBoot_State
 Settings_ShowTrayIcon := Toggle_ShowTrayIcon_State
 Settings_EnableSounds := Toggle_EnableSounds_State
+Settings_PaceSoundsEnabled := Toggle_PaceSoundsEnabled_State
+Settings_PaceKeySounds := Toggle_PaceKeySounds_State
+Settings_PaceClickSounds := Toggle_PaceClickSounds_State
 Settings_AutoDetectPS := Toggle_AutoDetectPS_State
 Settings_GHL_Enabled := Toggle_GHL_Enabled_State
 Settings_GHL_AutoLoad := Toggle_GHL_AutoLoad_State
@@ -8343,6 +8772,17 @@ Settings_AutoRenameImages := Toggle_AutoRenameImages_State
 Settings_BrowsDown := Toggle_BrowsDown_State
 Settings_AutoDriveDetect := Toggle_AutoDriveDetect_State
 Settings_SDCardEnabled := Toggle_SDCardEnabled_State
+; Sounds tab - pace button sound selections, folder, and volumes
+Settings_PaceSoundFolder := SndFolderEdit
+sndSel1 := SndDDL1
+sndSel2 := SndDDL2
+sndSel3 := SndDDL3
+Settings_PaceSound1 := (sndSel1 = "(none)") ? "" : sndSel1
+Settings_PaceSound2 := (sndSel2 = "(none)") ? "" : sndSel2
+Settings_PaceSound3 := (sndSel3 = "(none)") ? "" : sndSel3
+Settings_PaceVolume1 := SndVol1
+Settings_PaceVolume2 := SndVol2
+Settings_PaceVolume3 := SndVol3
 ; Toolbar button visibility - already updated directly by ToggleTB_* handlers
 ; QR Code text fields from Display tab
 Settings_QRCode_Text1 := DisplayQREdit1
@@ -8382,7 +8822,8 @@ if (PrintEmailTplCombo != "" && PrintEmailTplCombo != "(none selected)" && Print
 			break
 		}
 	}
-} else {
+} else if (GHL_CachedEmailTemplates != "") {
+	; Only clear if templates were loaded (user explicitly chose SELECT)
 	Settings_EmailTemplateName := "(none selected)"
 	Settings_EmailTemplateID := ""
 }
@@ -8391,6 +8832,26 @@ Settings_RoomCaptureFolder := PrintRoomFolderCombo
 ; PDF settings from Print tab
 Settings_EnablePDF := Toggle_EnablePDF_State
 Settings_PDFOutputFolder := PrintPDFCopyEdit
+; PDF Email template from Print tab combo box
+; Only update if templates were loaded in combo (don't wipe saved selection when cache is empty)
+if (PrintPDFEmailTplCombo != "" && PrintPDFEmailTplCombo != "(none selected)") {
+	Settings_PDFEmailTemplateName := PrintPDFEmailTplCombo
+	Settings_PDFEmailTemplateID := ""
+	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+	{
+		if (A_LoopField = "")
+			continue
+		parts := StrSplit(A_LoopField, "|")
+		if (parts.Length() >= 2 && parts[2] = PrintPDFEmailTplCombo) {
+			Settings_PDFEmailTemplateID := parts[1]
+			break
+		}
+	}
+} else if (GHL_CachedEmailTemplates != "") {
+	; Only clear if templates were loaded (user explicitly chose "none")
+	Settings_PDFEmailTemplateName := "(none selected)"
+	Settings_PDFEmailTemplateID := ""
+}
 ; GHL settings from edit controls
 Settings_GHLTags := GHLTagsEdit
 Settings_GHLOppTags := GHLOppTagsEdit
@@ -8666,8 +9127,8 @@ RefreshEmailTemplates:
 	GHL_CachedEmailTemplates := tplOutput
 	
 	; Save to INI for persistence
-	; Replace newlines with §§ for INI storage
-	iniValue := StrReplace(tplOutput, "`n", "§§")
+	; Replace newlines with <> for INI storage
+	iniValue := StrReplace(tplOutput, "`n", "<>")
 	iniValue := StrReplace(iniValue, "`r", "")
 	IniWrite, %iniValue%, %IniFilename%, GHL, CachedEmailTemplates
 	
@@ -8999,10 +9460,10 @@ RoomEmailRefresh:
 	GHL_CachedEmailTemplates := tplOutput
 	
 	; Save to INI for persistence
-	iniValue := StrReplace(tplOutput, "`n", "§§")
+	iniValue := StrReplace(tplOutput, "`n", "<>")
 	iniValue := StrReplace(iniValue, "`r", "")
 	IniWrite, %iniValue%, %IniFilename%, GHL, CachedEmailTemplates
-	
+
 	; Rebuild template list arrays and dropdown
 	RoomEmail_TplIDs := []
 	RoomEmail_TplNames := []
@@ -11743,6 +12204,89 @@ SyncSettingsToGlobals() {
 		if (Settings.ShootArchivePath != "")
 			Settings_ShootArchivePath := Settings.ShootArchivePath
 	}
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; Pace Button Sound Feedback
+; Plays distinct sounds when clicking the 3 pace/tag buttons on the right-side
+; toolbar (RB_CanvasPane7). Buttons are at fixed pixel offsets from the bottom.
+; Zones (from bottom of control):  Button1=150-200  Button2=100-150  Button3=50-100
+; ═══════════════════════════════════════════════════════════════════════════════
+#IfWinActive ahk_exe ProSelect.exe
+~LButton::
+	if (!Settings_PaceSoundsEnabled || !Settings_PaceClickSounds)
+		return
+
+	; Check if click landed on RB_CanvasPane7
+	MouseGetPos,,, paceWinHwnd, paceCtlNN, 1
+	if (paceCtlNN != "RB_CanvasPane7")
+		return
+
+	; Get control dimensions and mouse Y relative to control
+	ControlGetPos, paceCtlX, paceCtlY,, paceCtlH, RB_CanvasPane7, ahk_id %paceWinHwnd%
+	CoordMode, Mouse, Client
+	MouseGetPos, , paceMouseY
+	CoordMode, Mouse, Screen  ; restore default
+	paceFromBottom := paceCtlH - (paceMouseY - paceCtlY)
+
+	; Play distinct tone for each pace button zone
+	if (paceFromBottom >= 150 && paceFromBottom < 200)
+		PlayPaceSound(1)
+	else if (paceFromBottom >= 100 && paceFromBottom < 150)
+		PlayPaceSound(2)
+	else if (paceFromBottom >= 50 && paceFromBottom < 100)
+		PlayPaceSound(3)
+return
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; Keyboard triggers for pace button sounds (1, 2, 3 while ProSelect active)
+; Keys pass through (~) so ProSelect still processes them natively.
+; ═══════════════════════════════════════════════════════════════════════════════
+~1::
+	if (GetKeyState("Alt") || GetKeyState("Ctrl") || GetKeyState("Shift"))
+		return
+	if (Settings_PaceSoundsEnabled && Settings_PaceKeySounds)
+		PlayPaceSound(1)
+return
+~2::
+	if (GetKeyState("Alt") || GetKeyState("Ctrl") || GetKeyState("Shift"))
+		return
+	if (Settings_PaceSoundsEnabled && Settings_PaceKeySounds)
+		PlayPaceSound(2)
+return
+~3::
+	if (GetKeyState("Alt") || GetKeyState("Ctrl") || GetKeyState("Shift"))
+		return
+	if (Settings_PaceSoundsEnabled && Settings_PaceKeySounds)
+		PlayPaceSound(3)
+return
+#IfWinActive
+
+PlayPaceSound(btnNum) {
+	global Settings_PaceSound1, Settings_PaceSound2, Settings_PaceSound3
+	global Settings_PaceSoundsEnabled, Settings_PaceSoundFolder
+	if (!Settings_PaceSoundsEnabled)
+		return
+	if (btnNum = 1)
+		sndFile := Settings_PaceSound1
+	else if (btnNum = 2)
+		sndFile := Settings_PaceSound2
+	else
+		sndFile := Settings_PaceSound3
+	if (sndFile != "") {
+		fullPath := Settings_PaceSoundFolder . "\" . sndFile
+		if FileExist(fullPath) {
+			SoundPlay, %fullPath%
+			return
+		}
+	}
+	; Fallback beep
+	if (btnNum = 1)
+		SoundBeep, 600, 100
+	else if (btnNum = 2)
+		SoundBeep, 900, 100
+	else
+		SoundBeep, 1200, 100
 }
 
 ; === QR Code Generation Library (must be at end of script) ===
