@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.3
-; Build Date:  2026-03-10
+; Version:     3.0.4
+; Build Date:  2026-03-11
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -646,8 +646,9 @@ PlaceButton:
 if EnteringPaylines
 	Return
 
-; Play notification sounds (non-blocking)
-SoundPlay %A_ScriptDir%\sidekick\media\KbdSpacebar.wav
+; Play notification sound only if main ProSelect window is active
+if (Settings_EnableSounds && IsMainPSActive())
+	SoundPlay %A_ScriptDir%\sidekick\media\KbdSpacebar.wav
 
 ; Wait for the Payline window (should already exist from watcher)
 WinWait, Add Payment, Date, 5
@@ -2528,8 +2529,9 @@ if (activeExe = "ProSelect.exe") {
 	WinGet, _ptActiveHwnd, ID, A
 	WinGetTitle, _ptActiveTitle, A
 	WinGetPos, _ptAX, _ptAY, _ptAW, _ptAH, A
-	; Only accept if it looks like the main window (not a dialog)
-	if (_ptAW >= 800 && _ptAH >= 600 && _ptActiveTitle != "" && _ptActiveTitle != "ProSelect") {
+	; Only accept windows whose title starts with "ProSelect" and has an album name
+	; This excludes dialogs (Add Payment, Print) AND the splash screen (just "ProSelect")
+	if (SubStr(_ptActiveTitle, 1, 9) = "ProSelect" && StrLen(_ptActiveTitle) > 9) {
 		Toolbar_LastPsHwnd := _ptActiveHwnd
 	} else {
 		; Active ProSelect window is a dialog — hide toolbar
@@ -2547,12 +2549,12 @@ if (Toolbar_LastPsHwnd = "") {
 WinGetTitle, psTitle, ahk_id %Toolbar_LastPsHwnd%
 WinGetPos, psX, psY, psW, psH, ahk_id %Toolbar_LastPsHwnd%
 
-; Don't show toolbar during splash screen - only hide if title is empty or just "ProSelect"
-if (psTitle = "" || psTitle = "ProSelect")
+; Only show toolbar on windows whose title starts with "ProSelect" and has an album name
+; This excludes splash screen ("ProSelect" only), empty titles, and dialogs
+if (SubStr(psTitle, 1, 9) != "ProSelect" || StrLen(psTitle) <= 9)
 {
-	; Still on splash screen or loading - hide toolbar
 	Gui, Toolbar:Hide
-	Toolbar_PSWindowReadySince := 0  ; Reset - not main window yet
+	Toolbar_PSWindowReadySince := 0  ; Reset - not an album window
 	return
 }
 
@@ -2560,14 +2562,6 @@ if (psTitle = "" || psTitle = "ProSelect")
 if (psX = "" || psY = "" || psW = "" || psH = "")
 {
 	Gui, Toolbar:Hide
-	return
-}
-
-; Skip if window is too small to be main window
-if (psW < 800 || psH < 600)
-{
-	Gui, Toolbar:Hide
-	Toolbar_PSWindowReadySince := 0  ; Reset - not a valid main window
 	return
 }
 
@@ -4932,6 +4926,9 @@ Toolbar_GoCardless:
 				}
 				ToolTip
 			}
+			; Save album so .psa has the latest payments before reading
+			PsConsole("saveAlbum")
+			Sleep, 500
 			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
 		}
 		else if (result = "Open GC Client") {
@@ -4940,6 +4937,113 @@ Toolbar_GoCardless:
 			Run, %gcUrl%
 		}
 		return
+	}
+	
+	; --- Auto name-fallback: if email found NO_CUSTOMER, try matching by name ---
+	if (mandateResult.customerId = "") {
+		ToolTip, Searching GoCardless by name: %clientName%...
+		FileAppend, % A_Now . " - Toolbar_GoCardless - Email not found, trying name fallback for: " . clientName . "`n", %DebugLogFile%
+		
+		envFlag := " --live"
+		scriptCmd := GetScriptCommand("gocardless_api", "--check-mandate-by-name """ . clientName . """" . envFlag)
+		
+		tempNameSearch := A_Temp . "\sk_gc_name_fallback_" . A_TickCount . ".txt"
+		RunCmdToFile(scriptCmd, tempNameSearch)
+		FileRead, nameOutput, %tempNameSearch%
+		FileDelete, %tempNameSearch%
+		nameOutput := Trim(nameOutput)
+		ToolTip
+		
+		FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback result: " . nameOutput . "`n", %DebugLogFile%
+		
+		if (InStr(nameOutput, "MANDATE_FOUND|")) {
+			; Found by name - parse result and ask user to confirm identity
+			nfParts := StrSplit(nameOutput, "|")
+			nfCustomerId := Trim(nfParts[2])
+			nfMandateId := Trim(nfParts[3])
+			nfStatus := Trim(nfParts[4])
+			nfBank := Trim(nfParts[5])
+			nfPlans := (nfParts.Length() >= 6) ? Trim(nfParts[6]) : ""
+			nfName := (nfParts.Length() >= 7) ? Trim(nfParts[7]) : clientName
+			nfEmail := (nfParts.Length() >= 8) ? Trim(nfParts[8]) : "unknown"
+			
+			; Emails don't match - ask user to confirm this is the same client
+			confirmMsg := "A mandate was found by name, but the email address is different:`n`n"
+			confirmMsg .= "👤 Client: " . clientName . "`n"
+			confirmMsg .= "📧 GHL Email: " . clientEmail . "`n`n"
+			confirmMsg .= "👤 GoCardless: " . nfName . "`n"
+			confirmMsg .= "📧 GC Email: " . nfEmail . "`n"
+			confirmMsg .= "🏦 Bank: " . nfBank . "`n`n"
+			confirmMsg .= "Is this the same client?"
+			
+			confirmResult := DarkMsgBox("Same Client?", confirmMsg, "question", {buttons: ["Yes", "No - Use Another", "Cancel"]})
+			
+			if (confirmResult = "Yes") {
+				; User confirmed - proceed with the found mandate
+				mandateResult := {}
+				mandateResult.hasMandate := true
+				mandateResult.customerId := nfCustomerId
+				mandateResult.mandateId := nfMandateId
+				mandateResult.mandateStatus := nfStatus
+				mandateResult.bankName := nfBank
+				mandateResult.plans := Trim(nfPlans)
+				mandateResult.payeeName := nfName
+				mandateResult.payeeEmail := nfEmail
+				
+				existingPlans := mandateResult.plans
+				plansMsg := "`n`n✅ No Existing Plans"
+				hasExistingPlans := false
+				if (existingPlans != "") {
+					cleanPlans := RegExReplace(existingPlans, "^\s+|\s+$")
+					if (StrLen(cleanPlans) > 0) {
+						plansMsg := "`n`n⚠️ Existing Plans:`n" . cleanPlans
+						hasExistingPlans := true
+					}
+				}
+				
+				msg := "✅ " . nfName . " has an active Direct Debit mandate." . plansMsg
+				if (hasExistingPlans)
+					result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Replace PayPlan", "Cancel"]})
+				else
+					result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
+				
+				if (result = "Replace PayPlan" || result = "Add PayPlan") {
+					if (hasExistingPlans) {
+						ToolTip, Cancelling old GoCardless plans...
+						FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback - Cancelling old plans for mandate " . mandateResult.mandateId . "`n", %DebugLogFile%
+						cancelCmd := GetScriptCommand("gocardless_api", "--cancel-plans """ . mandateResult.mandateId . """" . envFlag)
+						if (cancelCmd != "") {
+							tempCancel := A_Temp . "\sk_gc_cancel_" . A_TickCount . ".txt"
+							RunCmdToFile(cancelCmd, tempCancel)
+							FileRead, cancelOutput, %tempCancel%
+							FileDelete, %tempCancel%
+							cancelOutput := Trim(cancelOutput)
+							FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback - Cancel result: " . cancelOutput . "`n", %DebugLogFile%
+							if (InStr(cancelOutput, "ERROR|")) {
+								DarkMsgBox("GoCardless Warning", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless.", "warning")
+							}
+						}
+						ToolTip
+					}
+					PsConsole("saveAlbum")
+					Sleep, 500
+					GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+				}
+				else if (result = "Open GC Client") {
+					gcUrl := "https://manage.gocardless.com/customers/" . nfCustomerId
+					Run, %gcUrl%
+				}
+				return
+			}
+			else if (confirmResult = "No - Use Another") {
+				GC_SearchMandateByNameOrEmail(GHL_ContactData)
+				return
+			}
+			else {
+				; Cancel
+				return
+			}
+		}
 	}
 	
 	; No mandate - ask if user wants to send request
@@ -5097,6 +5201,9 @@ GC_SearchMandateByNameOrEmail(contactData) {
 				}
 				ToolTip
 			}
+			; Save album so .psa has the latest payments before reading
+			PsConsole("saveAlbum")
+			Sleep, 500
 			GC_ShowPayPlanDialog(contactData, mandateResult)
 		}
 		else if (result = "Open GC Client") {
@@ -6013,33 +6120,36 @@ Toolbar_Cardly:
 		}
 	}
 	
-	; Auto-fetch GHL contact if not already loaded
-	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {
+	; Extract current album's Client ID (needed to detect stale cached contact)
+	albumContactId := ""
+	if (!noAlbumMode) {
+		if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
+			if (!RegExMatch(idMatch1, "^P\d+P$"))
+				albumContactId := idMatch1
+		}
+		; Fallback: read clientCode from the .psa SQLite file
+		if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
+			ToolTip, Reading client ID from PSA file...
+			tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
+			FileDelete, %tempFile%
+			pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); m=re.search(r'<clientCode>([^<]+)</clientCode>',str(r[0])) if r else None; open(sys.argv[2],'w').write(m.group(1) if m else '')"" """ . psaPath . """ """ . tempFile . """"
+			RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
+			FileRead, psaClientCode, %tempFile%
+			FileDelete, %tempFile%
+			psaClientCode := Trim(psaClientCode, " `t`r`n")
+			if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
+				albumContactId := psaClientCode
+			ToolTip
+		}
+	}
+	
+	; Re-fetch GHL contact if not loaded or if the album's client differs from cached
+	needsFetch := (GHL_ContactData = "" || !GHL_ContactData.HasKey("id"))
+	if (!needsFetch && albumContactId != "" && GHL_ContactData.id != albumContactId)
+		needsFetch := true
+	
+	if (needsFetch) {
 		if (!noAlbumMode) {
-			; Try to extract Client ID from ProSelect album title
-			albumContactId := ""
-			if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
-				; Verify it's a GHL ID, not a shoot number (e.g. P26020P)
-				if (!RegExMatch(idMatch1, "^P\d+P$"))
-					albumContactId := idMatch1
-			}
-			
-			; Fallback: read clientCode from the .psa SQLite file
-			if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
-				ToolTip, Reading client ID from PSA file...
-				tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
-				FileDelete, %tempFile%
-				pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); m=re.search(r'<clientCode>([^<]+)</clientCode>',str(r[0])) if r else None; open(sys.argv[2],'w').write(m.group(1) if m else '')"" """ . psaPath . """ """ . tempFile . """"
-				RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
-				FileRead, psaClientCode, %tempFile%
-				FileDelete, %tempFile%
-				psaClientCode := Trim(psaClientCode, " `t`r`n")
-				; Must be 15+ alphanum AND not a shoot number (P26020P)
-				if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
-					albumContactId := psaClientCode
-				ToolTip
-			}
-			
 			if (albumContactId != "") {
 				ToolTip, Fetching client from GHL...
 				GHL_ContactData := FetchGHLData(albumContactId)
@@ -6055,7 +6165,6 @@ Toolbar_Cardly:
 				return
 			}
 		} else {
-			; No album mode — require user to load a client first via the Client button
 			WinClose, Cardly Loading
 			DarkMsgBox("No Client Loaded", "No album is open and no GHL client is loaded.`n`nPlease fetch a client from GHL first using the Client button.", "warning")
 			return
@@ -10810,8 +10919,9 @@ RefreshSettingsDisplay() {
 	; Destroy progress bar
 	Gui, PayProgress:Destroy
 	
-	; Play ding sound for 2022 too
-	SoundPlay, *48
+	; Play ding sound only if main ProSelect window is active
+	if (Settings_EnableSounds && IsMainPSActive())
+		SoundPlay, *48
 	if (DownpaymentLineAdded)
 		DarkMsgBox("Payments Entered", "✅ Downpayment + " . PayNo . " scheduled payment(s) entered!", "info", {timeout: 5})
 	else
@@ -12207,12 +12317,27 @@ SyncSettingsToGlobals() {
 }
 
 ; ═══════════════════════════════════════════════════════════════════════════════
+; Returns true if the active window is a main ProSelect album window
+; (title starts with "ProSelect", e.g. "ProSelect - AlbumName")
+; Used to restrict sounds and hotkeys to the main window only.
+; ═══════════════════════════════════════════════════════════════════════════════
+IsMainPSActive() {
+	WinGet, _psExe, ProcessName, A
+	if (_psExe != "ProSelect.exe")
+		return false
+	WinGetTitle, _psTitle, A
+	; Must start with "ProSelect" AND have more (e.g. " - AlbumName")
+	; This rejects the splash screen (title is just "ProSelect")
+	return (SubStr(_psTitle, 1, 9) = "ProSelect" && StrLen(_psTitle) > 9)
+}
+
+; ═══════════════════════════════════════════════════════════════════════════════
 ; Pace Button Sound Feedback
 ; Plays distinct sounds when clicking the 3 pace/tag buttons on the right-side
 ; toolbar (RB_CanvasPane7). Buttons are at fixed pixel offsets from the bottom.
 ; Zones (from bottom of control):  Button1=150-200  Button2=100-150  Button3=50-100
 ; ═══════════════════════════════════════════════════════════════════════════════
-#IfWinActive ahk_exe ProSelect.exe
+#If IsMainPSActive()
 ~LButton::
 	if (!Settings_PaceSoundsEnabled || !Settings_PaceClickSounds)
 		return
@@ -12260,7 +12385,7 @@ return
 	if (Settings_PaceSoundsEnabled && Settings_PaceKeySounds)
 		PlayPaceSound(3)
 return
-#IfWinActive
+#If
 
 PlayPaceSound(btnNum) {
 	global Settings_PaceSound1, Settings_PaceSound2, Settings_PaceSound3

@@ -1,6 +1,6 @@
 # SideKick PS — User Manual
 
-**Version 2.5.32** | February 2026 | © Zoom Photography
+**Version 3.0.4** | March 2026 | © Zoom Photography
 
 ---
 
@@ -12,21 +12,23 @@
 4. [The Toolbar](#the-toolbar)
 5. [GHL Client Lookup](#ghl-client-lookup)
 6. [Invoice Sync](#invoice-sync)
-7. [Invoice Deletion](#invoice-deletion)
-8. [GoCardless Integration](#gocardless-integration)
-9. [Payment Plan Calculator](#payment-plan-calculator)
-10. [Room Capture](#room-capture)
-11. [Room Capture Email](#room-capture-email)
-12. [Open GHL Contact](#open-ghl-contact)
-13. [Quick Print](#quick-print)
-14. [SD Card Download](#sd-card-download)
-15. [Greeting Cards (Cardly)](#greeting-cards-cardly)
-16. [Settings](#settings)
-17. [Keyboard Shortcuts](#keyboard-shortcuts)
-18. [System Tray](#system-tray)
-19. [Licensing & Activation](#licensing--activation)
-20. [Troubleshooting](#troubleshooting)
-21. [Support](#support)
+7. [Invoice Update & Resync](#invoice-update--resync)
+8. [Invoice Deletion](#invoice-deletion)
+9. [GoCardless Integration](#gocardless-integration)
+10. [Payment Plan Calculator](#payment-plan-calculator)
+11. [Display — QR Codes & Bank Details](#display--qr-codes--bank-details)
+12. [Room Capture](#room-capture)
+13. [Room Capture Email](#room-capture-email)
+14. [Open GHL Contact](#open-ghl-contact)
+15. [Quick Print & Email PDF](#quick-print--email-pdf)
+16. [SD Card Download](#sd-card-download)
+17. [Greeting Cards (Cardly)](#greeting-cards-cardly)
+18. [Settings](#settings)
+19. [Keyboard Shortcuts](#keyboard-shortcuts)
+20. [System Tray](#system-tray)
+21. [Licensing & Activation](#licensing--activation)
+22. [Troubleshooting](#troubleshooting)
+23. [Support](#support)
 
 ---
 
@@ -35,8 +37,11 @@
 SideKick PS is a Windows companion app for **ProSelect** photography software. It adds a floating toolbar to ProSelect with one-click access to:
 
 - **GoHighLevel (GHL) CRM integration** — import client details, sync invoices, upload contact sheets
+- **GoCardless Direct Debit** — check mandates, send DD setup links, create payment plans
 - **Payment plan calculator** — generate payment schedules and auto-enter them into ProSelect
+- **Greeting cards (Cardly)** — send personalised physical postcards to clients
 - **Room capture** — screenshot the ProSelect room view and save as JPG
+- **Display** — show QR codes, bank transfer details, and custom slides during a sale
 - **SD card download** — download, rename, and archive photos from memory cards
 
 SideKick PS works with **ProSelect 2022, 2024, and 2025** on Windows 10/11.
@@ -77,19 +82,37 @@ On first launch you'll be prompted to:
 
 ## The Toolbar
 
-When ProSelect is open, a floating toolbar appears docked to the ProSelect title bar. It contains up to 9 buttons (configurable in Settings → Shortcuts):
+When ProSelect is open, a floating toolbar appears docked to the ProSelect title bar. Buttons are grouped into three sections — **GHL**, **Shortcuts**, and **Services** — separated by visual dividers. All buttons are configurable in Settings → Toolbar:
+
+#### GHL Buttons
 
 | Button | Icon | What it Does |
 |---|---|---|
 | **Get Client** | 👤 (blue) | Import client details from GHL into ProSelect |
 | **Sync Invoice** | 📋 (green) | Export the current order and sync it to GHL as an invoice. **Ctrl+Click** to delete the last synced invoice |
 | **Open GHL** | 🌐 (teal) | Open this client's GHL contact page in your browser |
+
+#### Shortcut Buttons
+
+| Button | Icon | What it Does |
+|---|---|---|
+| **Review Order** | 🧾 (amber) | Open ProSelect's Orders → Review Order |
 | **Room Capture** | 📷 (maroon) | Screenshot the ProSelect room view, with option to email |
-| **Sort Order** | 🔀 (yellow) | Toggle between random and filename sort order |
+| **Open Folder** | 📂 (dynamic) | Open the album's image source folder. Icon changes to match your selected file browser (Bridge, Lightroom, or Explorer) |
 | **Photoshop** | PS (pink) | Send selected image to Photoshop (Ctrl+T) |
 | **Refresh** | 🔄 (cyan) | Update album (Ctrl+U) |
+| **Sort Order** | 🔀 (yellow) | Toggle between random and filename sort order |
 | **Quick Print** | 🖨 (orange) | Auto-print with configured template |
+| **Email PDF** | 📧 (orange) | Print invoice to PDF, then email it to the client via a GHL email template |
+| **QR Code** | QR (white) | Display a QR code on-screen (configurable URL) |
 | **SD Download** | 📥 (orange) | Download photos from SD card *(only shown if enabled)* |
+
+#### Service Buttons
+
+| Button | Icon | What it Does |
+|---|---|---|
+| **GoCardless** | GC (dynamic) | Check mandates, send DD setup links, create payment plans |
+| **Cardly** | ✉ (orange) | Send personalised greeting cards via Cardly |
 | **Settings** | ⚙ (purple) | Open SideKick PS settings |
 
 ### Toolbar Behaviour
@@ -98,6 +121,18 @@ When ProSelect is open, a floating toolbar appears docked to the ProSelect title
 - It **stays hidden** when ProSelect dialogs are open (Client Setup, Print, etc.)
 - It **reappears** when you return to the main ProSelect window
 - Icon colours can be changed in **Settings → Hotkeys → Icon Color**
+- **Section separators** visually divide GHL, Shortcuts, and Services button groups
+
+### Toolbar Scaling
+
+The toolbar size can be adjusted to suit different screen sizes:
+
+- **Auto-Scale** — checkbox in Settings → Toolbar auto-links toolbar size to the ProSelect window width
+- **Manual Scale** — dropdown (50%–100%) for manually sizing the toolbar on smaller screens
+
+### Toolbar Button Settings
+
+Toolbar buttons are configured using **clickable icons** in Settings → Toolbar. Click an icon to toggle it on/off — the icon background and label update immediately. This replaces the older toggle-slider approach.
 
 ---
 
@@ -190,6 +225,19 @@ SideKick PS automatically matches your ProSelect products to GHL products using 
 
 See [ProSelect Product Code Setup](docs/ProSelect_Product_Code_Setup.md) for detailed instructions.
 
+### Duplicate Invoice Detection
+
+When syncing an invoice, SideKick checks for existing invoices for the same shoot. If a duplicate is found, a dialog appears with four options:
+
+| Button | When to Use |
+|---|---|
+| **Replace** | Delete the old invoice and create a fresh one (default when no payments recorded) |
+| **Update** | Update the existing invoice's line items in place, preserving recorded payments (default when payments exist) |
+| **New** | Create another invoice alongside the existing one |
+| **Cancel** | Do nothing |
+
+The dialog shows the existing invoice's payment status so you can make an informed choice.
+
 ### Payment Plan Invoices
 
 If the order has a payment plan with future payments:
@@ -221,6 +269,45 @@ When payment amounts don't divide evenly, there's a small rounding difference (e
 - **Add to 1st Payment** — the first scheduled payment is adjusted
 
 This is set in the **Payment Calculator** and also in **Settings → GHL Integration**.
+
+---
+
+## Invoice Update & Resync
+
+When an order changes after the initial sync, you don't need to start from scratch. SideKick offers two ways to bring the GHL invoice up to date.
+
+### Update Invoice
+
+Updates the existing invoice's line items and amounts **in place** — preserving any payments already recorded.
+
+**How it works:**
+
+1. When a duplicate invoice is detected, click **Update**
+2. SideKick replaces the invoice's line items with the current ProSelect order
+3. Payments already recorded in GHL are preserved
+4. Any new past payments not yet in GHL are recorded automatically
+5. Existing future recurring schedules are cancelled and recreated to match the new amounts
+
+**Best for:** Orders where the client has added or removed products, but some payments are already recorded.
+
+### Resync Invoice
+
+Deletes the old invoice(s) for the shoot and creates a fresh one from scratch.
+
+**How it works:**
+
+1. When a duplicate invoice is detected, click **Replace**
+2. SideKick deletes the existing invoice(s) matching the shoot number
+3. A new invoice is created with the current ProSelect order data
+4. If provider payments (GoCardless/Stripe) need manual refund, the process aborts safely with instructions
+
+**Best for:** Starting over when the order has fundamentally changed.
+
+### Safety Checks
+
+- If the new order total is less than the amount already paid, SideKick warns you and suggests options (replace, refund in GHL, or re-export)
+- Provider-managed payments (GoCardless, Stripe) are flagged — you must handle refunds through those platforms before resyncing
+- Deletion is scoped to the specific shoot number, not all client invoices
 
 ---
 
@@ -309,7 +396,21 @@ GoCardless is a Direct Debit payment platform ideal for photography payment plan
    - ✅ Mandate status (active/pending)
    - Bank name
    - Option to **Create Payment Plan**
-5. If no mandate exists, you can **Send Mandate Request**
+5. If the email isn't found in GoCardless, SideKick automatically retries by **name** (see Name Fallback below)
+6. If no customer is found at all, you can **Send Mandate Request**
+
+### Name Fallback (Different Email)
+
+Clients sometimes use a different email with GoCardless than the one in GHL. When the email lookup returns "No Customer", SideKick automatically searches GoCardless by the client’s name.
+
+If a name match is found, a **"Same Client?"** dialog appears showing:
+- **GHL details** — name and email from your CRM
+- **GoCardless details** — name, email, bank, and mandate status from GoCardless
+
+Choose:
+- **Yes** — confirms it's the same client, proceeds to create the payment plan using the GoCardless mandate
+- **No — Use Another** — opens a manual search dialog to find the correct mandate by name or email
+- **Cancel** — aborts the GoCardless flow
 
 ### Sending a Mandate Request
 
@@ -327,12 +428,62 @@ When a client has an active mandate:
 
 1. First, create a payment plan in the **Payment Calculator** with GoCardless DD as the payment type
 2. Click the **GC** button to check the mandate
-3. Click **Create Payment Plan**
+3. Click **Create Payment Plan** (or **Replace PayPlan** if existing plans are detected)
 4. The dialog auto-populates from your PayPlan lines:
-   - **Plan Name** — defaults to ShootNo-LastName
+   - **Plan Name** — auto-generated from your naming format in Settings (e.g., ShootNo-LastName)
    - **Amount** — per-payment amount (from DD payments only)
    - **Payments** — count of DD payments found
    - **Day** — day of month for collection
+
+### Silent Plan Creation
+
+When all required data is available — an active mandate and DD payment lines in the album — SideKick creates the GoCardless instalment schedule **silently** (no dialog window). This happens automatically when you click the GC button after entering DD payments, and both the mandate and paylines are ready.
+
+For **single DD payments**, SideKick creates a one-off payment instead of an instalment schedule — this is more appropriate for one-time charges and avoids unnecessary GoCardless schedule overhead.
+
+### Replacing an Existing Plan
+
+If GoCardless already has active plans for the mandate:
+
+1. The mandate dialog shows a **Replace PayPlan** button (instead of "Add PayPlan")
+2. Clicking it cancels all active instalment schedules, subscriptions, and pending one-off payments on the mandate
+3. A new plan is then created with the current payment data
+
+This is useful when the client's order or payment schedule changes after a plan was already set up.
+
+### Auto-Detect GoCardless on Payment Entry
+
+After writing Direct Debit payments to an album, SideKick detects GoCardless/DD payment types and offers to create them in GoCardless immediately — so you never forget to set up the Direct Debit.
+
+### Use Another Mandate
+
+When no mandate is found for the current client's email, you can search by a **partner's name or email** to find their mandate. Useful when the DD mandate is in the other partner's name.
+
+### Single Payments & Subscriptions (GC Payments Tab)
+
+SideKick_GC includes a **Payments** tab for creating ad-hoc payments against an active mandate:
+
+- **Single Payments** — one-off charges with amount, charge date, description, reference, and metadata
+- **Subscriptions** — recurring payments with configurable frequency (weekly/monthly/yearly), interval, day-of-month, and end condition (indefinite, fixed count, or end date)
+- **Inline plan naming** — the Statement Label prefix is shown inline so you see the full bank statement name
+
+### Stale Mandates
+
+The **Stale Mandates** window finds GoCardless mandates with no payment plans ever created — ideal for catching forgotten setups.
+
+**To use:**
+1. Open **Settings → GoCardless**
+2. Click the **Stale Mandates** button
+3. A sortable table shows mandates with no plans: customer name, email, last payment date, total collected, and mandate ID
+4. Select mandates with checkboxes and click **Cancel** to batch-cancel them (with two-stage safety warnings — cancellation is irreversible)
+
+### Close to Tray (SideKick_GC)
+
+SideKick_GC can stay running in the background for mandate polling:
+
+- **Close to system tray** — enable in GC Settings to have the X button hide the window to the system tray instead of minimising
+- **Toast on Mandate Cancellation** — shows a Windows notification when polling detects a bank-cancelled mandate (enabled by default)
+- **Exit Program** — the red "⏻ Exit" button in GC Settings fully quits the application. If polling is active, a warning reminds you that SideKick needs to stay running for notifications to work.
 
 ### DD Payment Filtering
 
@@ -357,16 +508,16 @@ If you create multiple plans for the same shoot (e.g., client adds more products
 
 The dialog shows the actual name used after creation.
 
-### Finding Forgotten Mandates — "No Plans" Button
+### Finding Forgotten Mandates — Stale Mandates
 
-Even with best intentions, some mandates slip through without payment plans. The **No Plans** button in Settings → GoCardless scans all your active mandates and finds those with no payment plans ever created.
+Even with best intentions, some mandates slip through without payment plans. The **Stale Mandates** button in Settings → GoCardless launches a dedicated window to find and manage these.
 
 **To use:**
 1. Open **Settings → GoCardless**
-2. Click the **No Plans** button
-3. SideKick scans all active mandates (progress bar shows status)
-4. Results show clients with a Direct Debit mandate but no payments set up
-5. Click **Copy** to copy the list to clipboard for follow-up
+2. Click the **Stale Mandates** button
+3. A sortable table shows all active mandates with no payment plans ever created
+4. Each row shows: customer name, email, last payment date, total collected, and mandate ID
+5. Select mandates with checkboxes for batch cancellation, or click **Copy** to copy the list to clipboard for follow-up
 
 **Useful for:**
 - Finding mandates where you forgot to set up the payment plan
@@ -495,8 +646,29 @@ SideKick PS enters all the payments into ProSelect automatically (**Done For You
 - A **progress bar** shows "Payment X of Y" during entry
 - A **"HANDS OFF"** warning reminds you not to touch the mouse or keyboard
 - Audio feedback plays after each payment is entered
+- A **success dialog** confirms the number of payments entered
 
 > **⚠ Important:** Do not touch the mouse or keyboard while payments are being entered. SideKick PS is automating the ProSelect UI and any interaction will interfere.
+
+### Multi-Client Albums
+
+When a ProSelect album contains multiple client groups (e.g., a wedding with two families), SideKick automatically targets the correct client:
+
+- The payment balance is matched against each group's order total
+- If the balance is **unique** to one group, that group is selected automatically
+- If **multiple groups** share the same balance, a dialog lets you pick the correct client by name
+
+### Existing Payment Detection
+
+When writing payments to an album that already has a payment plan:
+
+1. SideKick detects the existing payments before writing
+2. A dialog offers three options:
+   - **Replace** — delete old payments and write the new plan
+   - **Add** — append new payments alongside existing ones
+   - **Cancel** — do nothing
+
+When **Replace** is used, the success dialog confirms how many old payments were removed.
 
 ### After Entry — Set Up DD Immediately
 
@@ -514,6 +686,39 @@ This ensures you never forget to set up the Direct Debit — it's done before th
 When **GoCardless DD** or any Direct Debit method is selected:
 - A minimum **4 business day** setup window is enforced
 - If the selected day is too soon, it's automatically adjusted to the next valid day
+
+---
+
+## Display — QR Codes & Bank Details
+
+**Trigger:** Slide cycling on the external display or preview panel
+
+SideKick PS can display QR codes, bank transfer details, and custom images as rotating slides during a sale — visible to the client on a secondary display.
+
+### Slide Cycling
+
+Slides cycle automatically or can be navigated manually with **↑** / **↓** keys:
+
+1. **QR Code** — dynamically generated from your configured URL (e.g., payment link, review link)
+2. **Bank Transfer Details** — your bank institution, account name, sort code, and account number displayed as large, readable text
+3. **Custom Images** — any additional images you add
+
+### Bank Transfer Details
+
+Configure in **Settings → Display → Bank Transfer Details**:
+
+| Field | Description |
+|---|---|
+| **Bank Institution** | Your bank name (e.g., "Barclays") |
+| **Account Name** | The name on the account |
+| **Sort Code** | Automatically formatted as ##-##-## on display |
+| **Account Number** | Your account number |
+
+Bank details and QR codes scale with the **Size slider** (25–85%) for optimal readability on different screen sizes.
+
+### Lead Connector QR Toggle
+
+In **Settings → GHL**, a checkbox switches the QR code URL between your white-label domain (opens in browser) and `app.leadconnector.app` (opens the Lead Connector mobile app).
 
 ---
 
@@ -609,6 +814,39 @@ This is useful for quickly checking appointment history, notes, or communication
 
 ---
 
+## Quick Print & Email PDF
+
+### Quick Print
+
+**Toolbar button:** 🖨 Quick Print
+
+Auto-print the current order using a pre-configured print template. SideKick matches the template name from Settings and triggers printing automatically.
+
+Configure templates in **Settings → Shortcuts → Quick Print Templates**:
+
+- **Payment Plan** — template to use when the order has a payment plan
+- **Standard** — template for standard orders without payment plans
+
+### Email PDF
+
+**Toolbar button:** 📧 Email PDF
+
+Print the invoice to PDF, then email it to the client via a GHL email template — all in one click.
+
+**How it works:**
+
+1. Click the **Email PDF** toolbar button
+2. SideKick follows the same Print-to-PDF procedure (print → save → copy)
+3. The generated PDF is then automatically emailed to the client using the configured GHL email template
+
+**Setup:**
+
+1. Open **Settings → Print** tab
+2. Select a **GHL email template** from the dropdown (click 🔄 to refresh available templates)
+3. Enable the **Email PDF** button in **Settings → Toolbar**
+
+---
+
 ## SD Card Download
 
 **Toolbar button:** 📥 SD Download *(must be enabled in Settings)*
@@ -667,12 +905,25 @@ Send personalised physical greeting cards to clients using photos from their Pro
 
 1. Open a ProSelect album and import the GHL contact (Get Client)
 2. Click the **Cardly** toolbar button
-3. The **Card Preview** window opens showing images from the client's order
-4. Select a photo, adjust the crop and zoom, and optionally add a sticker overlay
-5. Edit the personalised message (pre-filled from the GHL contact's Message field)
-6. Click **Send** — the image is processed, uploaded to Cardly, and a physical postcard is printed and mailed to the client's address
+3. A **loading animation** appears immediately while SideKick prepares the card preview
+4. The **Card Preview** window opens showing images from the client's order
+5. Select a photo, adjust the crop and zoom, and optionally add a sticker overlay
+6. Choose a **template orientation** (Landscape or Portrait) using the ⇄ rotate button
+7. Edit the personalised message (pre-filled from the GHL contact's Message field)
+8. Optionally set a **Receiving Date** for scheduled delivery
+9. Click **Send** — the image is processed, uploaded to Cardly, and a physical postcard is printed and mailed to the client's address
 
 A copy of the postcard photo is also saved locally and uploaded to the client's GHL media folder.
+
+### No-Album Mode
+
+You can launch Cardly **without a ProSelect album open**:
+
+- Album-dependent steps (reading images, extracting thumbnails) are skipped
+- A **folder picker** appears to select images manually
+- Requires a GHL client to be loaded first (for the recipient address)
+
+This is useful for sending cards to past clients where you don't have the album open.
 
 ### Test Mode
 
@@ -705,7 +956,28 @@ The Card Preview window shows images in this priority order:
 
 1. **Order images** — thumbnails from the PSA album filtered by the most recent XML export
 2. **Album folder** — all image files in the album's parent folder
-3. **Browse** — manually select a folder
+3. **Browse** — click the 📂 button to select any image from disc (opens at the album folder by default; selected images are added to the filmstrip)
+
+### Template Orientation Swap
+
+The ⇄ rotate button in the card preview switches between **Landscape** and **Portrait** crop, automatically using matched template pairs. SideKick discovers L↔P template pairs by name matching — e.g., `thankyou-photocard-l` ↔ `thankyou-photocard-p`. The card size display shows "Landscape" or "Portrait" next to the dimensions.
+
+### Receiving Date
+
+Schedule the card to arrive on a specific date instead of sending immediately:
+
+| Option | Description |
+|---|---|
+| **ASAP** | Send as soon as possible (default) |
+| **Birthday** | Client's birthday from GHL (shows "Unknown" if not on file) |
+| **Shoot Anniversary** | Session date + 1 year |
+| **Custom date fields** | Any date-type GHL custom fields from the contact record |
+
+Click the **🔄 refresh** button next to the dropdown to fetch all date-type custom fields from the GHL contact. Cardly calculates the dispatch date backward from the requested arrival date.
+
+### Sticker Overlays
+
+Add sticker PNG overlays to the card image. The sticker dropdown includes an **"Open Folder..."** option to open the sticker folder in Explorer for quick access to add or remove sticker PNGs. Stickers are included when exporting/importing settings.
 
 ### Requirements
 
@@ -718,7 +990,7 @@ The Card Preview window shows images in this priority order:
 
 ## Settings
 
-Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+W**.
+Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+I**.
 
 ### General Tab
 
@@ -751,11 +1023,14 @@ Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+
 | Setting | Description |
 |---|---|
 | **Enable GoCardless** | Master toggle for GoCardless features |
-| **Environment** | Sandbox (testing) or Live (production) |
-| **API Token** | Your GoCardless access token (stored encrypted) |
+| **API Token** | Your GoCardless access token (stored in encrypted credentials.json) |
+| **Setup Wizard** | Step-by-step guide for first-time GoCardless setup |
 | **Email Template** | GHL email template for mandate request emails |
 | **SMS Template** | GHL SMS template for mandate request texts |
+| **Plan Naming Format** | Auto-generate plan names using ShootNo, Surname, Order Date, etc. |
 | **🔄 Refresh** | Fetch available templates from GHL |
+| **Stale Mandates** | Open the Stale Mandates window to find forgotten mandates |
+| **Diagnostics** | Run `gc_diagnose.bat` to troubleshoot connectivity issues |
 
 ### Hotkeys Tab
 
@@ -763,8 +1038,41 @@ Open Settings from the toolbar (⚙ button), system tray, or press **Ctrl+Shift+
 |---|---|
 | **GHL Client Lookup** | Shortcut to import client (default: Ctrl+Shift+G) |
 | **Open PayPlan** | Shortcut to open calculator (default: Ctrl+Shift+P) |
-| **Open Settings** | Shortcut to settings (default: Ctrl+Shift+W) |
+| **Open Settings** | Shortcut to settings (default: Ctrl+Shift+I) |
 | **Icon Color** | Toolbar icon colour: White, Black, Yellow, or Custom |
+
+### Toolbar Tab
+
+Configure toolbar button visibility using **clickable icons**. Click an icon to toggle it on/off — the icon background and label update immediately.
+
+| Setting | Description |
+|---|---|
+| **Button Icons** | Clickable icons for each toolbar button — click to show/hide |
+| **Auto-Scale** | Auto-link toolbar size to ProSelect window width |
+| **Manual Scale** | Dropdown (50%–100%) for manually sizing the toolbar |
+| **Email PDF toggle** | Show/hide the Email PDF button on the toolbar |
+
+### Print Tab
+
+| Setting | Description |
+|---|---|
+| **Quick Print Templates** | |
+| — Payment Plan | Template name to match in Print dialog when order has a payment plan |
+| — Standard | Template name for standard orders without payment plans |
+| **Email PDF Template** | GHL email template for emailing invoice PDFs to clients |
+| **🔄 Refresh** | Fetch available email templates from GHL |
+
+### Display Tab
+
+| Setting | Description |
+|---|---|
+| **QR Code URL** | URL to encode in the QR code |
+| **Lead Connector QR** | Toggle QR URL between white-label domain and `app.leadconnector.app` |
+| **Bank Institution** | Bank name for bank transfer display slide |
+| **Account Name** | Account holder name |
+| **Sort Code** | Sort code (auto-formatted as ##-##-##) |
+| **Account Number** | Bank account number |
+| **Size** | Slide display size (25–85%) |
 
 ### Shortcuts Tab
 
@@ -772,10 +1080,6 @@ Configure toolbar buttons and quick print templates.
 
 | Setting | Description |
 |---|---|
-| **Toolbar Buttons** | Enable/disable individual toolbar buttons. Each button has a checkbox to show/hide it on the toolbar. |
-| **Quick Print Templates** | |
-| — Payment Plan | Template name to match in Print dialog when order has a payment plan |
-| — Standard | Template name for standard orders without payment plans |
 | **Room Capture Email** | |
 | — Template | Select a GHL email template for room capture emails |
 | — 🔄 Refresh | Fetch available email templates from GHL |
@@ -791,7 +1095,7 @@ Configure toolbar buttons and quick print templates.
 | **Prefix / Suffix** | File naming pattern |
 | **Include Year** | Add year to shoot number |
 | **Auto-Rename by Date** | Sort and rename by EXIF timestamp |
-| **Editor Path** | Photo editor to launch after download |
+| **Editor Path** | File browser app — auto-detecting dropdown finds installed Adobe Bridge, Lightroom Classic, Photoshop, and Capture One. Browse button for manual selection. |
 | **Open Editor After Download** | Auto-launch editor when done |
 | **Auto-Detect SD Cards** | Monitor for card insertion |
 
@@ -818,7 +1122,7 @@ Configure toolbar buttons and quick print templates.
 
 ### Import / Export Settings
 
-- **Export** — saves all your settings to an encrypted `.skp` file
+- **Export** — saves all your settings to an encrypted `.skp` file (includes toolbar button visibility, Cardly sticker overlays, and GoCardless settings)
 - **Import** — loads settings from a `.skp` file (useful when moving to a new computer)
 
 ---
@@ -829,10 +1133,12 @@ Configure toolbar buttons and quick print templates.
 |---|---|
 | **Ctrl+Shift+G** | GHL Client Lookup |
 | **Ctrl+Shift+P** | Open Payment Calculator |
-| **Ctrl+Shift+W** | Open Settings |
+| **Ctrl+Shift+I** | Open Settings |
 | **Ctrl+Shift+R** | Reload script *(developer mode only)* |
 
 All shortcuts can be changed in **Settings → Hotkeys**. Click "Set" next to any shortcut, then press your desired key combination.
+
+When ProSelect or SideKick is not the active window, hotkeys are **passed through** to the target application instead of being silently consumed.
 
 ---
 
@@ -939,4 +1245,4 @@ Debug logging automatically disables after 24 hours.
 
 ---
 
-*SideKick PS v2.4.72 — Built for photographers, by a photographer.*
+*SideKick PS v3.0.3 — Built for photographers, by a photographer.*

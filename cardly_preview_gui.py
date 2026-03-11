@@ -263,6 +263,7 @@ try:
         resize_image_for_cardly, create_cardly_artwork, place_cardly_order,
         get_ghl_contact, upload_to_ghl_photos, update_ghl_contact_field,
         _enrich_contact_address, save_to_album_folder, list_recent_orders,
+        sanitize_recipient,
         CARDLY_API_KEY, CARDLY_MEDIA_ID, GHL_API_KEY,
         CARDLY_WIDTH, CARDLY_HEIGHT, debug_print, DEBUG
     )
@@ -469,6 +470,7 @@ class CardPreviewGUI:
                                 self.recipient[k] = fallback[k]
                 except Exception:
                     pass
+            sanitize_recipient(self.recipient)
 
     def _draw_spinner(self):
         """Draw one frame of a spinning arc on the splash screen."""

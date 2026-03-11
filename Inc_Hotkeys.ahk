@@ -949,7 +949,8 @@ Return
 
 
 ReadData:
-SoundPlay %A_ScriptDir%\sidekick\media\KbdSpacebar.wav
+if (Settings_EnableSounds && IsMainPSActive())
+	SoundPlay %A_ScriptDir%\sidekick\media\KbdSpacebar.wav
 IniRead, PayDue, %IniFilename%, Payments, PayDue
 IniRead, PayNo, %IniFilename%, Payments, PayNo
 IniRead, PayValue, %IniFilename%, Payments, PayValue
@@ -1327,7 +1328,8 @@ if (InStr(pyOutput, "SUCCESS|")) {
 							GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
 						} else {
 							; Old plans cancelled, no new GC plan needed
-							SoundPlay, *48
+							if (Settings_EnableSounds && IsMainPSActive())
+								SoundPlay, *48
 							DarkMsgBox("GoCardless Updated", "Old GoCardless plans have been cancelled.", "success")
 						}
 					}
@@ -1338,15 +1340,23 @@ if (InStr(pyOutput, "SUCCESS|")) {
 		}
 	}
 	
-	; Show success message (skip if GC_ShowPayPlanDialog already showed one)
-	if (!(Settings_GoCardlessEnabled && useClear && newHasGC && gcPrompt = "Update GoCardless")) {
+	; Safety: always reload album from .psa after the GC flow so ProSelect's
+	; in-memory state has the payments — even when the user cancelled GC setup.
+	; Without this, ProSelect may overwrite the .psa with stale in-memory data.
+	FileAppend, % A_Now . " - UpdatePS - Safety reload after GC flow`n", %DebugLogFile%
+	PsConsole("openAlbum", psaPath, "true")
+	Sleep, 1500
+	
+	; Show success message — always confirm payments were written to the album.
+	; GC_ShowPayPlanDialog shows its own "Payments Created & Injected" on success,
+	; but when GC was cancelled or failed the user needs to know their paylines are safe.
+	if (Settings_EnableSounds && IsMainPSActive())
 		SoundPlay, *48
-		successMsg := ""
-		if (useClear)
-			successMsg .= "Old PayPlan removed.`n"
-		successMsg .= countAdded . " payment(s) written to album successfully."
-		DarkMsgBox("PayPlan Updated", successMsg, "success")
-	}
+	successMsg := ""
+	if (useClear)
+		successMsg .= "Old PayPlan removed.`n"
+	successMsg .= countAdded . " payment(s) written to album successfully."
+	DarkMsgBox("PayPlan Updated", successMsg, "success")
 	
 } else {
 	; Failed

@@ -613,6 +613,38 @@ def update_ghl_contact_field(contact_id: str, field_key: str, value: str) -> dic
         return {"success": False, "error": str(e)}
 
 # =============================================================================
+# Address Sanitisation
+# =============================================================================
+
+_UK_POSTCODE_RE = re.compile(
+    r'^\s*([A-Za-z]{1,2}\d[A-Za-z\d]?)\s*(\d[A-Za-z]{2})\s*$'
+)
+
+def sanitize_recipient(recipient: dict) -> dict:
+    """Title-case name/address fields and format UK/GB postcodes.
+
+    Modifies *recipient* in place and returns it for convenience.
+    """
+    # Fields that should be title-cased
+    for key in ('name', 'address1', 'address2', 'city', 'state', 'region'):
+        val = recipient.get(key)
+        if val and isinstance(val, str) and val.strip():
+            recipient[key] = val.strip().title()
+
+    # UK/GB postcode: uppercase and ensure space between outcode and incode
+    country = (recipient.get('country') or '').strip().upper()
+    if country in ('GB', 'UK', 'UNITED KINGDOM', 'GREAT BRITAIN'):
+        pc = recipient.get('postcode', '')
+        if pc:
+            m = _UK_POSTCODE_RE.match(pc)
+            if m:
+                recipient['postcode'] = f"{m.group(1).upper()} {m.group(2).upper()}"
+            else:
+                recipient['postcode'] = pc.strip().upper()
+
+    return recipient
+
+# =============================================================================
 # Cardly Integration
 # =============================================================================
 
@@ -694,17 +726,15 @@ def create_cardly_artwork(image_path: str, name: str = "Custom Card", media_id_o
     debug_print(f"Encoded PNG (no ICC): {len(raw_b64)} base64 chars from {image_path}")
 
     # Determine which media ID to use for artwork
-    # If CARDLY_MEDIA_ID is a template, we need the template's underlying media
-    actual_media_id = media_id_override
-    if not actual_media_id:
-        if is_template_id(CARDLY_MEDIA_ID):
-            # Fetch the template's base media ID
-            actual_media_id = get_template_media_id(CARDLY_MEDIA_ID)
-            if not actual_media_id:
-                return {"success": False, "error": "Could not get template's base media ID"}
-            debug_print(f"Template detected, using base media: {actual_media_id}")
-        else:
-            actual_media_id = CARDLY_MEDIA_ID
+    # If the ID is a template, we need the template's underlying media
+    actual_media_id = media_id_override or CARDLY_MEDIA_ID
+    if is_template_id(actual_media_id):
+        # Fetch the template's base media ID
+        resolved = get_template_media_id(actual_media_id)
+        if not resolved:
+            return {"success": False, "error": "Could not get template's base media ID"}
+        debug_print(f"Template detected ({actual_media_id}), using base media: {resolved}")
+        actual_media_id = resolved
 
     headers = {
         "API-Key": CARDLY_API_KEY,
@@ -798,6 +828,7 @@ def place_cardly_order(artwork_id: str, recipient: dict, message: str = "",
         "postcode": recipient.get('postcode', ''),
         "country": recipient.get('country', 'AU')
     }
+    sanitize_recipient(cardly_recipient)
 
     # Determine if using template mode
     use_template = template_id and is_template_id(template_id)

@@ -3074,80 +3074,57 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	if (albumName = "" || albumName = "ProSelect")
 		albumName := contactData.lastName ? contactData.lastName : "PayPlan"
 	
-	; Calculate DD balance from PayPlanLine if available
+	; Always read DD payments from the .psa file (source of truth for the current album)
+	; Previously this used the in-memory PayPlanLine[] array first, which could contain
+	; stale data from a previous album's Payment Calculator session.
 	ddBalance := 0
 	ddPayMethod := "GoCardless DD"
 	ddPaylines := ""
-	startIdx := DownpaymentLineAdded ? 0 : 1
-	endIdx := DownpaymentLineAdded ? PayNo : PayNo
-	Loop {
-		idx := startIdx + A_Index - 1
-		if (idx > endIdx)
-			break
-		lineData := PayPlanLine[idx]
-		if (lineData = "")
-			continue
-		parts := StrSplit(lineData, ",")
-		if (parts.Length() < 5)
-			continue
-		payType := parts[4]
-		if (InStr(payType, "GoCardless") || InStr(payType, "Direct Debit") || InStr(payType, " DD") || payType = "DD" || InStr(payType, "BACS")) {
-			ddBalance += parts[5]
-			if (ddPayMethod = "GoCardless DD" && payType != "DD")
-				ddPayMethod := payType
-			; Build payline string: day,month,year,type,amount (semicolon-delimited)
-			if (ddPaylines != "")
-				ddPaylines .= ";"
-			ddPaylines .= lineData
-		}
-	}
-	
-	; If PayPlanLine was empty (toolbar/search flow), read payments from .psa file
-	if (ddPaylines = "") {
-		psaPath := GetAlbumPath()
-		if (psaPath != "" && FileExist(psaPath)) {
-			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - PayPlanLine empty, reading from .psa: " . psaPath . "`n", %DebugLogFile%
-			readCmd := GetScriptCommand("read_psa_payments", """" . psaPath . """")
-			tempPsaRead := A_Temp . "\gc_psa_read_" . A_TickCount . ".txt"
-			RunCmdToFile(readCmd, tempPsaRead)
-			FileRead, psaOutput, %tempPsaRead%
-			FileDelete, %tempPsaRead%
-			psaOutput := Trim(psaOutput)
-			
-			if (InStr(psaOutput, "PAYMENTS|")) {
-				; Format: PAYMENTS|count|order_date|day,month,year,amount,methodName,methodID|...
-				psaParts := StrSplit(psaOutput, "|")
-				Loop {
-					pidx := 3 + A_Index  ; Skip PAYMENTS|count|order_date
-					if (pidx > psaParts.Length())
-						break
-					pData := psaParts[pidx]
-					if (pData = "")
-						continue
-					pp := StrSplit(pData, ",")
-					if (pp.Length() < 5)
-						continue
-					; pp: day,month,year,amount,methodName,methodID
-					pMethod := pp[5]
-					if (InStr(pMethod, "GoCardless") || InStr(pMethod, "Direct Debit") || InStr(pMethod, " DD") || pMethod = "DD" || InStr(pMethod, "BACS")) {
-						pAmount := pp[4]
-						ddBalance += pAmount
-						if (ddPayMethod = "GoCardless DD" && pMethod != "DD")
-							ddPayMethod := pMethod
-						; Convert to payline format: day,month,year,type,amount
-						; Year from .psa is 4-digit, convert to 2-digit for consistency
-						pYear := pp[3]
-						if (StrLen(pYear) = 4)
-							pYear := SubStr(pYear, 3)
-						payline := pp[1] . "," . pp[2] . "," . pYear . "," . pMethod . "," . pAmount
-						if (ddPaylines != "")
-							ddPaylines .= ";"
-						ddPaylines .= payline
-					}
+	psaPath := GetAlbumPath()
+	if (psaPath != "" && FileExist(psaPath)) {
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Reading payments from .psa: " . psaPath . "`n", %DebugLogFile%
+		readCmd := GetScriptCommand("read_psa_payments", """" . psaPath . """")
+		tempPsaRead := A_Temp . "\gc_psa_read_" . A_TickCount . ".txt"
+		RunCmdToFile(readCmd, tempPsaRead)
+		FileRead, psaOutput, %tempPsaRead%
+		FileDelete, %tempPsaRead%
+		psaOutput := Trim(psaOutput)
+		
+		if (InStr(psaOutput, "PAYMENTS|")) {
+			; Format: PAYMENTS|count|order_date|day,month,year,amount,methodName,methodID|...
+			psaParts := StrSplit(psaOutput, "|")
+			Loop {
+				pidx := 3 + A_Index  ; Skip PAYMENTS|count|order_date
+				if (pidx > psaParts.Length())
+					break
+				pData := psaParts[pidx]
+				if (pData = "")
+					continue
+				pp := StrSplit(pData, ",")
+				if (pp.Length() < 5)
+					continue
+				; pp: day,month,year,amount,methodName,methodID
+				pMethod := pp[5]
+				if (InStr(pMethod, "GoCardless") || InStr(pMethod, "Direct Debit") || InStr(pMethod, " DD") || pMethod = "DD" || InStr(pMethod, "BACS")) {
+					pAmount := pp[4]
+					ddBalance += pAmount
+					if (ddPayMethod = "GoCardless DD" && pMethod != "DD")
+						ddPayMethod := pMethod
+					; Convert to payline format: day,month,year,type,amount
+					; Year from .psa is 4-digit, convert to 2-digit for consistency
+					pYear := pp[3]
+					if (StrLen(pYear) = 4)
+						pYear := SubStr(pYear, 3)
+					payline := pp[1] . "," . pp[2] . "," . pYear . "," . pMethod . "," . pAmount
+					if (ddPaylines != "")
+						ddPaylines .= ";"
+					ddPaylines .= payline
 				}
-				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Read " . (ddPaylines != "" ? "DD paylines from .psa" : "no DD payments in .psa") . "`n", %DebugLogFile%
 			}
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Read " . (ddPaylines != "" ? "DD paylines from .psa" : "no DD payments in .psa") . "`n", %DebugLogFile%
 		}
+	} else {
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - No .psa file found, cannot read payments`n", %DebugLogFile%
 	}
 	
 	; Build temp result file path

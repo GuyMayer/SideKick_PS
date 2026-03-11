@@ -16,6 +16,21 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.4 (2026-03-11)
+
+### New Features
+- **Auto name-fallback for GoCardless**: When the client's email doesn't match a GoCardless customer, SideKick automatically retries by name. If a mandate is found under a different email, a "Same Client?" confirmation dialog shows both GHL and GoCardless details side-by-side — choose Yes to proceed, No to search manually, or Cancel
+- **Single payment support**: GoCardless DD payments with only 1 payment now use a one-off `create_payment` instead of an instalment schedule with count=1
+
+### Fixes
+- **Name-fallback field trimming**: Pipe-delimited fields from the name-fallback CLI output are now trimmed — fixes empty/corrupted command arguments caused by trailing whitespace
+
+### SideKick_GC v1.2.1
+- **Single payment via `create_payment`**: Silent mode with 1 payline creates a one-off payment instead of an instalment schedule
+- **`--check-mandate-by-name` output**: Includes customer name and email in the response for the name-fallback confirmation dialog
+
+---
+
 ## v3.0.3 (2026-03-09)
 
 ### New Features

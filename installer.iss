@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "3.0.3"
+#define MyAppVersion "3.0.4"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -115,6 +115,9 @@ Source: "Release\media\*"; DestDir: "{app}\media"; Flags: ignoreversion recurses
 ; Stickers for Cardly postcards
 Source: "Release\stickers\*"; DestDir: "{app}\stickers"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
+; User manual
+Source: "_Docs\user\SideKick_PS_Manual.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+
 [InstallDelete]
 ; Remove old original-name script files (pre-cryptic era)
 Type: files; Name: "{app}\sync_ps_invoice.exe"
@@ -214,6 +217,7 @@ begin
     end;
   end;
 end;
+
 
 
 
