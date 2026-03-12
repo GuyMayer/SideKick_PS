@@ -1,6 +1,6 @@
 # SideKick PS — User Manual
 
-**Version 3.0.4** | March 2026 | © Zoom Photography
+**Version 3.0.5** | March 2026 | © Zoom Photography
 
 ---
 
@@ -913,7 +913,16 @@ Send personalised physical greeting cards to clients using photos from their Pro
 8. Optionally set a **Receiving Date** for scheduled delivery
 9. Click **Send** — the image is processed, uploaded to Cardly, and a physical postcard is printed and mailed to the client's address
 
-A copy of the postcard photo is also saved locally and uploaded to the client's GHL media folder.
+A copy of the postcard photo is also saved locally and uploaded to the client's GHL media folder. A note is also added to the GHL contact recording the card send and message.
+
+### Duplicate Card Warning
+
+When you click **Send**, SideKick checks whether a card has already been sent to the same recipient in the last 7 days. If a recent order is found, a confirmation dialog shows:
+
+- The order date and card details
+- A link to the **Cardly orders page** to review previous orders
+
+Choose **Yes** to send anyway, or **No** to cancel (opens the Cardly orders page in your browser).
 
 ### No-Album Mode
 
@@ -954,9 +963,10 @@ Once you're satisfied everything works, uncheck test mode in Settings to start s
 
 The Card Preview window shows images in this priority order:
 
-1. **Order images** — thumbnails from the PSA album filtered by the most recent XML export
-2. **Album folder** — all image files in the album's parent folder
-3. **Browse** — click the 📂 button to select any image from disc (opens at the album folder by default; selected images are added to the filmstrip)
+1. **Selected images** — if images are selected in ProSelect when you click Cardly, only those images are loaded (fastest startup)
+2. **Order images** — thumbnails from the PSA album filtered by the most recent XML export
+3. **Album folder** — all image files in the album's parent folder
+4. **Browse** — click the 📂 button to select any image from disc (opens at the album folder by default; selected images are added to the filmstrip)
 
 ### Template Orientation Swap
 

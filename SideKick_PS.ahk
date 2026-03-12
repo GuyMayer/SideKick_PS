@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.4
-; Build Date:  2026-03-11
+; Version:     3.0.6
+; Build Date:  2026-03-12
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -1927,6 +1927,9 @@ CreateFloatingToolbar()
 	; Calculate toolbar position and sample background color BEFORE creating GUI
 	; This ensures we sample the actual screen content, not our own toolbar
 	initialBgColor := Settings_ToolbarLastBGColor ? Settings_ToolbarLastBGColor : "333333"  ; Use saved color or fallback
+	; Guard: if the saved BG color equals the icon color, icons would be invisible — use neutral dark fallback instead
+	if (initialBgColor = GetColorHex(Settings_ToolbarIconColor))
+		initialBgColor := "333333"
 	if (Settings_ToolbarAutoBG && Toolbar_PSWindowReadySince > 0 && (Toolbar_SkipReadyGuard || (A_TickCount - Toolbar_PSWindowReadySince) >= 2000)) {
 		Toolbar_SkipReadyGuard := false
 		; Get ProSelect window position (use tracked window)
@@ -1950,8 +1953,12 @@ CreateFloatingToolbar()
 				g := (sampledColor >> 8) & 0xFF
 				b := sampledColor & 0xFF
 				; Reject near-white samples (likely unrendered window) if we have a saved color
-				if (r < 240 || g < 240 || b < 240 || Settings_ToolbarLastBGColor = "")
+				if (r < 240 || g < 240 || b < 240 || Settings_ToolbarLastBGColor = "") {
 					initialBgColor := Format("{:02X}{:02X}{:02X}", r, g, b)
+					; Persist the freshly sampled color so next rebuild/startup uses the correct value
+					Settings_ToolbarLastBGColor := initialBgColor
+					IniWrite, %initialBgColor%, %IniFilename%, Appearance, ToolbarLastBGColor
+				}
 			}
 		}
 	}
@@ -3088,29 +3095,115 @@ Sleep, 100
 ; Click Print (Button32) - opens Windows Print dialog
 ControlClick, Button32, ahk_class #32770
 
-; Wait for the Windows "ProSelect - Print" dialog
-WinWait, ProSelect - Print, , 10
-if ErrorLevel {
+; Wait for whichever print dialog appears
+; Both classic and modern UWP dialogs may be titled "ProSelect - Print"
+; Classic Win10 can also open a separate "Print" window
+; Guard: only match real Win32 dialogs (class #32770), not AHK GUI windows
+printDialogTitle := ""
+Loop, 20 {
+	if WinExist("ProSelect - Print") {
+		WinGetClass, _chkClass, ProSelect - Print
+		if (InStr(_chkClass, "32770")) {
+			printDialogTitle := "ProSelect - Print"
+			break
+		}
+	}
+	if WinExist("Print") {
+		WinGetClass, _chkClass, Print
+		if (InStr(_chkClass, "32770")) {
+			printDialogTitle := "Print"
+			break
+		}
+	}
+	Sleep, 500
+}
+if (printDialogTitle = "") {
 	ToolTip, Windows Print dialog did not appear
 	SetTimer, RemoveToolTip, -3000
 	Return
 }
 
-; Activate and click inside the window to ensure focus
-WinActivate, ProSelect - Print
-WinWaitActive, ProSelect - Print, , 3
+; Activate the dialog and ensure keyboard focus
+WinActivate, %printDialogTitle%
+WinWaitActive, %printDialogTitle%, , 3
 Sleep, 500
 
-; Windows 10 vs Windows 11 have different Print dialogs
-if (IsWindows10) {
-	; Windows 10: Classic Print dialog - use Alt+P to click Print button
-	Sleep, 3000
-	WinActivate, Print
-	WinWaitActive, Print, , 2
-	Send, !p
+; Detect dialog style by window class — ProSelect may show the classic Win10
+; dialog (class #32770) even on Windows 11; class is more reliable than OS version
+WinGetClass, printDialogClass, %printDialogTitle%
+FileAppend, % A_Now . " [QP] Print dialog: title=[" . printDialogTitle . "] class=[" . printDialogClass . "]`n", %DebugLogFile%
+WinGet, ctrlList, ControlList, %printDialogTitle%
+FileAppend, % A_Now . " [QP] Controls: [" . ctrlList . "]`n", %DebugLogFile%
+
+if (InStr(printDialogClass, "32770") || printDialogTitle = "Print") {
+	; Classic Win32 print dialog — printer list is a SysListView32 icon grid
+	pdfSelected := false
+	ControlGet, lvItems, List,, SysListView321, %printDialogTitle%
+	FileAppend, % A_Now . " [QP] SysListView321: [" . lvItems . "]`n", %DebugLogFile%
+	rowNum := 0
+	Loop, Parse, lvItems, `n, `r
+	{
+		rowNum++
+		FileAppend, % A_Now . " [QP]   LV row " . rowNum . ": [" . A_LoopField . "]`n", %DebugLogFile%
+		if InStr(A_LoopField, "Print to PDF") {
+			; ControlSend keyboard navigation triggers the dialog's WM_NOTIFY so it actually switches the printer
+			ControlFocus, SysListView321, %printDialogTitle%
+			Sleep, 150
+			ControlSend, SysListView321, {Home}, %printDialogTitle%
+			Sleep, 100
+			downCount := rowNum - 1
+			Loop, %downCount% {
+				ControlSend, SysListView321, {Down}, %printDialogTitle%
+				Sleep, 80
+			}
+			Sleep, 300
+			pdfSelected := true
+			FileAppend, % A_Now . " [QP] Selected via SysListView321 row " . rowNum . "`n", %DebugLogFile%
+			break
+		}
+	}
+	if (!pdfSelected) {
+		ControlGet, cbItems, List,, ComboBox1, %printDialogTitle%
+		FileAppend, % A_Now . " [QP] ComboBox1: [" . cbItems . "]`n", %DebugLogFile%
+		Loop, Parse, cbItems, `n
+		{
+			if InStr(A_LoopField, "Print to PDF") {
+				Control, ChooseString, %A_LoopField%, ComboBox1, %printDialogTitle%
+				Sleep, 300
+				pdfSelected := true
+				FileAppend, % A_Now . " [QP] Selected via ComboBox1`n", %DebugLogFile%
+				break
+			}
+		}
+	}
+	FileAppend, % A_Now . " [QP] pdfSelected=" . pdfSelected . "`n", %DebugLogFile%
+	
+	; Find and click the Print button by its text
+	printBtnCtrl := ""
+	Loop, 20 {
+		ctrl := "Button" . A_Index
+		ControlGetText, btnText, %ctrl%, %printDialogTitle%
+		if (ErrorLevel)
+			break
+		FileAppend, % A_Now . " [QP] " . ctrl . " text=[" . btnText . "]`n", %DebugLogFile%
+		if (btnText = "Print" || btnText = "&Print") {
+			printBtnCtrl := ctrl
+			break
+		}
+	}
+	FileAppend, % A_Now . " [QP] printBtnCtrl=[" . printBtnCtrl . "]`n", %DebugLogFile%
+	if (printBtnCtrl != "") {
+		ControlFocus, %printBtnCtrl%, %printDialogTitle%
+		Sleep, 100
+		ControlClick, %printBtnCtrl%, %printDialogTitle%
+	} else {
+		WinActivate, %printDialogTitle%
+		WinWaitActive, %printDialogTitle%, , 2
+		Sleep, 200
+		Send, {Enter}
+	}
 } else {
-	; Windows 11: Modern dialog - use tab navigation
-	; 6 tabs from Printer dropdown to reach Print button
+	; Modern Win11 UWP dialog: tab navigation to reach Print button
 	tabDelay := Settings_MenuDelay
 	Send, {Tab}
 	Sleep, %tabDelay%
@@ -3188,10 +3281,38 @@ Toolbar_PrintToPDF:
 	FileRead, origPrinter, %A_Temp%\sidekick_orig_printer.txt
 	origPrinter := Trim(origPrinter, " `t`r`n")
 	FileDelete, %A_Temp%\sidekick_orig_printer.txt
+	FileAppend, % A_Now . " [PDF] Original printer: [" . origPrinter . "]`n", %DebugLogFile%
+	ToolTip, 🖨 Original printer: %origPrinter%
+	Sleep, 1000
 	
-	; Set Microsoft Print to PDF as default
-	RunWait, RUNDLL32 PRINTUI.DLL`,PrintUIEntry /y /n "Microsoft Print to PDF",, Hide
-	Sleep, 500
+	; Set Microsoft Print to PDF as default and wait until it actually takes effect
+	RunWait, powershell -NoProfile -Command "Set-Printer -Name 'Microsoft Print to PDF' -Default",, Hide
+	FileAppend, % A_Now . " [PDF] Set-Printer command done`n", %DebugLogFile%
+	; Verify the change propagated before ProSelect opens the dialog
+	pdfPrinterConfirmed := false
+	Loop, 10 {
+		RunWait, powershell -NoProfile -Command "(Get-CimInstance Win32_Printer -Filter 'Default=True').Name | Set-Content '%A_Temp%\sidekick_cur_printer.txt'",, Hide
+		FileRead, curPrinter, %A_Temp%\sidekick_cur_printer.txt
+		curPrinter := Trim(curPrinter, " `t`r`n")
+		FileDelete, %A_Temp%\sidekick_cur_printer.txt
+		FileAppend, % A_Now . " [PDF] Verify loop " . A_Index . ": [" . curPrinter . "]`n", %DebugLogFile%
+		ToolTip, 🔄 Verifying printer... %A_Index%/10: %curPrinter%
+		if InStr(curPrinter, "Print to PDF") {
+			pdfPrinterConfirmed := true
+			break
+		}
+		Sleep, 300
+	}
+	if (!pdfPrinterConfirmed) {
+		FileAppend, % A_Now . " [PDF] WARNING: Printer did not switch to PDF after 10 attempts! Current: [" . curPrinter . "]`n", %DebugLogFile%
+		ToolTip, ⚠ WARNING: Printer did not switch to PDF printer!
+		Sleep, 2000
+	} else {
+		FileAppend, % A_Now . " [PDF] Printer confirmed as PDF printer: [" . curPrinter . "]`n", %DebugLogFile%
+		ToolTip, ✅ Printer confirmed: %curPrinter%
+		Sleep, 500
+	}
+	ToolTip
 	
 	; Activate ProSelect and use keyboard menu navigation to Print
 	WinActivate, ahk_exe ProSelect.exe
@@ -3252,9 +3373,53 @@ Toolbar_PrintToPDF:
 	Sleep, 200
 	Send, {Enter}
 	
-	; Wait for the Windows "ProSelect - Print" dialog
-	WinWait, ProSelect - Print, , 10
-	if ErrorLevel {
+	; Wait for whichever print dialog appears
+	; Scan all #32770 windows as fallback — ProSelect may use any title
+	printDialogTitle := ""
+	printDialogHwnd := ""
+	Loop, 20 {
+		; First check known titles
+		if WinExist("ProSelect - Print") {
+			WinGetClass, _chkClass, ProSelect - Print
+			if (InStr(_chkClass, "32770")) {
+				printDialogTitle := "ProSelect - Print"
+				break
+			}
+		}
+		if WinExist("Print") {
+			WinGetClass, _chkClass, Print
+			if (InStr(_chkClass, "32770")) {
+				printDialogTitle := "Print"
+				break
+			}
+		}
+		; Fallback: find any new #32770 window that appeared after ProSelect launched print
+		WinGet, allHwnds, List, ahk_class #32770
+		Loop, %allHwnds% {
+			hwnd := allHwnds%A_Index%
+			WinGetTitle, wTitle, ahk_id %hwnd%
+			FileAppend, % A_Now . " [PDF] #32770 scan: hwnd=" . hwnd . " title=[" . wTitle . "]`n", %DebugLogFile%
+			; Accept any #32770 window that has a print-related title or belongs to ProSelect process
+			WinGet, wPID, PID, ahk_id %hwnd%
+			WinGet, psPID, PID, ahk_exe ProSelect.exe
+			if (wPID = psPID && wTitle != "") {
+				printDialogTitle := "ahk_id " . hwnd
+				printDialogHwnd := hwnd
+				FileAppend, % A_Now . " [PDF] Matched ProSelect #32770 window: [" . wTitle . "] hwnd=" . hwnd . "`n", %DebugLogFile%
+				break, 2
+			}
+		}
+		Sleep, 500
+	}
+	if (printDialogTitle = "") {
+		; Log all visible #32770 windows to help diagnose
+		WinGet, allHwnds, List, ahk_class #32770
+		FileAppend, % A_Now . " [PDF] TIMEOUT - all #32770 windows at timeout:`n", %DebugLogFile%
+		Loop, %allHwnds% {
+			hwnd := allHwnds%A_Index%
+			WinGetTitle, wTitle, ahk_id %hwnd%
+			FileAppend, % A_Now . " [PDF]   hwnd=" . hwnd . " title=[" . wTitle . "]`n", %DebugLogFile%
+		}
 		Gui, PDFProgress:Destroy
 		ToolTip, Windows Print dialog did not appear
 		SetTimer, RemoveToolTip, -3000
@@ -3262,103 +3427,124 @@ Toolbar_PrintToPDF:
 			RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
 		Return
 	}
-	Sleep, 1000
+	Sleep, 500
 	
-	; Click Print button in Windows Print dialog
-	; PDF printer is already set as default so it should be pre-selected
-	; Activate and click inside the window to force focus
-	WinActivate, ProSelect - Print
-	WinWaitActive, ProSelect - Print, , 3
+	; Detect dialog style by window class — ProSelect may show the classic Win10
+	; dialog (class #32770) even on Windows 11; class is more reliable than OS version
+	WinGetClass, printDialogClass, %printDialogTitle%
+	FileAppend, % A_Now . " [PDF] Print dialog found: title=[" . printDialogTitle . "] class=[" . printDialogClass . "]`n", %DebugLogFile%
+	
+	; Activate the dialog and ensure keyboard focus
+	WinActivate, %printDialogTitle%
+	WinWaitActive, %printDialogTitle%, , 3
 	if ErrorLevel {
 		ToolTip, Could not activate Print dialog
 		SetTimer, RemoveToolTip, -2000
 	}
+	Sleep, 500
 	
-	; Click inside the dialog window to ensure it has keyboard focus
-	WinGetPos, winX, winY, winW, winH, ProSelect - Print
-	clickX := winX + (winW // 2)
-	clickY := winY + 100  ; Click upper area, avoid buttons
-	Click, %clickX%, %clickY%
-	Sleep, 1000
-	
-	; Windows 10 vs Windows 11 have different Print dialogs
-	; Both use calibration: first run or Ctrl+Shift+Click prompts user to click Print button
+	; Log all controls in the dialog for diagnostics
+	WinGet, ctrlList, ControlList, %printDialogTitle%
+	FileAppend, % A_Now . " [PDF] Dialog controls: [" . ctrlList . "]`n", %DebugLogFile%
 	
 	; Ensure we're using screen coordinates
 	CoordMode, Mouse, Screen
 	
-	; Check if we need calibration (Ctrl+Shift+Click OR no saved offsets)
-	needCalibration := PDF_CalibrationMode || (Settings_PDFPrintBtnOffsetRight = 0 && Settings_PDFPrintBtnOffsetBottom = 0)
-	
-	if (IsWindows10) {
-		; Windows 10: Classic Print dialog
-		Sleep, 3000
-		WinActivate, Print
-		WinWaitActive, Print, , 2
+	if (InStr(printDialogClass, "32770") || printDialogTitle = "Print") {
+		; Classic Win32 print dialog — printer list is a SysListView32 icon grid,
+		; NOT a ComboBox. Select "Microsoft Print to PDF" from SysListView321,
+		; then click the Print button.
 		
-		; Get window position
-		WinGetPos, winX, winY, winW, winH, Print
+		pdfSelected := false
 		
-		if (needCalibration) {
-			; Show calibration instruction GUI (yellow, in front of hands-off GUI)
-			Gui, PDFCalibrate:New, +AlwaysOnTop +ToolWindow +HwndPDFCalibrateHwnd -Caption
-			Gui, PDFCalibrate:Color, FFD700
-			Gui, PDFCalibrate:Font, s14 Bold c000000, Segoe UI
-			Gui, PDFCalibrate:Add, Text, x15 y15 w370 Center, 🖱️ CALIBRATION REQUIRED
-			Gui, PDFCalibrate:Font, s10 Normal c000000, Segoe UI
-			Gui, PDFCalibrate:Add, Text, x15 y50 w370, Windows Print dialogs vary by PC and DPI settings.
-			Gui, PDFCalibrate:Add, Text, x15 y75 w370, SideKick needs to learn where the Print button is.
-			Gui, PDFCalibrate:Font, s11 Bold c000000, Segoe UI
-			Gui, PDFCalibrate:Add, Text, x15 y110 w370 Center, Click the PRINT button now
-			Gui, PDFCalibrate:Font, s9 Normal c444444, Segoe UI
-			Gui, PDFCalibrate:Add, Text, x15 y140 w370 Center, (Ctrl+Shift+Click PDF icon to recalibrate later)
-			; Center on screen
-			calibrateX := (A_ScreenWidth - 400) // 2
-			calibrateY := (A_ScreenHeight - 170) // 2
-			Gui, PDFCalibrate:Show, x%calibrateX% y%calibrateY% w400 h170, Calibration
-			WinSet, AlwaysOnTop, On, ahk_id %PDFCalibrateHwnd%
-			
-			KeyWait, LButton, D T30
-			Gui, PDFCalibrate:Destroy
-			if ErrorLevel {
-				DarkMsgBox("Print to PDF", "Calibration timed out.`n`nPlease try again and click the Print button when prompted.", "warning")
-				Gui, PDFProgress:Destroy
-				if (origPrinter != "")
-					RunWait, powershell -NoProfile -Command "Set-Printer -Name '%origPrinter%' -Default",, Hide
-				Return
-			}
-			
-			; Capture click position
-			MouseGetPos, clickX, clickY
-			Settings_PDFPrintBtnOffsetRight := (winX + winW) - clickX
-			Settings_PDFPrintBtnOffsetBottom := (winY + winH) - clickY
-			
-			; Save to INI
-			IniWrite, %Settings_PDFPrintBtnOffsetRight%, %IniFilename%, Toolbar, PDFPrintBtnOffsetRight
-			IniWrite, %Settings_PDFPrintBtnOffsetBottom%, %IniFilename%, Toolbar, PDFPrintBtnOffsetBottom
-			
-			ToolTip, ✅ Calibrated! Position saved.
-			Sleep, 1500
-			ToolTip
-			
-			KeyWait, LButton
-			Sleep, 300
-		} else {
-			; Use saved calibration
-			printBtnX := winX + winW - Settings_PDFPrintBtnOffsetRight
-			printBtnY := winY + winH - Settings_PDFPrintBtnOffsetBottom
-			Click, %printBtnX%, %printBtnY%
-			Sleep, 500
-			if WinExist("Print") {
+		; Method 1: SysListView321 (the printer icon grid shown in the screenshot)
+		ControlGet, lvItems, List,, SysListView321, %printDialogTitle%
+		FileAppend, % A_Now . " [PDF] SysListView321 items: [" . lvItems . "]`n", %DebugLogFile%
+		rowNum := 0
+		Loop, Parse, lvItems, `n, `r
+		{
+			rowNum++
+			FileAppend, % A_Now . " [PDF]   LV row " . rowNum . ": [" . A_LoopField . "]`n", %DebugLogFile%
+			if InStr(A_LoopField, "Print to PDF") {
+				; ControlSend keyboard navigation triggers the dialog's WM_NOTIFY so it actually switches the printer
+				ControlFocus, SysListView321, %printDialogTitle%
+				Sleep, 150
+				ControlSend, SysListView321, {Home}, %printDialogTitle%
+				Sleep, 100
+				downCount := rowNum - 1
+				Loop, %downCount% {
+					ControlSend, SysListView321, {Down}, %printDialogTitle%
+					Sleep, 80
+				}
 				Sleep, 300
-				Click, %printBtnX%, %printBtnY%
+				pdfSelected := true
+				FileAppend, % A_Now . " [PDF] Selected via SysListView321 row " . rowNum . "`n", %DebugLogFile%
+				break
 			}
 		}
-	} else {
-		; Windows 11: Modern UWP dialog - mouse clicks work better than keystrokes
 		
-		; Get window position
-		WinGetPos, winX, winY, winW, winH, ProSelect - Print
+		; Method 2: ComboBox1 fallback (older XP-style dialog)
+		if (!pdfSelected) {
+			ControlGet, cbItems, List,, ComboBox1, %printDialogTitle%
+			FileAppend, % A_Now . " [PDF] ComboBox1 items: [" . cbItems . "]`n", %DebugLogFile%
+			Loop, Parse, cbItems, `n
+			{
+				if InStr(A_LoopField, "Print to PDF") {
+					Control, ChooseString, %A_LoopField%, ComboBox1, %printDialogTitle%
+					Sleep, 300
+					pdfSelected := true
+					FileAppend, % A_Now . " [PDF] Selected via ComboBox1`n", %DebugLogFile%
+					break
+				}
+			}
+		}
+		
+		FileAppend, % A_Now . " [PDF] pdfSelected=" . pdfSelected . "`n", %DebugLogFile%
+		ToolTip, % "🖨 PDF printer selected: " . (pdfSelected ? "YES" : "NO - check debug log!")
+		Sleep, 800
+		ToolTip
+		
+		; Find and click the Print button by its text — avoids tab-order numbering guesswork
+		printBtnCtrl := ""
+		Loop, 20 {
+			ctrl := "Button" . A_Index
+			ControlGetText, btnText, %ctrl%, %printDialogTitle%
+			if (ErrorLevel)
+				break
+			FileAppend, % A_Now . " [PDF] " . ctrl . " text=[" . btnText . "]`n", %DebugLogFile%
+			if (btnText = "Print" || btnText = "&Print") {
+				printBtnCtrl := ctrl
+				break
+			}
+		}
+		FileAppend, % A_Now . " [PDF] printBtnCtrl=[" . printBtnCtrl . "]`n", %DebugLogFile%
+		if (printBtnCtrl != "") {
+			ControlFocus, %printBtnCtrl%, %printDialogTitle%
+			Sleep, 100
+			ControlClick, %printBtnCtrl%, %printDialogTitle%
+		} else {
+			; Fallback: activate window and press Enter (default button)
+			WinActivate, %printDialogTitle%
+			WinWaitActive, %printDialogTitle%, , 2
+			Sleep, 200
+			Send, {Enter}
+		}
+	} else {
+		; Modern Win11 UWP dialog — keyboard shortcuts are unreliable; use a saved mouse
+		; click position (calibration). First run or Ctrl+Shift+Click prompts the user.
+		
+		; Click inside the dialog window to ensure it has keyboard focus first
+		WinGetPos, winX, winY, winW, winH, %printDialogTitle%
+		clickX := winX + (winW // 2)
+		clickY := winY + 100  ; Click upper area, avoid buttons
+		Click, %clickX%, %clickY%
+		Sleep, 1000
+		
+		; Check if we need calibration (Ctrl+Shift+Click OR no saved offsets)
+		needCalibration := PDF_CalibrationMode || (Settings_PDFPrintBtnOffsetRight = 0 && Settings_PDFPrintBtnOffsetBottom = 0)
+		
+		; Refresh window position after the click above
+		WinGetPos, winX, winY, winW, winH, %printDialogTitle%
 		
 		if (needCalibration) {
 			; Show calibration instruction GUI (yellow, in front of hands-off GUI)
@@ -3420,7 +3606,7 @@ Toolbar_PrintToPDF:
 			Sleep, 500
 			
 			; If dialog still open, try again
-			if WinExist("ProSelect - Print") {
+			if WinExist(printDialogTitle) {
 				Sleep, 300
 				Click, %printBtnX%, %printBtnY%
 			}
@@ -3467,32 +3653,40 @@ Toolbar_PrintToPDF:
 	}
 	Sleep, 300
 	
-	; Build filename from album name (parent folder of album file location)
-	; Album file may be in subfolder like "Unprocessed", so go up one level
-	SplitPath, albumFolder, , parentFolder
-	SplitPath, parentFolder, albumName
+	; Build filename from album folder name
+	; If the .psa is in a generic subfolder (e.g. "Unprocessed"), use its parent instead
+	SplitPath, albumFolder, albumName
+	pdfSaveFolder := albumFolder
+	if (albumName = "Unprocessed" || albumName = "Processed" || albumName = "Working" || albumName = "Archive") {
+		SplitPath, albumFolder, , pdfSaveFolder
+		SplitPath, pdfSaveFolder, albumName
+	}
 	
 	; Clean up album name for PDF filename
-	; Remove "copy" (case-insensitive, may appear multiple times)
 	albumName := RegExReplace(albumName, "i)\s*copy\s*", "")
-	; Replace spaces with underscores
 	albumName := StrReplace(albumName, " ", "_")
-	; Remove multiple consecutive underscores
 	albumName := RegExReplace(albumName, "_+", "_")
-	; Trim leading/trailing underscores
 	albumName := Trim(albumName, "_")
 	
 	pdfName := albumName . ".pdf"
-	pdfFullPath := albumFolder . "\" . pdfName
+	pdfFullPath := pdfSaveFolder . "\" . pdfName
 	
 	; Activate and wait for the Save As dialog
 	WinActivate, %saveWinTitle%
 	WinWaitActive, %saveWinTitle%, , 3
 	Sleep, 300
 	
-	; Set the filename in the Save As dialog
-	ControlSetText, Edit1, %pdfFullPath%, %saveWinTitle%
+	; Set the filename in the Save As dialog via clipboard (ControlSetText unreliable in file dialogs)
+	FileAppend, % A_Now . " [PDF] Save As: pdfFullPath=[" . pdfFullPath . "]`n", %DebugLogFile%
+	ControlFocus, Edit1, %saveWinTitle%
+	Sleep, 150
+	savedClip := ClipboardAll
+	Clipboard := pdfFullPath
+	ClipWait, 2
+	Send, ^a
+	Send, ^v
 	Sleep, 300
+	Clipboard := savedClip
 	
 	; Focus and click Save (Button2 in this dialog)
 	ControlFocus, Button2, %saveWinTitle%
@@ -3607,6 +3801,7 @@ Toolbar_PrintToPDF:
 	; If Email PDF triggered this flow, email the generated PDF now
 	if (PDF_EmailAfterSave && FileExist(pdfFullPath)) {
 		; Check if a template is configured
+		FileAppend, % A_Now . " [PDF] Email trigger: templateID=[" . Settings_PDFEmailTemplateID . "] name=[" . Settings_PDFEmailTemplateName . "] pdf=[" . pdfFullPath . "]`n", %DebugLogFile%
 		if (Settings_PDFEmailTemplateID = "" || Settings_PDFEmailTemplateName = "(none selected)") {
 			ShowPDFEmailDialog(PDF_EmailContactId, pdfFullPath)
 		} else {
@@ -6109,14 +6304,22 @@ Toolbar_Cardly:
 		psTitle := ""
 	}
 	
-	; Get the first selected image from ProSelect via PSConsole
+	; Get selected images from ProSelect via PSConsole
 	preselectImage := ""
+	selectedImages := ""  ; semicolon-delimited list of selected image names
 	if (!noAlbumMode && PsConsolePath != "") {
 		selectedXml := PsConsole("getSelectedImageData")
 		if (selectedXml != false && selectedXml != true) {
-			; Extract the name attribute from the first <image> element
-			if (RegExMatch(selectedXml, "<image\s+name=""([^""]+)""", imgMatch))
-				preselectImage := imgMatch1
+			; Extract ALL selected image names from <image name="..."> elements
+			selPos := 1
+			while (RegExMatch(selectedXml, "<image\s+name=""([^""]+)""", imgMatch, selPos)) {
+				if (preselectImage = "")
+					preselectImage := imgMatch1
+				if (selectedImages != "")
+					selectedImages .= ";"
+				selectedImages .= imgMatch1
+				selPos := selPos + StrLen(imgMatch)
+			}
 		}
 	}
 	
@@ -6427,6 +6630,8 @@ Toolbar_Cardly:
 		cmdArgs .= " --xml """ . xmlPath . """"
 	if (preselectImage != "")
 		cmdArgs .= " --preselect-image """ . preselectImage . """"
+	if (selectedImages != "")
+		cmdArgs .= " --selected-images """ . selectedImages . """"
 	; Pass album name (shoot number + client name) for window title
 	if (albumFilename != "") {
 		albumDisplayName := RegExReplace(albumFilename, "\.[^.]+$")  ; strip extension
@@ -6443,6 +6648,10 @@ Toolbar_Cardly:
 	if (_psW != "" && _psH != "")
 		cmdArgs .= " --ps-geometry """ . _psX . "," . _psY . "," . _psW . "," . _psH . """"
 	
+	; Clean up any previous signal file before launching
+	cardlySignalFile := A_Temp . "\cardly_send_result.txt"
+	FileDelete, %cardlySignalFile%
+	
 	; Launch Card Preview GUI — the standalone CardlyLoader auto-closes
 	; when this window title appears (or on 60s timeout)
 	cardPreviewCmd := GetScriptCommand("cardly_preview_gui", cmdArgs)
@@ -6456,14 +6665,14 @@ Toolbar_Cardly:
 	if WinExist(cardlyWinTitle)
 		WinWaitClose, %cardlyWinTitle%
 	
-	; Get exit code from process
+	; Check signal file written by Python on successful send
+	; (Process exit code is unreliable in AHK v1 — always returns 0)
 	Process, WaitClose, %cardlyPID%, 5
-	exitCode := ErrorLevel
+	FileRead, cardlyResult, %cardlySignalFile%
+	FileDelete, %cardlySignalFile%
 	
-	if (exitCode = 0) {
+	if (Trim(cardlyResult) = "SUCCESS") {
 		TrayTip, SideKick_PS, Greeting card sent to %firstName%, 3, 1
-	} else if (exitCode = 2) {
-		TrayTip, SideKick_PS, Failed to send greeting card, 3, 3
 	}
 }
 Return
@@ -8780,15 +8989,17 @@ Settings_PDFOutputFolder := PrintPDFCopyEdit
 ; Only update if templates were loaded in combo (don't wipe saved selection when cache is empty)
 if (PrintPDFEmailTplCombo != "" && PrintPDFEmailTplCombo != "(none selected)") {
 	Settings_PDFEmailTemplateName := PrintPDFEmailTplCombo
-	Settings_PDFEmailTemplateID := ""
-	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
-	{
-		if (A_LoopField = "")
-			continue
-		parts := StrSplit(A_LoopField, "|")
-		if (parts.Length() >= 2 && parts[2] = PrintPDFEmailTplCombo) {
-			Settings_PDFEmailTemplateID := parts[1]
-			break
+	if (GHL_CachedEmailTemplates != "") {
+		Settings_PDFEmailTemplateID := ""
+		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2 && parts[2] = PrintPDFEmailTplCombo) {
+				Settings_PDFEmailTemplateID := parts[1]
+				break
+			}
 		}
 	}
 } else if (GHL_CachedEmailTemplates != "") {
@@ -8945,15 +9156,17 @@ Settings_PDFOutputFolder := PrintPDFCopyEdit
 ; Only update if templates were loaded in combo (don't wipe saved selection when cache is empty)
 if (PrintPDFEmailTplCombo != "" && PrintPDFEmailTplCombo != "(none selected)") {
 	Settings_PDFEmailTemplateName := PrintPDFEmailTplCombo
-	Settings_PDFEmailTemplateID := ""
-	Loop, Parse, GHL_CachedEmailTemplates, `n, `r
-	{
-		if (A_LoopField = "")
-			continue
-		parts := StrSplit(A_LoopField, "|")
-		if (parts.Length() >= 2 && parts[2] = PrintPDFEmailTplCombo) {
-			Settings_PDFEmailTemplateID := parts[1]
-			break
+	if (GHL_CachedEmailTemplates != "") {
+		Settings_PDFEmailTemplateID := ""
+		Loop, Parse, GHL_CachedEmailTemplates, `n, `r
+		{
+			if (A_LoopField = "")
+				continue
+			parts := StrSplit(A_LoopField, "|")
+			if (parts.Length() >= 2 && parts[2] = PrintPDFEmailTplCombo) {
+				Settings_PDFEmailTemplateID := parts[1]
+				break
+			}
 		}
 	}
 } else if (GHL_CachedEmailTemplates != "") {

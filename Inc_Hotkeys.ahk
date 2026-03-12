@@ -1126,7 +1126,8 @@ readOutput := Trim(readOutput)
 FileAppend, % A_Now . " - UpdatePS - Existing payments: " . readOutput . "`n", %DebugLogFile%
 
 useClear := false
-if (InStr(readOutput, "PAYMENTS|")) {
+wasEmpty := (SubStr(readOutput, 1, 9) != "PAYMENTS|")
+if (SubStr(readOutput, 1, 9) = "PAYMENTS|") {
 	; Existing payments found — parse count and total
 	readParts := StrSplit(readOutput, "|")
 	existingCount := readParts[2]
@@ -1213,11 +1214,12 @@ if (InStr(pyOutput, "SUCCESS|")) {
 	Sleep, 2000  ; Give ProSelect time to reload
 	
 	; Step 8: GoCardless plan management — cancel old plans and/or create new ones
-	; Only when GoCardless is enabled AND we replaced the old PayPlan (useClear)
-	if (Settings_GoCardlessEnabled && useClear) {
+	; Trigger when replacing an existing PayPlan (useClear) OR when this is a fresh
+	; add with no prior payments (wasEmpty) — both cases may need a new GC plan.
+	if (Settings_GoCardlessEnabled && (useClear || wasEmpty)) {
 		; Check if old payments had GoCardless DD (from readOutput parsed earlier)
 		oldHasGC := false
-		if (InStr(readOutput, "PAYMENTS|")) {
+		if (SubStr(readOutput, 1, 9) = "PAYMENTS|") {
 			; readOutput contains: PAYMENTS|count|...|day,month,year,amount,method,methodID|...
 			Loop, Parse, readOutput, |
 			{

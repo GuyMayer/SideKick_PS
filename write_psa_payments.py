@@ -226,6 +226,16 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
             group_content = new_group_content
 
         # Find the </payments> closing tag WITHIN the target group
+        # Helper: wraps a relative regex match so .start() returns an absolute offset
+        class _AbsMatch:
+            def __init__(self, m, offset):
+                self._m = m
+                self._offset = offset
+            def start(self):
+                return self._m.start() + self._offset
+            def group(self, n=0):
+                return self._m.group(n)
+
         payments_close = re.search(r'(\s*)</payments>', group_content)
         payments_close_abs = None
         if payments_close:
@@ -233,15 +243,6 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
             payments_close_abs_start = group_start + payments_close.start()
             payments_close_abs = re.search(r'(\s*)</payments>', order_data[payments_close_abs_start:])
             if payments_close_abs:
-                # Adjust match to absolute offset
-                class _AbsMatch:
-                    def __init__(self, m, offset):
-                        self._m = m
-                        self._offset = offset
-                    def start(self):
-                        return self._m.start() + self._offset
-                    def group(self, n=0):
-                        return self._m.group(n)
                 payments_close = _AbsMatch(payments_close_abs, payments_close_abs_start)
 
         if not payments_close_abs:

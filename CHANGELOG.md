@@ -16,6 +16,30 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.6 (2026-03-12)
+
+### Fixes
+- **Print-to-PDF printer not switching**: `Control, Choose` only updated the visual selection in the print dialog's printer list — replaced with `ControlSend {Home}/{Down}` keyboard navigation which triggers the dialog's internal WM_NOTIFY so the printer actually changes
+- **PDF button printing to paper**: Caused by the above — printer was not switching to "Microsoft Print to PDF" before clicking Print
+- **Print button wrong target**: `ControlClick, Button1` was hitting "Preferences" instead of Print — replaced with a loop that reads each button's text via `ControlGetText` and clicks the exact button labelled "&Print"
+- **Save As filename wrong**: `SplitPath` was going up two levels from the album folder, picking up a year/date folder name — fixed to use the album folder name directly, with a known-subfolder guard for "Unprocessed" etc.
+- **Save As text field not populating**: `ControlSetText` is unreliable in Windows file dialogs — switched to clipboard paste (`Ctrl+A`, `Ctrl+V`)
+- **PDF email wrong template used**: `Settings_PDFEmailTemplateID` was unconditionally cleared to `""` in both Settings Apply handlers before re-matching against the cache — if the template cache was empty that session the ID was lost, causing the wrong (or no) template to be sent. Now only re-looked up when the cache is populated; existing saved ID is preserved otherwise
+
+---
+
+## v3.0.5 (2026-03-12)
+
+### New Features
+- **Selection-first image loading (Cardly)**: When images are selected in ProSelect, the Cardly preview loads only those selected images instead of the full album — significantly faster startup
+- **Duplicate card warning (Cardly)**: Clicking Send now checks for cards sent to the same recipient in the last 7 days and shows a confirmation dialog with order details and a link to the Cardly orders page
+- **GHL note on card send (Cardly)**: A note is automatically added to the GHL contact after a card is successfully sent, including the recipient name and message body
+
+### Fixes
+- **False "card sent" toast (Cardly)**: Cancelling the Cardly preview no longer shows a "card sent" system notification — replaced unreliable AHK exit code check with a signal file approach
+
+---
+
 ## v3.0.4 (2026-03-11)
 
 ### New Features

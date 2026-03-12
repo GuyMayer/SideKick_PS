@@ -264,7 +264,7 @@ try:
         get_ghl_contact, upload_to_ghl_photos, update_ghl_contact_field,
         _enrich_contact_address, save_to_album_folder, list_recent_orders,
         sanitize_recipient,
-        CARDLY_API_KEY, CARDLY_MEDIA_ID, GHL_API_KEY,
+        CARDLY_API_KEY, CARDLY_MEDIA_ID, CARDLY_CONFIG, GHL_API_KEY,
         CARDLY_WIDTH, CARDLY_HEIGHT, debug_print, DEBUG
     )
 except ImportError as e:
@@ -275,7 +275,7 @@ except ImportError as e:
 CARD_RATIO = CARDLY_WIDTH / CARDLY_HEIGHT  # ~1.371
 
 class CardPreviewGUI:
-    def __init__(self, image_folder, contact_id, first_name, message, template_id=None, sticker_folder=None, card_width=None, card_height=None, media_name=None, postcard_folder=None, ghl_media_folder_id=None, photo_link_field=None, psa_path=None, xml_path=None, album_name=None, test_mode=False, preselect_image=None, save_to_album=False, album_folder=None, alt_template_id=None, alt_card_width=None, alt_card_height=None, ps_geometry=None):
+    def __init__(self, image_folder, contact_id, first_name, message, template_id=None, sticker_folder=None, card_width=None, card_height=None, media_name=None, postcard_folder=None, ghl_media_folder_id=None, photo_link_field=None, psa_path=None, xml_path=None, album_name=None, test_mode=False, preselect_image=None, save_to_album=False, album_folder=None, alt_template_id=None, alt_card_width=None, alt_card_height=None, ps_geometry=None, selected_images=None):
         # ProSelect window geometry for centering (x, y, w, h) or None
         self.ps_geometry = ps_geometry
 
@@ -295,6 +295,8 @@ class CardPreviewGUI:
         self.preselect_image = preselect_image  # Filename to pre-select in filmstrip
         self.save_to_album = save_to_album  # Whether to save copy to album folder
         self.album_folder = album_folder  # Album folder path
+        # Semicolon-delimited list of selected image filenames from ProSelect
+        self.selected_images = [s.strip() for s in selected_images.split(';') if s.strip()] if selected_images else []
 
         # Card dimensions from template selection (override module defaults)
         self.card_width = int(card_width) if card_width else CARDLY_WIDTH
@@ -585,10 +587,18 @@ class CardPreviewGUI:
         """Load images from folder, PSA ordered images, or browse.
 
         Image source priority:
+        0. PSA selected images: Only selected images from ProSelect (fastest).
         1. PSA all thumbnails: Always available when PSA exists.
         2. PSA + XML: Ordered images only (if XML export matches album).
         3. Folder scan: Load JPG/PNG/TIF files from image_folder.
         """
+        # Mode 0: PSA - extract only ProSelect-selected thumbnails (fastest)
+        if self.selected_images and self.psa_path and os.path.exists(self.psa_path):
+            self._load_psa_selected_thumbnails()
+            if self.images:
+                self.image_source = f"PSA Selected: {len(self.images)} image{'s' if len(self.images) != 1 else ''}"
+                return
+
         # Mode 1: PSA - extract all thumbnails (always available)
         if self.psa_path and os.path.exists(self.psa_path):
             self._load_psa_all_thumbnails()
@@ -618,6 +628,119 @@ class CardPreviewGUI:
         self.images.sort()
         if self.images:
             self.image_source = f"Folder: {folder.name}"
+
+    def _load_psa_selected_thumbnails(self):
+        """Extract only the ProSelect-selected image thumbnails from the PSA.
+
+        Uses self.selected_images (list of filenames from getSelectedImageData)
+        to pull just those thumbnails, avoiding a full table scan.  Much faster
+        than _load_psa_all_thumbnails when only a few images are selected.
+        Also resolves original hi-res source paths where available.
+        """
+        import sqlite3
+        import tempfile
+
+        selected_stems = {os.path.splitext(n)[0] for n in self.selected_images}
+        selected_names = set(self.selected_images)
+
+        try:
+            conn = sqlite3.connect(self.psa_path)
+            cursor = conn.cursor()
+
+            # Get ImageList to map albumimage IDs to filenames
+            cursor.execute('SELECT buffer FROM BigStrings WHERE buffCode="ImageList"')
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                return
+
+            image_data = row[0]
+            if isinstance(image_data, bytes):
+                image_data = image_data.decode('utf-8', errors='replace')
+
+            # Build ID → name mapping for selected images only, plus source folder info
+            image_ids = {}       # album_id → name
+            image_folder_idx = {}  # name → sourceFoldIndex
+            img_root = ET.fromstring(image_data)
+            for img_el in img_root.iter('image'):
+                name = img_el.get('name')
+                fold_idx = img_el.get('sourceFoldIndex')
+                ai_el = img_el.find('albumimage')
+                if not name or ai_el is None or ai_el.get('id') is None:
+                    continue
+                stem = os.path.splitext(name)[0]
+                if name not in selected_names and stem not in selected_stems:
+                    continue
+                album_id = int(ai_el.get('id'))
+                image_ids[album_id] = name
+                if fold_idx:
+                    image_folder_idx[name] = fold_idx
+
+            if not image_ids:
+                conn.close()
+                return
+
+            # Parse sourceFolders for hi-res path resolution
+            source_folders = {}
+            for folder_el in img_root.iter('folder'):
+                idx = folder_el.get('sourceFoldIndex')
+                save_info = folder_el.get('saveInfo', '')
+                if not idx or '##2##' not in save_info:
+                    continue
+                raw_path = save_info.split('##2##', 1)[1]
+                raw_path = raw_path.replace('\\\\', '\\').rstrip('\\')
+                source_folders[idx] = raw_path
+
+            # Build name → original file path
+            self._psa_source_paths = {}
+            psa_dir = os.path.dirname(self.psa_path) if self.psa_path else ''
+            for name, idx in image_folder_idx.items():
+                if idx not in source_folders:
+                    continue
+                candidate = os.path.join(source_folders[idx], name)
+                resolved = self._resolve_source_path(candidate, psa_dir, name)
+                if resolved:
+                    self._psa_source_paths[name] = resolved
+
+            # Extract matching thumbnails to temp folder
+            temp_dir = os.path.join(tempfile.gettempdir(), 'sidekick_ps_cardly')
+            os.makedirs(temp_dir, exist_ok=True)
+            self._temp_thumb_dir = temp_dir
+
+            # Build placeholders for SQL IN clause
+            id_list = list(image_ids.keys())
+            placeholders = ','.join('?' for _ in id_list)
+            cursor.execute(f'''
+                SELECT imageID, imageData
+                FROM Thumbnails
+                WHERE thumbnailType = 1
+                  AND imageData IS NOT NULL
+                  AND imageID IN ({placeholders})
+            ''', id_list)
+
+            for image_id, data in cursor.fetchall():
+                if not data or data[:2] != b'\xff\xd8':
+                    continue
+
+                name = image_ids[image_id]
+                base_name = os.path.splitext(name)[0]
+                thumb_path = os.path.join(temp_dir, f"{base_name}.jpg")
+
+                with open(thumb_path, 'wb') as f:
+                    f.write(data)
+
+                # Prefer hi-res original on disk if available
+                if name in self._psa_source_paths:
+                    self.images.append(self._psa_source_paths[name])
+                else:
+                    self.images.append(thumb_path)
+
+            conn.close()
+            self.images.sort()
+            print(f"Loaded {len(self.images)} selected images from PSA (of {len(self.selected_images)} requested)")
+
+        except Exception as e:
+            print(f"Error extracting PSA selected thumbnails: {e}")
 
     def _load_psa_ordered_images(self):
         """Extract ordered images from PSA file using XML order data.
@@ -2508,6 +2631,80 @@ class CardPreviewGUI:
         except Exception:
             pass
 
+    def _confirm_no_recent_duplicate(self) -> bool:
+        """Check if a card was already sent to this recipient in the last 7 days.
+
+        Returns True if OK to proceed, False if user cancelled.
+        """
+        from datetime import datetime, timedelta
+
+        orders = getattr(self, '_pending_orders', None)
+        if not orders:
+            return True
+
+        cutoff = datetime.utcnow() - timedelta(days=7)
+        recent = []
+        for o in orders:
+            created_str = o.get('created', '')
+            if not created_str:
+                continue
+            try:
+                # Cardly dates are ISO-8601 e.g. "2026-03-12T14:30:00Z"
+                created_dt = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+                created_naive = created_dt.replace(tzinfo=None)
+                if created_naive >= cutoff:
+                    recent.append(o)
+            except (ValueError, TypeError):
+                continue
+
+        if not recent:
+            return True
+
+        # Build warning message
+        count = len(recent)
+        lines = []
+        for o in recent[:5]:
+            created = (o.get('created') or '')[:10]
+            status = o.get('order_status', '?').capitalize()
+            label = o.get('label', 'Card')
+            lines.append(f"  {created}  {label}  ({status})")
+        detail = '\n'.join(lines)
+        if count > 5:
+            detail += f'\n  ... and {count - 5} more'
+
+        recip_name = ''
+        if self.recipient:
+            recip_name = self.recipient.get('name', self.first_name)
+        else:
+            recip_name = self.first_name
+
+        # Build dashboard URL
+        dashboard_url = CARDLY_CONFIG.get('dashboard_url', '').rstrip('/')
+        if not dashboard_url:
+            dashboard_url = 'https://card.ly'
+        orders_url = f"{dashboard_url}/manage/orders"
+
+        msg = (
+            f"\u26a0\ufe0f  DUPLICATE CARD WARNING\n\n"
+            f"{count} card{'s were' if count != 1 else ' was'} already sent to "
+            f"{recip_name}\nin the last 7 days:\n\n"
+            f"{detail}\n\n"
+            f"Are you sure you want to send another card?\n\n"
+            f"To review existing orders visit:\n{orders_url}"
+        )
+
+        result = messagebox.askyesno("Recent Card Found", msg, icon='warning')
+
+        if not result:
+            # Open the orders page in browser so user can check
+            try:
+                import webbrowser
+                webbrowser.open(orders_url)
+            except Exception:
+                pass
+
+        return result
+
     def post_card(self):
         """Send the card via Cardly API (threaded to keep spinner alive)."""
         if not self.images:
@@ -2516,6 +2713,10 @@ class CardPreviewGUI:
 
         # Get message (must read from main thread)
         message = self.message_text.get('1.0', 'end-1c').strip()
+
+        # Check for recently sent cards to this recipient (within last 7 days)
+        if not self._confirm_no_recent_duplicate():
+            return
 
         # Disable button and show progress popup
         self.post_btn.config(state='disabled')
@@ -2729,6 +2930,33 @@ class CardPreviewGUI:
             except Exception as post_err:
                 print(f"Post-send save/upload warning: {post_err}")
 
+            # Add note to GHL contact
+            try:
+                from cardly_send_card import GHL_BASE_URL, GHL_LOCATION_ID
+                if GHL_API_KEY and self.contact_id:
+                    q.put(('status', 'Adding note to GHL...'))
+                    recip_name = recipient.get('name', self.first_name) if recipient else self.first_name
+                    note_body = f"📬 Cardly card sent to {recip_name}"
+                    if message:
+                        note_body += f"\n\nMessage:\n{message}"
+                    headers = {
+                        "Authorization": f"Bearer {GHL_API_KEY}",
+                        "Version": "2021-07-28",
+                        "Content-Type": "application/json"
+                    }
+                    note_resp = requests.post(
+                        f"{GHL_BASE_URL}/contacts/{self.contact_id}/notes",
+                        headers=headers,
+                        json={"body": note_body, "userId": GHL_LOCATION_ID},
+                        timeout=10
+                    )
+                    if note_resp.status_code in (200, 201):
+                        print("GHL note added successfully")
+                    else:
+                        print(f"GHL note failed: {note_resp.status_code}")
+            except Exception as note_err:
+                print(f"GHL note warning: {note_err}")
+
             # Signal success
             q.put(('done', None))
 
@@ -2746,6 +2974,13 @@ class CardPreviewGUI:
                 elif msg_type == 'done':
                     self.close_progress(self._post_progress_win)
                     self.result = 0
+                    # Write success signal file for AHK to detect
+                    try:
+                        signal_path = os.path.join(os.environ.get('TEMP', '.'), 'cardly_send_result.txt')
+                        with open(signal_path, 'w', encoding='utf-8') as f:
+                            f.write('SUCCESS')
+                    except Exception:
+                        pass
                     self._show_success_dialog()
                     return
                 elif msg_type == 'error':
@@ -2846,6 +3081,7 @@ def main() -> None:
     parser.add_argument("--album-name", default=None, help="Album/shoot name for display")
     parser.add_argument("--test-mode", action="store_true", help="Test mode: upload artwork but skip placing order")
     parser.add_argument("--preselect-image", default=None, help="Filename of image to pre-select in filmstrip (from PSConsole getSelectedImageData)")
+    parser.add_argument("--selected-images", default=None, help="Semicolon-delimited list of selected image filenames from ProSelect; loads only these for faster startup")
     parser.add_argument("--save-to-album", action="store_true", help="Save a copy of the postcard to the album folder")
     parser.add_argument("--album-folder", default=None, help="Album folder path to save postcard copy")
     parser.add_argument("--alt-template-id", default=None, help="Alternate orientation template ID (L\u2194P pair)")
@@ -2879,7 +3115,8 @@ def main() -> None:
         save_to_album=args.save_to_album, album_folder=args.album_folder,
         alt_template_id=args.alt_template_id,
         alt_card_width=args.alt_card_width, alt_card_height=args.alt_card_height,
-        ps_geometry=ps_geometry
+        ps_geometry=ps_geometry,
+        selected_images=args.selected_images
     )
     result = gui.run()
     sys.exit(result)
