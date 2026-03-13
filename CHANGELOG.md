@@ -16,6 +16,18 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.8 (2026-03-13)
+
+### Fixes
+- **Cardly PSA path resolved too late**: `psaPath` was only initialised in the image-folder block, but the client ID SQLite fallback (which runs earlier) had always checked `psaPath != ""` — that condition was never true, so albums without a GHL ID in their filename could never have their contact resolved from the PSA. `GetAlbumPath()` via PSConsole is now called before both the `albumContactId` block and the image-folder block
+- **Cardly image folder \u2014 PSConsole promoted to primary source**: ProSelect's window title contains only a filename, not a full path, so `psaPath := albumMatch1` then `FileExist()` immediately failed. PSConsole `getAlbumData` is now the primary source; title parsing is kept as a fallback only
+- **Cardly folder-browse default folder**: When no image folder is auto-detected the `FileSelectFolder` dialog now opens pre-navigated to the album directory (derived from PSA path or PSConsole) rather than the system root
+
+### New Features
+- **Cardly diagnostic logging**: Every Cardly button press now writes a structured trace to the SideKick debug log — ProSelect title, `GetAlbumPath()` result, `albumContactId`, `orderExportsDir`, shoot number, GHL ID, resolved `imageFolder`, and `noAlbumMode` flag
+
+---
+
 ## v3.0.7 (2026-03-13)
 
 ### Fixes

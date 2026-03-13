@@ -2,7 +2,7 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.7
+; Version:     3.0.8
 ; Build Date:  2026-03-13
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
@@ -6261,6 +6261,7 @@ Toolbar_Cardly:
 	global Settings_Cardly_PhotoLinkField, Settings_Cardly_SaveToAlbum
 	global CardlyTemplateAltOrientation, CardlyTemplateMap, CardlyTemplateSizes
 	global Settings_DarkMode, DPI_Scale
+	global DebugLogFile, PsConsolePath
 	
 	; Show loading GUI immediately — runs as a separate process so it
 	; stays animated while we do blocking HTTP/file work on this thread.
@@ -6290,9 +6291,11 @@ Toolbar_Cardly:
 	
 	; Check if ProSelect has an album loaded
 	noAlbumMode := false
+	FileAppend, % A_Now . " - Cardly: button clicked`n", %DebugLogFile%
 	if WinExist("ProSelect ahk_exe ProSelect.exe")
 	{
 		WinGetTitle, psTitle, ahk_exe ProSelect.exe
+		FileAppend, % A_Now . " - Cardly: PS title = " . psTitle . "`n", %DebugLogFile%
 		if (psTitle = "ProSelect - Untitled" || psTitle = "ProSelect") {
 			noAlbumMode := true
 		}
@@ -6320,6 +6323,14 @@ Toolbar_Cardly:
 		}
 	}
 	
+	; Resolve PSA path early via PSConsole — needed by both clientCode fallback and image folder logic.
+	; Must happen before albumContactId block since title parsing only gives a filename, not a full path.
+	psaPath := ""
+	if (!noAlbumMode && PsConsolePath != "") {
+		psaPath := GetAlbumPath()
+		FileAppend, % A_Now . " - Cardly: GetAlbumPath() = [" . psaPath . "]`n", %DebugLogFile%
+	}
+
 	; Extract current album's Client ID (needed to detect stale cached contact)
 	albumContactId := ""
 	if (!noAlbumMode) {
@@ -6327,6 +6338,7 @@ Toolbar_Cardly:
 			if (!RegExMatch(idMatch1, "^P\d+P$"))
 				albumContactId := idMatch1
 		}
+		FileAppend, % A_Now . " - Cardly: albumContactId from title = [" . albumContactId . "]`n", %DebugLogFile%
 		; Fallback: read clientCode from the .psa SQLite file
 		if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
 			ToolTip, Reading client ID from PSA file...
@@ -6403,18 +6415,29 @@ Toolbar_Cardly:
 	
 	; Determine image source folder - use ProSelect Order Exports
 	; Find the most recent order export matching the album's shoot number
-	psaPath := ""
+	; Note: psaPath was already resolved above via GetAlbumPath() if PSConsole was available.
 	xmlPath := ""
 	imageFolder := ""
 	albumFilename := ""
 	albumDir := ""
 	
 	if (!noAlbumMode) {
-		; Try to find PSA from ProSelect title
-		RegExMatch(psTitle, "^ProSelect - (.+)", albumMatch)
-		if (albumMatch1 != "") {
-			SplitPath, albumMatch1, albumFilename, albumDir
-			psaPath := albumMatch1  ; Full path to .psa file (if title has full path)
+		; Primary: use PSA path from PSConsole (already resolved above)
+		if (psaPath != "" && FileExist(psaPath)) {
+			SplitPath, psaPath, albumFilename, albumDir
+			FileAppend, % A_Now . " - Cardly: PSA from PSConsole: " . psaPath . "`n", %DebugLogFile%
+		}
+		; Fallback: parse filename from ProSelect window title
+		if (albumFilename = "") {
+			RegExMatch(psTitle, "^ProSelect - (.+)", albumMatch)
+			if (albumMatch1 != "") {
+				SplitPath, albumMatch1, albumFilename, albumDir
+				if (albumFilename = "")  ; albumMatch1 may be just a name with no separators
+					albumFilename := albumMatch1
+				if (FileExist(albumMatch1))  ; ProSelect put full path in title
+					psaPath := albumMatch1
+			}
+			FileAppend, % A_Now . " - Cardly: PSA from title fallback: albumFilename=[" . albumFilename . "] albumDir=[" . albumDir . "]`n", %DebugLogFile%
 		}
 		
 		; If psaPath isn't a valid file (title was just album name, not full path),
@@ -6462,6 +6485,7 @@ Toolbar_Cardly:
 				RegExMatch(albumFilename, "^(P\d+P)", shootMatch), albumShootNo := shootMatch1
 				RegExMatch(albumFilename, "_([A-Za-z0-9]{15,})(?:\.|_|$)", ghlMatch), albumGhlId := ghlMatch1
 			}
+			FileAppend, % A_Now . " - Cardly: orderExportsDir=[" . orderExportsDir . "] | shootNo=[" . albumShootNo . "] ghlId=[" . albumGhlId . "]`n", %DebugLogFile%
 			
 			; Find matching export folder - prioritise shoot number, fall back to GHL ID
 			latestTime := ""
@@ -6502,11 +6526,21 @@ Toolbar_Cardly:
 		if (imageFolder = "" && albumDir != "")
 			imageFolder := albumDir
 	}
+	FileAppend, % A_Now . " - Cardly: imageFolder=[" . imageFolder . "] exists=" . FileExist(imageFolder) . " | noAlbumMode=" . noAlbumMode . "`n", %DebugLogFile%
 	
 	; No images found (or no album mode) — let user browse for a folder
 	if (imageFolder = "" || !FileExist(imageFolder)) {
 		WinClose, Cardly Loading
-		FileSelectFolder, imageFolder, , 3, Select folder containing images for postcard:
+		; Determine a default starting folder: use albumDir, psaPath dir, or PSConsole
+		defaultFolder := ""
+		if (albumDir != "" && FileExist(albumDir))
+			defaultFolder := albumDir
+		else if (psaPath != "" && FileExist(psaPath))
+			SplitPath, psaPath, , defaultFolder
+		if (defaultFolder = "" && PsConsolePath != "")
+			defaultFolder := GetAlbumFolder()
+		startArg := (defaultFolder != "") ? "*" . defaultFolder : ""
+		FileSelectFolder, imageFolder, %startArg%, 3, Select folder containing images for postcard:
 		if (imageFolder = "")
 			return
 	}

@@ -1,9 +1,14 @@
 ﻿{
-  "version": "3.0.7",
+  "version": "3.0.8",
   "build_date": "2026-03-13",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GoCardless: stale client fix and duplicate payment prevention with date-bump dialog",
+  "release_notes": "Cardly: PSA path now resolved via PSConsole before client ID and image folder lookups; diagnostic logging added",
   "changelog": [
+    "FIX: Cardly PSA path was initialised after the client ID SQLite fallback that needed it — GetAlbumPath() is now called via PSConsole before both the albumContactId block and the image folder block",
+    "FIX: Cardly image folder — PSConsole is now the primary PSA source; ProSelect window title parsing is kept as fallback only (title contains filename only, not a full path)",
+    "FIX: Cardly folder-browse default — when no image folder is auto-detected, the picker now opens pre-navigated to the album dir (from PSA path or PSConsole) instead of the system root",
+    "NEW: Cardly diagnostic logging — PS title, GetAlbumPath result, albumContactId, orderExportsDir, shootNo, ghlId, imageFolder and noAlbumMode are all written to the SideKick debug log on every Cardly button press",
+    "----------",
     "FIX: GoCardless button — stale cached client data from a previous album session no longer used; client is always re-resolved from the current album title / PSA file and re-fetched from GHL if it doesn't match",
     "FIX: GoCardless duplicate payment on delayed submission — payline dates within the 4-day BACS window are now detected before plan creation; user is offered a one-month date bump (same amounts, same day-of-month)",
     "NEW: SideKick_GC v1.2.2 — DATES_STALE response and --bump-months N CLI flag for date-adjusted re-submission",
@@ -175,7 +180,7 @@
   ],
   "versions": [
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
@@ -187,7 +192,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
@@ -215,7 +220,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
@@ -227,7 +232,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
@@ -240,7 +245,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
@@ -256,7 +261,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
@@ -270,7 +275,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
@@ -279,7 +284,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
@@ -299,7 +304,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
@@ -313,7 +318,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
@@ -324,7 +329,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
@@ -336,7 +341,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
@@ -347,7 +352,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
@@ -358,7 +363,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
@@ -367,7 +372,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
@@ -379,7 +384,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
@@ -389,7 +394,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
@@ -401,7 +406,7 @@
       ]
     },
     {
-      "version": "3.0.7",
+      "version": "3.0.8",
       "build_date": "2026-03-13",
       "release_notes": "Major GHL integration release",
       "changelog": [
