@@ -16,6 +16,15 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.7 (2026-03-13)
+
+### Fixes
+- **GoCardless stale client data**: `Toolbar_GoCardless:` was reusing `GHL_ContactData` from a previous album session without checking whether it matched the current album — if you clicked the GoCardless button after switching clients, it either used the wrong mandate or threw "No Client Found". Now always resolves the client ID from the album title / PSA file first, and re-fetches from GHL if the cached contact doesn't match (mirrors the existing Cardly / print path behaviour)
+- **GoCardless duplicate payment on delayed submission**: When a payment plan was set up in ProSelect but GoCardless submission was delayed by several days, the instalment schedule dates could fall inside the BACS lead-time window, causing a double-charge on the nearest valid date. The CLI now detects stale dates before creating any plan and emits `DATES_STALE` so SideKick_PS can offer the user a one-month date bump — same amounts, same day-of-month, just one month later (preserving client affordability)
+- **`--bump-months N` CLI flag (SideKick_GC v1.2.2)**: After user confirms the date bump, SideKick_PS re-submits with shifted paylines and `--bump-months 1` to bypass the stale-date check on the retry
+
+---
+
 ## v3.0.6 (2026-03-12)
 
 ### Fixes

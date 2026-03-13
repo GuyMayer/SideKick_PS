@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.6
-; Build Date:  2026-03-12
+; Version:     3.0.7
+; Build Date:  2026-03-13
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -4983,62 +4983,59 @@ Toolbar_GoCardless:
 	; Token is loaded from credentials.json by the Python script directly
 	
 	; Check if we have a GHL contact loaded - if not, try to auto-fetch from album name
-	if (GHL_ContactData = "" || !GHL_ContactData.HasKey("id")) {
-		global PsConsolePath, Settings_ShootArchivePath
-		; Try to extract Client ID from ProSelect album name (reuse psTitle from above)
-		albumContactId := ""
-		
-		; Strategy 1: Split by underscore, check parts from end (most reliable)
-		if InStr(psTitle, "_") {
-			StringSplit, parts, psTitle, _
-			Loop, % parts0 {
-				idx := parts0 - A_Index + 1   ; iterate in reverse
-				thisPart := parts%idx%
-				; Strip any file extension (.psa etc) and " - ProSelect" suffix
-				thisPart := RegExReplace(thisPart, "\.\w+$", "")
-				thisPart := RegExReplace(thisPart, "\s*-\s*ProSelect.*$", "")
-				thisPart := Trim(thisPart)
-				if (StrLen(thisPart) >= 15 && RegExMatch(thisPart, "^[A-Za-z0-9]+$") && !RegExMatch(thisPart, "^P\d+P$"))
-				{
-					albumContactId := thisPart
-					break
-				}
+	; Also re-fetch if the cached contact belongs to a different album (stale data from
+	; a previous client session — same pattern used in the Cardly/print paths).
+	albumContactId := ""
+	if InStr(psTitle, "_") {
+		StringSplit, parts, psTitle, _
+		Loop, % parts0 {
+			idx := parts0 - A_Index + 1   ; iterate in reverse
+			thisPart := parts%idx%
+			; Strip any file extension (.psa etc) and " - ProSelect" suffix
+			thisPart := RegExReplace(thisPart, "\.\w+$", "")
+			thisPart := RegExReplace(thisPart, "\s*-\s*ProSelect.*$", "")
+			thisPart := Trim(thisPart)
+			if (StrLen(thisPart) >= 15 && RegExMatch(thisPart, "^[A-Za-z0-9]+$") && !RegExMatch(thisPart, "^P\d+P$"))
+			{
+				albumContactId := thisPart
+				break
 			}
 		}
-		
-		; Strategy 2: Regex fallback - look for 15+ alphanumeric chars after underscore
-		if (albumContactId = "") {
-			if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
-				if (!RegExMatch(idMatch1, "^P\d+P$"))
-					albumContactId := idMatch1
-			}
+	}
+	if (albumContactId = "") {
+		if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
+			if (!RegExMatch(idMatch1, "^P\d+P$"))
+				albumContactId := idMatch1
 		}
-		
-		; Strategy 3: Read clientCode from the .psa SQLite file via PSConsole
-		if (albumContactId = "") {
-			psaPath := GetAlbumPath()
-			if (psaPath != "" && FileExist(psaPath)) {
-				ToolTip, Reading client ID from album file...
-				tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
-				FileDelete, %tempFile%
-				pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); m=re.search(r'<clientCode>([^<]+)</clientCode>',str(r[0])) if r else None; open(sys.argv[2],'w').write(m.group(1) if m else '')"" """ . psaPath . """ """ . tempFile . """"
-				RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
-				FileRead, psaClientCode, %tempFile%
-				FileDelete, %tempFile%
-				psaClientCode := Trim(psaClientCode, " `t`r`n")
-				; Must be 15+ alphanum AND not a shoot number (P26020P)
-				if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
-					albumContactId := psaClientCode
-				ToolTip
-			}
+	}
+	if (albumContactId = "") {
+		psaPath := GetAlbumPath()
+		if (psaPath != "" && FileExist(psaPath)) {
+			ToolTip, Reading client ID from album file...
+			tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
+			FileDelete, %tempFile%
+			pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); m=re.search(r'<clientCode>([^<]+)</clientCode>',str(r[0])) if r else None; open(sys.argv[2],'w').write(m.group(1) if m else '')"" """ . psaPath . """ """ . tempFile . """"
+			RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
+			FileRead, psaClientCode, %tempFile%
+			FileDelete, %tempFile%
+			psaClientCode := Trim(psaClientCode, " `t`r`n")
+			if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
+				albumContactId := psaClientCode
+			ToolTip
 		}
-		
+	}
+
+	; Determine if we need to (re-)fetch GHL contact data
+	gcNeedsFetch := (GHL_ContactData = "" || !GHL_ContactData.HasKey("id"))
+	if (!gcNeedsFetch && albumContactId != "" && GHL_ContactData.id != albumContactId)
+		gcNeedsFetch := true   ; cached data is for a different client — must re-fetch
+
+	if (gcNeedsFetch) {
 		if (albumContactId != "") {
 			; Auto-fetch client data from GHL
 			ToolTip, Fetching client from GHL...
 			GHL_ContactData := FetchGHLData(albumContactId)
 			ToolTip
-			
 			if (!GHL_ContactData.success) {
 				DarkMsgBox("GHL Fetch Failed", "Could not fetch client data from GHL.`n`n" . GHL_ContactData.error, "error")
 				return

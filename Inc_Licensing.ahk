@@ -3186,6 +3186,66 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 			DarkMsgBox("GoCardless Error", "Failed to create payment plan:`n`n" . errorMsg, "error")
 			return
 		}
+		
+		; DATES_STALE: one or more payline dates fall within the GoCardless BACS
+		; lead-time window (< 4 days away) or are in the past. Offer the user the
+		; option to shift the whole schedule forward by one month — same day-of-month,
+		; same amounts, just one month later.  This preserves client affordability.
+		; Format: DATES_STALE|<bumped_paylines>|<first_new_date>|<last_new_date>
+		if (InStr(silentOutput, "DATES_STALE|")) {
+			staleParts := StrSplit(silentOutput, "|")
+			; staleParts[1]=DATES_STALE, [2]=bumped paylines, [3]=first date, [4]=last date
+			bumpedPaylines := (staleParts.Length() >= 2) ? staleParts[2] : ""
+			firstNewDate   := (staleParts.Length() >= 3) ? staleParts[3] : ""
+			lastNewDate    := (staleParts.Length() >= 4) ? staleParts[4] : ""
+			
+			dateRangeMsg := (firstNewDate != "" && lastNewDate != "" && firstNewDate != lastNewDate)
+				? firstNewDate . " — " . lastNewDate
+				: firstNewDate
+			
+			bumpResult := DarkMsgBox("Payment Dates Need Adjusting"
+				, "⚠️ The payment dates are too close (or already past) for GoCardless to accept."
+				. "`n`nThis can happen when sending to GoCardless was delayed after the plan was set up in ProSelect."
+				. "`n`nThe client's payment amounts stay the same — only the month shifts."
+				. "`n`nProposed new schedule:`n" . dateRangeMsg
+				. "`n`nShift all payments forward by one month?"
+				, "warning"
+				, {buttons: "Shift Dates|Cancel"})
+			
+			if (bumpResult != "Shift Dates" || bumpedPaylines = "") {
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - User declined date bump`n", %DebugLogFile%
+				return
+			}
+			
+			; Re-run silently with the bumped paylines (and --bump-months 1 so the
+			; Python side skips the stale-check this time).
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Bumping dates, new paylines: " . bumpedPaylines . "`n", %DebugLogFile%
+			gcArgsBumped := gcArgs
+			; Replace old --paylines value with the bumped paylines
+			gcArgsBumped := RegExReplace(gcArgsBumped, "--paylines ""[^""]*""", "--paylines """ . bumpedPaylines . """")
+			gcArgsBumped .= " --bump-months 1"
+			gcCmdBumped := GetScriptCommand("gocardless_api", gcArgsBumped)
+			
+			ToolTip, Creating GoCardless payment plan (adjusted dates)...
+			tempStdout2 := A_Temp . "\gc_silent2_" . A_TickCount . ".txt"
+			RunCmdToFile(gcCmdBumped, tempStdout2)
+			FileRead, silentOutput, %tempStdout2%
+			FileDelete, %tempStdout2%
+			silentOutput := Trim(silentOutput)
+			ToolTip
+			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Bumped result: " . silentOutput . "`n", %DebugLogFile%
+			
+			if (InStr(silentOutput, "ERROR|")) {
+				errorMsg := StrReplace(silentOutput, "ERROR|", "")
+				DarkMsgBox("GoCardless Error", "Failed to create payment plan (adjusted dates):`n`n" . errorMsg, "error")
+				return
+			}
+			if (!InStr(silentOutput, "SUCCESS|")) {
+				DarkMsgBox("GoCardless Error", "Unexpected response after date adjustment:`n`n" . SubStr(silentOutput, 1, 300), "error")
+				return
+			}
+		}
+		
 		if (!InStr(silentOutput, "SUCCESS|")) {
 			DarkMsgBox("GoCardless Error", "Unexpected response:`n`n" . SubStr(silentOutput, 1, 300), "error")
 			return
