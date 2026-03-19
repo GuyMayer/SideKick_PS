@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.8
-; Build Date:  2026-03-17
+; Version:     3.0.9
+; Build Date:  2026-03-19
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -5010,7 +5010,15 @@ Toolbar_GoCardless:
 	}
 	if (albumContactId = "") {
 		psaPath := GetAlbumPath()
-		if (psaPath != "" && FileExist(psaPath)) {
+		if (psaPath != "") {
+			; Fast path: extract GHL ID from PSA filename (works even when WinGetTitle returns a sub-window like "Mirror")
+			SplitPath, psaPath, psaFileName
+			if (RegExMatch(psaFileName, "_([A-Za-z0-9]{15,})", idMatch)) {
+				if (!RegExMatch(idMatch1, "^P\d+P$"))
+					albumContactId := idMatch1
+			}
+		}
+		if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
 			ToolTip, Reading client ID from album file...
 			tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
 			FileDelete, %tempFile%
@@ -6339,6 +6347,15 @@ Toolbar_Cardly:
 				albumContactId := idMatch1
 		}
 		FileAppend, % A_Now . " - Cardly: albumContactId from title = [" . albumContactId . "]`n", %DebugLogFile%
+		; Fast fallback: extract GHL ID from PSA filename (handles sub-window titles like "Mirror")
+		if (albumContactId = "" && psaPath != "") {
+			SplitPath, psaPath, psaFileName
+			if (RegExMatch(psaFileName, "_([A-Za-z0-9]{15,})", idMatch)) {
+				if (!RegExMatch(idMatch1, "^P\d+P$"))
+					albumContactId := idMatch1
+			}
+		}
+		FileAppend, % A_Now . " - Cardly: albumContactId from psaPath = [" . albumContactId . "]`n", %DebugLogFile%
 		; Fallback: read clientCode from the .psa SQLite file
 		if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
 			ToolTip, Reading client ID from PSA file...

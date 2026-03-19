@@ -16,6 +16,13 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.9 (2026-03-19)
+
+### Fixes
+- **GoCardless / Cardly "No Client Found" when Mirror window is active**: `WinGetTitle, psTitle, ahk_exe ProSelect.exe` can return a ProSelect sub-window title (e.g. "Mirror") instead of the main album window title when that sub-window has focus. The regex extraction then finds no `_ID` segment and the contact-ID lookup fails entirely. Fixed by adding a fast PSA-filename extraction step (via `SplitPath` on the `GetAlbumPath()` result) as the primary fallback in both `Toolbar_GoCardless:` and `Toolbar_Cardly:` — the PSA filename already contains the GHL ID and does not depend on the ProSelect window title at all. The slow SQLite `<clientCode>` lookup is retained as a final fallback. Cardly now also logs `albumContactId from psaPath` to the debug log.
+
+---
+
 ## v3.0.8 (2026-03-13)
 
 ### Fixes
