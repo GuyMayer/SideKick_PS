@@ -3,7 +3,7 @@
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
 ; Version:     3.0.9
-; Build Date:  2026-03-19
+; Build Date:  2026-03-23
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -292,6 +292,7 @@ global Settings_PDFPrintBtnOffsetBottom := 0 ; Print button Y offset from bottom
 global PDF_CalibrationMode := false          ; True when Ctrl+Shift+Click triggers calibration
 global PDF_EmailAfterSave := false           ; True when Email PDF button triggers print-then-email
 global PDF_EmailContactId := ""               ; Contact ID for email-after-save flow
+global PlanName := ""                         ; PayPlan reference name (auto-built from Shoot/Surname/GHLID)
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow, Auto
 global Settings_ToolbarAutoBG := true         ; Auto-detect background color for toolbar (default ON)
 global Settings_ToolbarLastBGColor := "333333" ; Last known good toolbar background color
@@ -832,6 +833,36 @@ if (Settings_PSPaymentMethods != "") {
 }
 
 ;DisplayText := "Balance Due: " . PayDue
+
+; Auto-populate Plan Name from Chrome/GHL client if currently empty
+if (PlanName = "") {
+	ppSurname := ""
+	ppGHLID := GHL_ContactID
+	ppShootNo := ""
+
+	; Get surname from GHL contact data (set when client picked up from Chrome)
+	if (GHL_CurrentData && GHL_CurrentData.lastName != "")
+		ppSurname := GHL_CurrentData.lastName
+	else if (GHL_ContactData && GHL_ContactData.lastName != "")
+		ppSurname := GHL_ContactData.lastName
+
+	; Get shoot number from ProSelect album title (part before first _)
+	if WinExist("ahk_exe ProSelect.exe") {
+		WinGetTitle, ppTitle, ahk_exe ProSelect.exe
+		if (InStr(ppTitle, "_")) {
+			ppShootNo := Trim(SubStr(ppTitle, 1, InStr(ppTitle, "_") - 1))
+		}
+	}
+
+	; Build: ShootNo-Surname-GHLID, or Surname-GHLID if no shoot number
+	if (ppSurname != "" && ppGHLID != "") {
+		if (ppShootNo != "")
+			PlanName := ppShootNo . "-" . ppSurname . "-" . ppGHLID
+		else
+			PlanName := ppSurname . "-" . ppGHLID
+	}
+}
+
 Gui, PP:Destroy
 
 ; Detect ProSelect version if not already done
@@ -944,15 +975,21 @@ Gui, PP:Add, DropDownList, x360 y307 w80 h2000 vPayDay, %PayDayL%
 Gui, PP:Add, DropDownList, x445 y307 w75 h2000 vPayMonth, %PayMonthL%
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
+; ========== PLAN NAME SECTION ==========
+Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
+Gui, PP:Add, Text, x30 y363 w90 h25 BackgroundTrans, Plan Name:
+Gui, PP:Font, s10 Norm cBlack, Segoe UI
+Gui, PP:Add, Edit, x125 y360 w455 h28 vPlanName, %PlanName%
+
 ; ========== BUTTONS ==========
 Gui, PP:Font, s10 Norm, Segoe UI
-Gui, PP:Add, Button, x300 y390 w140 h32 gMakePayments, ✓ Schedule Payments
-Gui, PP:Add, Button, x500 y390 w80 h32 gExitGui, ✗ Cancel
+Gui, PP:Add, Button, x300 y400 w140 h32 gMakePayments, ✓ Schedule Payments
+Gui, PP:Add, Button, x500 y400 w80 h32 gExitGui, ✗ Cancel
 
 ; Register mouse move handler for hover tooltips (shared with Settings)
 OnMessage(0x200, "SettingsMouseMove")
 
-Gui, PP:Show, w600 h440, SideKick_PS v%ScriptVersion% - Payment Calculator
+Gui, PP:Show, w600 h450, SideKick_PS v%ScriptVersion% - Payment Calculator
 
 Return
 
@@ -4985,6 +5022,12 @@ Toolbar_GoCardless:
 	; Check if we have a GHL contact loaded - if not, try to auto-fetch from album name
 	; Also re-fetch if the cached contact belongs to a different album (stale data from
 	; a previous client session — same pattern used in the Cardly/print paths).
+
+	; Resolve PSA path first — used for both the GHL ID check and client detail fallback
+	psaPath := GetAlbumPath()
+	psaClientData := ""
+
+	; 1. Extract GHL contact ID from album window title
 	albumContactId := ""
 	if InStr(psTitle, "_") {
 		StringSplit, parts, psTitle, _
@@ -4992,73 +5035,75 @@ Toolbar_GoCardless:
 			idx := parts0 - A_Index + 1   ; iterate in reverse
 			thisPart := parts%idx%
 			; Strip any file extension (.psa etc) and " - ProSelect" suffix
-			thisPart := RegExReplace(thisPart, "\.\w+$", "")
-			thisPart := RegExReplace(thisPart, "\s*-\s*ProSelect.*$", "")
+			thisPart := RegExReplace(thisPart, "\\.\w+$", "")
+			thisPart := RegExReplace(thisPart, "\\s*-\\s*ProSelect.*$", "")
 			thisPart := Trim(thisPart)
-			if (StrLen(thisPart) >= 15 && RegExMatch(thisPart, "^[A-Za-z0-9]+$") && !RegExMatch(thisPart, "^P\d+P$"))
+			if (StrLen(thisPart) >= 15 && RegExMatch(thisPart, "^[A-Za-z0-9]+$") && !RegExMatch(thisPart, "^P\\d+P$"))
 			{
 				albumContactId := thisPart
 				break
 			}
 		}
 	}
-	if (albumContactId = "") {
-		if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch)) {
-			if (!RegExMatch(idMatch1, "^P\d+P$"))
-				albumContactId := idMatch1
-		}
-	}
-	if (albumContactId = "") {
-		psaPath := GetAlbumPath()
-		if (psaPath != "") {
-			; Fast path: extract GHL ID from PSA filename (works even when WinGetTitle returns a sub-window like "Mirror")
-			SplitPath, psaPath, psaFileName
-			if (RegExMatch(psaFileName, "_([A-Za-z0-9]{15,})", idMatch)) {
-				if (!RegExMatch(idMatch1, "^P\d+P$"))
-					albumContactId := idMatch1
-			}
-		}
-		if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
-			ToolTip, Reading client ID from album file...
-			tempFile := A_Temp . "\sidekick_psa_clientcode.txt"
-			FileDelete, %tempFile%
-			pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); m=re.search(r'<clientCode>([^<]+)</clientCode>',str(r[0])) if r else None; open(sys.argv[2],'w').write(m.group(1) if m else '')"" """ . psaPath . """ """ . tempFile . """"
-			RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
-			FileRead, psaClientCode, %tempFile%
-			FileDelete, %tempFile%
-			psaClientCode := Trim(psaClientCode, " `t`r`n")
-			if (RegExMatch(psaClientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientCode, "^P\d+P$"))
-				albumContactId := psaClientCode
-			ToolTip
-		}
+	if (albumContactId = "" && RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch) && !RegExMatch(idMatch1, "^P\\d+P$"))
+		albumContactId := idMatch1
+
+	; 2. Check PSA filename (handles Mirror sub-window titles)
+	if (albumContactId = "" && psaPath != "") {
+		SplitPath, psaPath, psaFileName
+		if (RegExMatch(psaFileName, "_([A-Za-z0-9]{15,})", idMatch) && !RegExMatch(idMatch1, "^P\\d+P$"))
+			albumContactId := idMatch1
 	}
 
-	; Determine if we need to (re-)fetch GHL contact data
+	; 3. Still no GHL ID — read all client details from the PSA SQLite file in one pass
+	if (albumContactId = "" && psaPath != "" && FileExist(psaPath)) {
+		ToolTip, Reading client details from album file...
+		psaClientData := GetPSAClientData(psaPath)
+		ToolTip
+		if (psaClientData != "" && RegExMatch(psaClientData.clientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(psaClientData.clientCode, "^P\\d+P$"))
+			albumContactId := psaClientData.clientCode
+	}
+
+	; Resolve clientEmail / clientName:
+	; Priority 1 — GHL contact (fetch by ID if we have one and cache is stale/empty)
+	; Priority 2 — PSA file fields directly (email is enough for GoCardless, no GHL needed)
+	clientEmail := ""
+	clientName  := ""
+
 	gcNeedsFetch := (GHL_ContactData = "" || !GHL_ContactData.HasKey("id"))
 	if (!gcNeedsFetch && albumContactId != "" && GHL_ContactData.id != albumContactId)
-		gcNeedsFetch := true   ; cached data is for a different client — must re-fetch
+		gcNeedsFetch := true   ; cached data is for a different client
 
-	if (gcNeedsFetch) {
-		if (albumContactId != "") {
-			; Auto-fetch client data from GHL
-			ToolTip, Fetching client from GHL...
-			GHL_ContactData := FetchGHLData(albumContactId)
-			ToolTip
-			if (!GHL_ContactData.success) {
+	if (gcNeedsFetch && albumContactId != "") {
+		; Try to fetch GHL contact by ID
+		ToolTip, Fetching client from GHL...
+		GHL_ContactData := FetchGHLData(albumContactId)
+		ToolTip
+		if (!GHL_ContactData.success) {
+			; 404 = clientCode was not a GHL ID — silently fall through to PSA email
+			if (!InStr(GHL_ContactData.error, "404")) {
 				DarkMsgBox("GHL Fetch Failed", "Could not fetch client data from GHL.`n`n" . GHL_ContactData.error, "error")
 				return
 			}
-		} else {
-			DarkMsgBox("No Client Found", "No GHL Client ID found in album name or PSA file.`n`nPlease fetch a client from GHL first using the Client button,`nor ensure the album contains a GHL Client ID.", "warning")
-			return
+			GHL_ContactData := ""
 		}
 	}
-	
-	clientName := GHL_ContactData.firstName . " " . GHL_ContactData.lastName
-	clientEmail := GHL_ContactData.email
-	
+
+	if (GHL_ContactData != "" && GHL_ContactData.HasKey("email") && GHL_ContactData.email != "") {
+		; Use GHL contact data
+		clientEmail := GHL_ContactData.email
+		clientName  := Trim(GHL_ContactData.firstName . " " . GHL_ContactData.lastName)
+	} else if (psaClientData != "" && psaClientData.email != "") {
+		; No GHL contact — use PSA fields directly, email is sufficient for GoCardless
+		clientEmail := psaClientData.email
+		clientName  := Trim(psaClientData.firstName . " " . psaClientData.lastName)
+	}
+
+	if (clientName = "")
+		clientName := clientEmail
+
 	if (clientEmail = "") {
-		DarkMsgBox("No Email", "Client '" . clientName . "' has no email address.`n`nCannot send GoCardless mandate link.", "warning")
+		DarkMsgBox("No Client Found", "No email found in GHL or PSA file.`n`nPlease fetch a client from GHL first using the Client button,`nor ensure the album contains client details.", "warning")
 		return
 	}
 	
@@ -12290,6 +12335,127 @@ FindURLInAccTree(oAcc, depth := 0)
 	}
 	
 	return ""
+}
+
+; Read all client contact details from the PSA SQLite OrderList XML in one pass.
+; Returns an object with fields: clientCode, firstName, lastName, email, phone,
+;   address1, city, state, country, zip.  Returns empty string on failure.
+GetPSAClientData(psaPath)
+{
+	if (psaPath = "" || !FileExist(psaPath))
+		return ""
+
+	tempFile := A_Temp . "\sidekick_psa_client.txt"
+	FileDelete, %tempFile%
+
+	; One-pass Python: open PSA SQLite, read OrderList XML, extract all fields pipe-delimited
+	pyCmd := "python -c ""import sqlite3,re,sys; conn=sqlite3.connect(sys.argv[1]); c=conn.cursor(); c.execute('SELECT buffer FROM BigStrings WHERE buffCode=""""OrderList""""'); r=c.fetchone(); conn.close(); xml=str(r[0]) if r else ''; g=lambda f,x: (re.search('<'+f+'>([^<]*)<'+'/'+f+'>',x) or type('',(object,),{'group':lambda s,n:''})()).group(1); fields=['clientCode','firstName','lastName','email','phone1','address1','city','state','country','zip']; open(sys.argv[2],'w',encoding='utf-8').write('|'.join(g(f,xml) for f in fields))"" """ . psaPath . """ """ . tempFile . """"
+	RunWait, %ComSpec% /c %pyCmd%, , Hide UseErrorLevel
+
+	if (!FileExist(tempFile))
+		return ""
+
+	FileRead, rawOut, *P65001 %tempFile%
+	FileDelete, %tempFile%
+	rawOut := Trim(rawOut, " `t`r`n")
+	if (rawOut = "")
+		return ""
+
+	; Parse pipe-delimited output into named fields
+	StringSplit, fld, rawOut, |
+	result := {}
+	result.clientCode := fld1
+	result.firstName  := fld2
+	result.lastName   := fld3
+	result.email      := fld4
+	result.phone      := fld5
+	result.address1   := fld6
+	result.city       := fld7
+	result.state      := fld8
+	result.country    := fld9
+	result.zip        := fld10
+	return result
+}
+
+SearchGHLByEmail(email)
+{
+	global GHL_API_Key, GHL_LocationID, GHL_Address2FieldID, GHL_Address3FieldID
+	
+	if (!email || email = "")
+		return {success: false, error: "No email provided"}
+	if (!GHL_API_Key || GHL_API_Key = "")
+		return {success: false, error: "GHL API Key not configured. Go to Settings > GHL Integration"}
+	if (!GHL_LocationID || GHL_LocationID = "")
+		return {success: false, error: "GHL Location ID not configured. Go to Settings > GHL Integration"}
+	
+	; Ensure custom field IDs are loaded
+	if (!GHL_Address2FieldID)
+		LoadGHLAddressFieldIDs()
+	
+	try {
+		http := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+		http.SetTimeouts(10000, 10000, 10000, 10000)
+		
+		; URL-encode the @ in the email address
+		urlEmail := email
+		urlEncodedAt := "%40"
+		StringReplace, urlEmail, urlEmail, @, %urlEncodedAt%, All
+		
+		apiUrl := "https://services.leadconnectorhq.com/contacts/?locationId=" . GHL_LocationID . "&email=" . urlEmail
+		
+		http.open("GET", apiUrl, false)
+		http.SetRequestHeader("Authorization", "Bearer " . GHL_API_Key)
+		http.SetRequestHeader("Version", "2021-07-28")
+		http.send()
+		
+		if (http.status != 200)
+			return {success: false, error: "GHL Search Error - HTTP " . http.status}
+		
+		jsonText := http.responseText
+		
+		; Locate the "contacts":[...] array and extract the first contact object
+		contactsPos := InStr(jsonText, """contacts""")
+		if (!contactsPos)
+			return {success: false, error: "No contacts found in GHL (no contacts key)"}
+		
+		arrOpen := InStr(jsonText, "[", contactsPos)
+		if (!arrOpen)
+			return {success: false, error: "No contacts found in GHL"}
+		
+		objStart := InStr(jsonText, "{", arrOpen)
+		arrClose := InStr(jsonText, "]", arrOpen)
+		if (!objStart || objStart > arrClose)
+			return {success: false, error: "No contacts found in GHL (empty list)"}
+		
+		; Walk the JSON to find the matching closing } using brace depth
+		depth := 0
+		objEnd := 0
+		Loop, % StrLen(jsonText) - objStart + 1
+		{
+			ch := SubStr(jsonText, objStart + A_Index - 1, 1)
+			if (ch = "{")
+				depth++
+			else if (ch = "}")
+			{
+				depth--
+				if (depth = 0) {
+					objEnd := objStart + A_Index - 1
+					break
+				}
+			}
+		}
+		
+		if (!objEnd)
+			return {success: false, error: "Could not parse contact data from GHL"}
+		
+		contactJson := SubStr(jsonText, objStart, objEnd - objStart + 1)
+		return ParseGHLJSON(contactJson)
+	}
+	catch e
+	{
+		errMsg := IsObject(e) ? e.Message : e
+		return {success: false, error: "HTTP Request failed: " . errMsg}
+	}
 }
 
 FetchGHLData(contactID)

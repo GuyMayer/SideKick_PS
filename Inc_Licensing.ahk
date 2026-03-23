@@ -3305,12 +3305,14 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	}
 	
 	; Save album then inject payments via write_psa_payments
+	; Use --clear-method to remove only GoCardless DD payments, preserving
+	; any today's deposit or other-method payments already in the album.
 	ToolTip, Saving album and injecting payments...
 	PsConsole("saveAlbum")
 	
 	; Parse payment dates from result JSON and build write_psa_payments args
 	; Result format: {"status":"SUCCESS","method":"GoCardless DD","payments":[{"date":"YYYY-MM-DD","amount_pounds":250.00},...],...}
-	writeArgs := """" . psaFile . """ --clear"
+	writeArgs := """" . psaFile . """ --clear-method """ . resultMethod . """"
 	foundPayments := false
 	
 	; Extract method from result for payment type

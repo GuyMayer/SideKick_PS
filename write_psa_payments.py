@@ -13,7 +13,11 @@ Each payment format: day,month,year,methodName,amount
     - amount: decimal (e.g., 250.00 or 250)
 
 Options:
-    --clear     Clear all existing payments before adding new ones
+    --clear         Clear ALL existing payments before adding new ones
+    --clear-method  METHODNAME
+                    Remove only payments whose methodName contains METHODNAME
+                    (case-insensitive). Preserves deposits/other methods.
+                    Example: --clear-method "GoCardless"
     --group N   Target order group (default: 1)
 
 Output:
@@ -124,15 +128,18 @@ def format_amount(amount) -> str:
         return f"{amount:.2f}"
 
 
-def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_group=1) -> str:
+def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_group=1, clear_method=None) -> str:
     """
     Write payment lines into a .psa SQLite database file.
 
     Args:
         psa_path: Path to the .psa file
         payment_args: List of payment argument strings (day,month,year,method,amount)
-        clear_existing: If True, remove all existing payments first
+        clear_existing: If True, remove ALL existing payments first
         target_group: Order group ID to modify (default 1)
+        clear_method: If set, remove only payments whose methodName contains this
+                      string (case-insensitive). Overrides clear_existing for
+                      selective removal — e.g. "GoCardless" preserves deposits.
 
     Returns:
         "SUCCESS|count" or "ERROR|message"
@@ -213,7 +220,30 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
         payments_tag_indent = indent[:-1] if len(indent) > 0 else "\t\t\t\t\t"  # 5 tabs for <payments> tag
 
         # Handle clear mode — only clear payments within the TARGET group
-        if clear_existing:
+        if clear_method:
+            # Selective removal: only strip <payment .../> lines whose
+            # methodName attribute contains the given string (case-insensitive)
+            search_lower = clear_method.strip().lower()
+            def _remove_method_payments(m):
+                inner = m.group(0)
+                lines = inner.split('\n')
+                kept = []
+                for line in lines:
+                    method_match = re.search(r'methodName="([^"]+)"', line)
+                    if method_match and search_lower in method_match.group(1).lower():
+                        continue  # drop this DD payment line
+                    kept.append(line)
+                return '\n'.join(kept)
+            new_group_content = re.sub(
+                r'<payments>.*?</payments>',
+                _remove_method_payments,
+                group_content,
+                flags=re.DOTALL,
+            )
+            order_data = order_data[:group_start] + new_group_content + order_data[group_end:]
+            group_end = group_start + len(new_group_content)
+            group_content = new_group_content
+        elif clear_existing:
             new_group_content = re.sub(
                 r'<payments>\s*(?:<payment[^/]*/>\s*)*</payments>',
                 '<payments>\n' + payments_tag_indent + '</payments>',
@@ -337,6 +367,7 @@ def main() -> None:
 
     psa_path = sys.argv[1]
     clear_existing = False
+    clear_method = None
     target_group = 1
     payment_args = []
 
@@ -345,6 +376,9 @@ def main() -> None:
         arg = sys.argv[i]
         if arg == "--clear":
             clear_existing = True
+        elif arg == "--clear-method" and i + 1 < len(sys.argv):
+            i += 1
+            clear_method = sys.argv[i]
         elif arg == "--group" and i + 1 < len(sys.argv):
             i += 1
             target_group = int(sys.argv[i])
@@ -352,7 +386,7 @@ def main() -> None:
             payment_args.append(arg)
         i += 1
 
-    result = write_payments_to_psa(psa_path, payment_args, clear_existing, target_group)
+    result = write_payments_to_psa(psa_path, payment_args, clear_existing, target_group, clear_method)
     print(result)
 
 

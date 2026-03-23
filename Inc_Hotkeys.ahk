@@ -933,6 +933,8 @@ IniWrite, %PayTypeSel%, %IniFilename%, Payments, PayType
 Sleep 100
 IniWrite, %Recurring%, %IniFilename%, Payments, Recurring
 Sleep 100
+IniWrite, %PlanName%, %IniFilename%, Payments, PlanName
+Sleep 100
 
 loop, %PayNo%
 {	

@@ -16,6 +16,13 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.10 (2026-03-23)
+
+### Fixes
+- **GoCardless payment injection erasing deposit**: `write_psa_payments.py` was called with `--clear` which blanket-deleted all payments in the album group before injecting the GoCardless instalment schedule. Because SideKick_GC only returns DD instalment lines (not the original deposit), today's cash/card downpayment was silently removed every time a pay plan was set up. Fixed by replacing `--clear` with `--clear-method "GoCardless DD"` — only existing GoCardless DD entries are removed; all other payment methods (cash, card, etc.) are preserved.
+
+---
+
 ## v3.0.9 (2026-03-19)
 
 ### Fixes
