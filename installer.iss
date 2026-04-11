@@ -4,7 +4,7 @@
 ; FULLY SELF-CONTAINED - All EXE files, no source scripts
 
 #define MyAppName "SideKick_PS"
-#define MyAppVersion "3.0.9"
+#define MyAppVersion "3.0.13"
 #define MyAppPublisher "Zoom Photography"
 #define MyAppEmail "guy@zoom-photo.co.uk"
 #define MyAppExeName "SideKick_PS.exe"
@@ -37,12 +37,15 @@ SolidCompression=yes
 LZMAUseSeparateProcess=yes
 
 ; Code signing (Certum card must be connected)
-SignTool=MsSign
-SignedUninstaller=yes
 
 ; Privileges (user-level install, no admin needed)
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+
+; Close running instances before install
+CloseApplications=force
+CloseApplicationsFilter=*.exe
+RestartApplications=yes
 
 ; UI
 WizardStyle=modern
@@ -174,6 +177,25 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 var
   IniBackupPath: String;
 
+// Force-kill a process by name using taskkill
+procedure KillProcess(ProcessName: String);
+var
+  ResultCode: Integer;
+begin
+  Exec('taskkill.exe', '/F /IM ' + ProcessName, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// Kill SideKick processes before install to prevent Access Denied errors
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  KillProcess('SideKick_GC.exe');
+  KillProcess('SideKick_PS.exe');
+  KillProcess('CardlyLoader.exe');
+  // Brief pause to let file handles release
+  Sleep(500);
+end;
+
 // Backup INI file before installation starts
 procedure CurStepChanged(CurStep: TSetupStep);
 var
@@ -217,6 +239,17 @@ begin
     end;
   end;
 end;
+
+
+
+
+
+
+
+
+
+
+
 
 
 

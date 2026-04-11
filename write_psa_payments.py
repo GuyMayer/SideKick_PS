@@ -16,8 +16,10 @@ Options:
     --clear         Clear ALL existing payments before adding new ones
     --clear-method  METHODNAME
                     Remove only payments whose methodName contains METHODNAME
-                    (case-insensitive). Preserves deposits/other methods.
-                    Example: --clear-method "GoCardless"
+                    (case-insensitive) AND whose scheduled jdate is strictly
+                    in the future. Past/today entries are treated as already-
+                    collected deposits and preserved regardless of method.
+                    Example: --clear-method "GoCardless DD"
     --group N   Target order group (default: 1)
 
 Output:
@@ -32,7 +34,7 @@ import sys
 import sqlite3
 import re
 import os
-from datetime import datetime
+from datetime import datetime, date as _date
 
 
 # Known ProSelect payment method name -> methodID mapping
@@ -223,26 +225,45 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
         if clear_method:
             # Selective removal: only strip <payment .../> lines whose
             # methodName attribute contains the given string (case-insensitive)
+            # AND whose scheduled date is STRICTLY in the future.
+            # Entries with a past or today jdate are already-collected payments
+            # (e.g. a GoCardless upfront deposit) and must be preserved.
+            # Safety guard: an empty string matches EVERYTHING in Python — skip clearing.
             search_lower = clear_method.strip().lower()
-            def _remove_method_payments(m):
-                inner = m.group(0)
-                lines = inner.split('\n')
-                kept = []
-                for line in lines:
-                    method_match = re.search(r'methodName="([^"]+)"', line)
-                    if method_match and search_lower in method_match.group(1).lower():
-                        continue  # drop this DD payment line
-                    kept.append(line)
-                return '\n'.join(kept)
-            new_group_content = re.sub(
-                r'<payments>.*?</payments>',
-                _remove_method_payments,
-                group_content,
-                flags=re.DOTALL,
-            )
-            order_data = order_data[:group_start] + new_group_content + order_data[group_end:]
-            group_end = group_start + len(new_group_content)
-            group_content = new_group_content
+            if search_lower:
+                today = _date.today()
+                def _remove_method_payments(m):
+                    inner = m.group(0)
+                    lines = inner.split('\n')
+                    kept = []
+                    for line in lines:
+                        method_match = re.search(r'methodName="([^"]+)"', line)
+                        if method_match and search_lower in method_match.group(1).lower():
+                            # Only remove if the scheduled date is strictly in the future.
+                            # Past/today = already collected (deposit) → keep it.
+                            date_match = re.search(r'jdate="(\d{4})-(\d{2})-(\d{2})', line)
+                            if date_match:
+                                pdate = _date(
+                                    int(date_match.group(1)),
+                                    int(date_match.group(2)),
+                                    int(date_match.group(3)),
+                                )
+                                if pdate <= today:
+                                    kept.append(line)  # past/today = collected, preserve
+                                    continue
+                            # Future date (or no date) → scheduled plan entry, remove
+                            continue
+                        kept.append(line)
+                    return '\n'.join(kept)
+                new_group_content = re.sub(
+                    r'<payments>.*?</payments>',
+                    _remove_method_payments,
+                    group_content,
+                    flags=re.DOTALL,
+                )
+                order_data = order_data[:group_start] + new_group_content + order_data[group_end:]
+                group_end = group_start + len(new_group_content)
+                group_content = new_group_content
         elif clear_existing:
             new_group_content = re.sub(
                 r'<payments>\s*(?:<payment[^/]*/>\s*)*</payments>',

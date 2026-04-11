@@ -2742,7 +2742,7 @@ GC_CheckCustomerMandate(customerEmail) {
 	}
 	FileAppend, % A_Now . " - GC_CheckCustomerMandate - scriptOutput: " . scriptOutput . "`n", %DebugLogFile%
 	
-	scriptOutput := Trim(scriptOutput)
+	scriptOutput := Trim(scriptOutput, " `t`r`n")
 	
 	; Check for empty output
 	if (scriptOutput = "") {
@@ -3056,7 +3056,7 @@ try {
 ; v3.0: Payment plan creation, date bumping, duplicate checks, and instalment/single
 ; modes are all handled by SideKick_GC. PS passes balance + raw album name as plan name,
 ; then reads back a result file to inject payments into the .psa album.
-GC_ShowPayPlanDialog(contactData, mandateResult) {
+GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 	global DebugLogFile, PayPlanLine, PayNo, DownpaymentLineAdded
 	
 	; Build client info
@@ -3066,11 +3066,21 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		clientName := contactData.name ? contactData.name : "Unknown Client"
 	ghlId := contactData.id
 	
-	; Get album name from ProSelect title — passed as-is to SideKick_GC plan name field
-	WinGetTitle, psTitle, ahk_exe ProSelect.exe
-	albumName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")
-	albumName := RegExReplace(albumName, "\s*-\s*ProSelect.*$", "")
-	albumName := Trim(albumName)
+	; Get album name — prefer PSA filename (reliable), fall back to ProSelect title
+	; The window title can include ProSelect view names (e.g. "Mirror - Anderson - ID")
+	; which would pollute the plan name. The PSA filename is always the clean album name.
+	albumName := ""
+	psaPath := GetAlbumPath()
+	if (psaPath != "" && FileExist(psaPath)) {
+		SplitPath, psaPath,, , , psaStem
+		albumName := Trim(psaStem)
+	}
+	if (albumName = "") {
+		WinGetTitle, psTitle, ahk_exe ProSelect.exe
+		albumName := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")
+		albumName := RegExReplace(albumName, "\s*-\s*ProSelect.*$", "")
+		albumName := Trim(albumName)
+	}
 	if (albumName = "" || albumName = "ProSelect")
 		albumName := contactData.lastName ? contactData.lastName : "PayPlan"
 	
@@ -3080,7 +3090,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	ddBalance := 0
 	ddPayMethod := "GoCardless DD"
 	ddPaylines := ""
-	psaPath := GetAlbumPath()
+	; psaPath already resolved above for album name extraction
 	if (psaPath != "" && FileExist(psaPath)) {
 		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Reading payments from .psa: " . psaPath . "`n", %DebugLogFile%
 		readCmd := GetScriptCommand("read_psa_payments", """" . psaPath . """")
@@ -3088,7 +3098,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		RunCmdToFile(readCmd, tempPsaRead)
 		FileRead, psaOutput, %tempPsaRead%
 		FileDelete, %tempPsaRead%
-		psaOutput := Trim(psaOutput)
+		psaOutput := Trim(psaOutput, " `t`r`n")
 		
 		if (InStr(psaOutput, "PAYMENTS|")) {
 			; Format: PAYMENTS|count|order_date|day,month,year,amount,methodName,methodID|...
@@ -3168,18 +3178,27 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		gcArgs .= " --live"
 	
 	gcCmd := GetScriptCommand("gocardless_api", gcArgs)
+	; Sanitize: strip stray CR/LF that would split the .cmd file across lines
+	gcCmd := StrReplace(StrReplace(gcCmd, "`r", ""), "`n", "")
 	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Launching SideKick_GC" . (silent ? " (silent)" : "") . "`n", %DebugLogFile%
 	
 	if (silent) {
 		; Silent mode: capture stdout for SUCCESS/ERROR check
 		ToolTip, Creating GoCardless payment plan...
 		tempStdout := A_Temp . "\gc_silent_" . A_TickCount . ".txt"
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Running: " . gcCmd . "`n", %DebugLogFile%
 		RunCmdToFile(gcCmd, tempStdout)
 		FileRead, silentOutput, %tempStdout%
 		FileDelete, %tempStdout%
-		silentOutput := Trim(silentOutput)
+		silentOutput := Trim(silentOutput, " `t`r`n")
 		ToolTip
 		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Silent result: " . silentOutput . "`n", %DebugLogFile%
+		
+		; Empty output — script failed to run or crashed before emitting anything
+		if (silentOutput = "") {
+			DarkMsgBox("GoCardless Error", "GoCardless script returned no output.`n`nThis may be caused by antivirus blocking the exe, a missing Python dependency, or a script crash.`n`nCheck the debug log for details.`n`nDEBUG:`nCmd: " . gcCmd . "`nPaylines: " . SubStr(ddPaylines, 1, 100), "error")
+			return
+		}
 		
 		if (InStr(silentOutput, "ERROR|")) {
 			errorMsg := StrReplace(silentOutput, "ERROR|", "")
@@ -3231,7 +3250,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 			RunCmdToFile(gcCmdBumped, tempStdout2)
 			FileRead, silentOutput, %tempStdout2%
 			FileDelete, %tempStdout2%
-			silentOutput := Trim(silentOutput)
+			silentOutput := Trim(silentOutput, " `t`r`n")
 			ToolTip
 			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Bumped result: " . silentOutput . "`n", %DebugLogFile%
 			
@@ -3281,6 +3300,15 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	
 	FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Got result: " . SubStr(resultJson, 1, 200) . "`n", %DebugLogFile%
 	
+	; Skip PSA injection when payments were already written by UpdatePS
+	; (the caller passes skipInjection=true to avoid duplicating payments)
+	if (skipInjection) {
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Skipping PSA injection (payments already in album)`n", %DebugLogFile%
+		SoundPlay, *48
+		DarkMsgBox("GoCardless Plan Created", "GoCardless payment plan created successfully!`nPayments are already in the album.", "success")
+		return
+	}
+	
 	; Find .psa file for payment injection
 	albumFolder := GetAlbumFolder()
 	if (albumFolder = "" || !FileExist(albumFolder)) {
@@ -3310,12 +3338,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 	ToolTip, Saving album and injecting payments...
 	PsConsole("saveAlbum")
 	
-	; Parse payment dates from result JSON and build write_psa_payments args
-	; Result format: {"status":"SUCCESS","method":"GoCardless DD","payments":[{"date":"YYYY-MM-DD","amount_pounds":250.00},...],...}
-	writeArgs := """" . psaFile . """ --clear-method """ . resultMethod . """"
-	foundPayments := false
-	
-	; Extract method from result for payment type
+	; Extract method from result for payment type (must be resolved BEFORE writeArgs)
 	resultMethod := ddPayMethod
 	methodPos := InStr(resultJson, """method"":")
 	if (methodPos) {
@@ -3323,6 +3346,11 @@ GC_ShowPayPlanDialog(contactData, mandateResult) {
 		mEnd := InStr(resultJson, """", false, mStart)
 		resultMethod := SubStr(resultJson, mStart, mEnd - mStart)
 	}
+	
+	; Parse payment dates from result JSON and build write_psa_payments args
+	; Result format: {"status":"SUCCESS","method":"GoCardless DD","payments":[{"date":"YYYY-MM-DD","amount_pounds":250.00},...],...}
+	writeArgs := """" . psaFile . """ --clear-method """ . resultMethod . """"
+	foundPayments := false
 	
 	; Extract each payment from the payments array
 	pos := 1

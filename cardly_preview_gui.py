@@ -1532,6 +1532,11 @@ class CardPreviewGUI:
                 font=('Segoe UI', 8), fg='#888888', bg='#2a2a2a', anchor='w')
         self._date_info_label.pack(fill='x', pady=(3, 0))
 
+        # Last Card Sent label — populated once background order check completes
+        self._last_card_label = tk.Label(recip_frame, text="Last Card Sent: checking...",
+                font=('Segoe UI', 8), fg='#888888', bg='#2a2a2a', anchor='w')
+        self._last_card_label.pack(fill='x', pady=(2, 0))
+
         # Missing address warning
         if self.recipient:
             missing = [k for k in ('address1', 'city', 'postcode')
@@ -1773,11 +1778,20 @@ class CardPreviewGUI:
         if not recip_name:
             return
 
+        # Use full name for exact match when available; first name only used as API search needle
+        full_name = recip_name.strip().lower()
+
         def _worker():
             try:
                 result = list_recent_orders(recipient_name=recip_name)
                 if result.get('success'):
                     orders = result.get('orders', [])
+                    # Post-filter: keep only orders whose recipient name exactly matches
+                    # the full name (case-insensitive). This prevents first-name-only
+                    # matches from returning cards sent to other clients.
+                    if full_name:
+                        orders = [o for o in orders
+                                  if o.get('recipient_name', '').strip().lower() == full_name]
                     self._pending_orders = orders
                     self.root.after(0, lambda: self._update_pending_btn(orders))
             except Exception as e:
@@ -1796,9 +1810,29 @@ class CardPreviewGUI:
             count = len(orders)
             ToolTip(self._pending_btn,
                     f"{count} existing card{'s' if count != 1 else ''} found\nfor this client. Click for details.")
+            # Show the most recent send date
+            from datetime import datetime, timezone
+            latest = None
+            for o in orders:
+                created_str = o.get('created', '')
+                if not created_str:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+                    if latest is None or dt > latest:
+                        latest = dt
+                except (ValueError, TypeError):
+                    continue
+            if latest:
+                local_dt = latest.astimezone().replace(tzinfo=None)
+                date_str = local_dt.strftime('%x')
+                self._last_card_label.config(text=f"Last Card Sent: {date_str}", fg='#FFB347')
+            else:
+                self._last_card_label.config(text="Last Card Sent: unknown", fg='#888888')
         else:
             self._pending_btn.config(state='disabled', fg='#666666')
             ToolTip(self._pending_btn, "No pending cards found\nfor this client.")
+            self._last_card_label.config(text="Last Card Sent: none on record", fg='#888888')
 
     def _show_pending_cards(self):
         """Show a popup with details of pending/sent cards for this recipient."""
@@ -1831,6 +1865,7 @@ class CardPreviewGUI:
             shipped = o.get('shipped')
             est_arr = (o.get('est_max_arrival') or '')[:10]
             label_text = o.get('label', 'Card')
+            recip_display = o.get('recipient_name', '')
 
             if shipped:
                 state_str = f"Shipped {shipped[:10]}"
@@ -1844,9 +1879,15 @@ class CardPreviewGUI:
 
             row = tk.Frame(list_frame, bg='#333333')
             row.pack(fill='x', pady=2)
-            tk.Label(row, text=f"{created}  {label_text}",
+            left_frame = tk.Frame(row, bg='#333333')
+            left_frame.pack(side='left', padx=8, pady=4)
+            tk.Label(left_frame, text=f"{created}  {label_text}",
                     font=('Segoe UI', 9), fg='white', bg='#333333',
-                    anchor='w').pack(side='left', padx=8, pady=4)
+                    anchor='w').pack(anchor='w')
+            if recip_display:
+                tk.Label(left_frame, text=recip_display,
+                        font=('Segoe UI', 8), fg='#AAAAAA', bg='#333333',
+                        anchor='w').pack(anchor='w')
             tk.Label(row, text=state_str,
                     font=('Segoe UI', 9, 'bold'), fg=state_fg, bg='#333333',
                     anchor='e').pack(side='right', padx=8, pady=4)

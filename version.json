@@ -1,9 +1,16 @@
 ﻿{
-  "version": "3.0.9",
-  "build_date": "2026-03-23",
+  "version": "3.0.13",
+  "build_date": "2026-04-11",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GoCardless fix: deposit/downpayment no longer erased when injecting a DD payment plan into a ProSelect album",
+  "release_notes": "Replace PayPlan now aborts plan creation when old plan cancellation fails — previously both plans remained active on GoCardless",
   "changelog": [
+    "FIX: Replace PayPlan did not abort when --cancel-plans failed — error was shown as a warning but the new plan was still created, leaving both old and new plans active on GoCardless; all four cancel paths now return immediately on ERROR and verify SUCCESS before proceeding",
+    "----------",
+    "FIX: GoCardless --clear-method with empty string now skips clearing entirely instead of matching and deleting every payment — Python's '' in 'Credit Card' is True, so a blank method name would wipe all deposits including Cash and Credit Card",
+    "FIX: GoCardless --clear-method now preserves already-collected GoCardless deposits — only removes entries whose scheduled jdate is strictly in the future; past/today entries are never touched regardless of method name",
+    "FIX: Sale completion GoCardless prompt could not find client email — UpdatePS only checked the GHL cache and PSConsole getAlbumData email, both of which can be empty; now uses same robust 3-tier fallback as the GoCardless toolbar button (window title → PSA filename → PSA SQLite → GHL fetch by ID)",
+    "FIX: GoCardless pay plan creation duplicated paylines — GC_ShowPayPlanDialog used resultMethod in --clear-method argument before it was assigned, so the clear flag was empty and existing DD payments were never removed before re-writing; resultMethod is now resolved before building writeArgs",
+    "----------",
     "FIX: GoCardless payment injection was wiping all payments (including today's deposit) because write_psa_payments.py was called with --clear — changed to --clear-method 'GoCardless DD' so only existing GoCardless DD entries are removed; cash/card deposits and other payment methods are preserved",
     "----------",
     "FIX: GoCardless and Cardly buttons now extract GHL contact ID from PSA filename (via GetAlbumPath) when WinGetTitle returns a ProSelect sub-window title like 'Mirror' — title-based regex was finding nothing in that case",
@@ -184,8 +191,8 @@
   ],
   "versions": [
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
         "FIX: GHL Photo Link URL - normalise upload URL to public CDN domain (assets.cdn.filesafe.space)",
@@ -196,8 +203,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
         "NEW: GoCardless toolbar button - check mandates and send setup links",
@@ -224,8 +231,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
         "NEW: Auto-blend toolbar background - samples screen behind toolbar and matches color",
@@ -236,8 +243,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
         "FIX: GHL invoice creation failed when Product_Name was empty (Wall Groupings, Collections)",
@@ -249,8 +256,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
         "NEW: Setup Wizard auto-loads GHL tags, opportunity tags, and email templates after setup",
@@ -265,8 +272,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
         "NEW: SKU field (Product_Code) extracted from ProSelect XML for product matching",
@@ -279,8 +286,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
         "FIX: GHL API updated to new endpoint for PIT token support",
@@ -288,8 +295,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
         "NEW: Dedicated PDF toolbar button (maroon) - always prints to PDF",
@@ -308,8 +315,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
         "NEW: Detailed error dialog when invoice sync fails - shows available data and what's missing",
@@ -322,8 +329,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
         "NEW: Toolbar grab handle - Ctrl+Click and drag to reposition",
@@ -333,8 +340,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
         "NEW: Local QR Code Generation - no more Google Charts API dependency",
@@ -345,8 +352,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
         "NEW: Print to PDF - save PDF to album folder with optional copy to secondary folder",
@@ -356,8 +363,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
         "NEW: Room Capture Email Template Picker - choose from GHL templates",
@@ -367,8 +374,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
         "IMPROVED: Full high-DPI display support for DarkMsgBox",
@@ -376,8 +383,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
         "IMPROVED: Payment schedules show as invoice line items with dates",
@@ -388,8 +395,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
         "FIX: DateDiff errors - replaced with AHK v1 compatible EnvSub",
@@ -398,8 +405,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
         "NEW: DarkMsgBox - universal dark mode message box",
@@ -410,8 +417,8 @@
       ]
     },
     {
-      "version": "3.0.9",
-      "build_date": "2026-03-23",
+      "version": "3.0.13",
+      "build_date": "2026-04-11",
       "release_notes": "Major GHL integration release",
       "changelog": [
         "NEW: GHL Client lookup from Chrome URLs",

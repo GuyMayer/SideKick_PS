@@ -1272,7 +1272,7 @@ if (InStr(pyOutput, "SUCCESS|")) {
 			if (gcPrompt = "Update GoCardless") {
 				FileAppend, % A_Now . " - UpdatePS - User chose to update GoCardless`n", %DebugLogFile%
 				
-				; Get client email — try GHL_ContactData first, then fall back to PSA
+				; Get client email — robust 3-tier lookup (same strategy as Toolbar_GoCardless)
 				gcClientEmail := ""
 				if (GHL_ContactData != "" && GHL_ContactData.HasKey("email") && GHL_ContactData.email != "")
 					gcClientEmail := GHL_ContactData.email
@@ -1284,6 +1284,66 @@ if (InStr(pyOutput, "SUCCESS|")) {
 					if (RegExMatch(albumInfo, "email=""([^""]+)""", emailMatch))
 						gcClientEmail := emailMatch1
 					ToolTip
+				}
+				
+				if (gcClientEmail = "") {
+					; Tier 2: Extract GHL contact ID from window title / PSA filename / SQLite,
+					; then fetch full contact from GHL — mirrors Toolbar_GoCardless logic.
+					FileAppend, % A_Now . " - UpdatePS - Email not cached, trying GHL ID lookup`n", %DebugLogFile%
+					gcContactId := ""
+					WinGetTitle, gcPsTitle, ahk_exe ProSelect.exe
+					if InStr(gcPsTitle, "_") {
+						StringSplit, gcParts, gcPsTitle, _
+						Loop, % gcParts0 {
+							gcIdx := gcParts0 - A_Index + 1
+							gcPart := gcParts%gcIdx%
+							gcPart := RegExReplace(gcPart, "\\.\w+$", "")
+							gcPart := RegExReplace(gcPart, "\\s*-\\s*ProSelect.*$", "")
+							gcPart := Trim(gcPart)
+							if (StrLen(gcPart) >= 15 && RegExMatch(gcPart, "^[A-Za-z0-9]+$") && !RegExMatch(gcPart, "^P\\d+P$"))
+							{
+								gcContactId := gcPart
+								break
+							}
+						}
+					}
+					if (gcContactId = "" && RegExMatch(gcPsTitle, "_([A-Za-z0-9]{15,})", gcIdMatch) && !RegExMatch(gcIdMatch1, "^P\\d+P$"))
+						gcContactId := gcIdMatch1
+					
+					; Fall back to PSA filename (handles Mirror sub-window titles)
+					if (gcContactId = "" && psaPath != "") {
+						SplitPath, psaPath, gcPsaFN
+						if (RegExMatch(gcPsaFN, "_([A-Za-z0-9]{15,})", gcIdMatch) && !RegExMatch(gcIdMatch1, "^P\\d+P$"))
+							gcContactId := gcIdMatch1
+					}
+					
+					; Fall back to SQLite client data in PSA
+					gcPsaClientData := ""
+					if (gcContactId = "" && psaPath != "" && FileExist(psaPath)) {
+						ToolTip, Reading client details from album...
+						gcPsaClientData := GetPSAClientData(psaPath)
+						ToolTip
+						if (gcPsaClientData != "" && RegExMatch(gcPsaClientData.clientCode, "^[A-Za-z0-9]{15,}$") && !RegExMatch(gcPsaClientData.clientCode, "^P\\d+P$"))
+							gcContactId := gcPsaClientData.clientCode
+					}
+					
+					; If we found a GHL ID, fetch the contact
+					if (gcContactId != "") {
+						ToolTip, Fetching client from GHL...
+						gcFetchResult := FetchGHLData(gcContactId)
+						ToolTip
+						if (gcFetchResult.success && gcFetchResult.email != "") {
+							gcClientEmail := gcFetchResult.email
+							GHL_ContactData := gcFetchResult
+							FileAppend, % A_Now . " - UpdatePS - Found email via GHL ID lookup: " . gcClientEmail . "`n", %DebugLogFile%
+						}
+					}
+					
+					; Last resort: PSA email field directly
+					if (gcClientEmail = "" && gcPsaClientData != "" && gcPsaClientData.email != "") {
+						gcClientEmail := gcPsaClientData.email
+						FileAppend, % A_Now . " - UpdatePS - Found email via PSA SQLite: " . gcClientEmail . "`n", %DebugLogFile%
+					}
 				}
 				
 				if (gcClientEmail = "") {
@@ -1313,23 +1373,26 @@ if (InStr(pyOutput, "SUCCESS|")) {
 								RunCmdToFile(cancelCmd, tempCancel)
 								FileRead, cancelOutput, %tempCancel%
 								FileDelete, %tempCancel%
-								cancelOutput := Trim(cancelOutput)
+								cancelOutput := Trim(cancelOutput, " `t`r`n")
 								FileAppend, % A_Now . " - UpdatePS - Cancel result: " . cancelOutput . "`n", %DebugLogFile%
 								
 								if (InStr(cancelOutput, "SUCCESS|"))
 									FileAppend, % A_Now . " - UpdatePS - Old GoCardless plans cancelled successfully`n", %DebugLogFile%
 								else if (InStr(cancelOutput, "NO_ACTIVE_PLANS"))
 									FileAppend, % A_Now . " - UpdatePS - No active GC plans to cancel`n", %DebugLogFile%
-								else
-									DarkMsgBox("GoCardless Warning", "Could not cancel old GoCardless plans.`n`n" . cancelOutput . "`n`nPlease cancel them manually in GoCardless.", "warning")
+								else {
+									DarkMsgBox("GoCardless Error", "Could not cancel old GoCardless plans.`n`n" . cancelOutput . "`n`nPlease cancel them manually in GoCardless before creating a new plan.", "error")
+									ToolTip
+									return
+								}
 							}
 							ToolTip
 						}
 						
 						; Create new plan if new payments have GC DD
 						if (newHasGC) {
-							FileAppend, % A_Now . " - UpdatePS - Launching GC_ShowPayPlanDialog for new plan`n", %DebugLogFile%
-							GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+							FileAppend, % A_Now . " - UpdatePS - Launching GC_ShowPayPlanDialog for new plan (skipInjection=true)`n", %DebugLogFile%
+							GC_ShowPayPlanDialog(GHL_ContactData, mandateResult, true)
 						} else {
 							; Old plans cancelled, no new GC plan needed
 							if (Settings_EnableSounds && IsMainPSActive())

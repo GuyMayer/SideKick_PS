@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.9
-; Build Date:  2026-03-23
+; Version:     3.0.13
+; Build Date:  2026-04-11
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -888,7 +888,7 @@ RoundingError := Round(RoundingError, 2)
 ; Set PP GUI to be owned by ProSelect so it stays on top of PS but not other apps
 PSHwnd := WinExist("ahk_exe ProSelect.exe")
 if (PSHwnd)
-	Gui, PP: +Owner%PSHwnd%
+	try Gui, PP: +Owner%PSHwnd%
 
 Gui, PP:Color, %ppBg%
 Gui, PP:Font, s11 Norm c%ppLabelColor%, Segoe UI
@@ -975,21 +975,15 @@ Gui, PP:Add, DropDownList, x360 y307 w80 h2000 vPayDay, %PayDayL%
 Gui, PP:Add, DropDownList, x445 y307 w75 h2000 vPayMonth, %PayMonthL%
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 
-; ========== PLAN NAME SECTION ==========
-Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
-Gui, PP:Add, Text, x30 y363 w90 h25 BackgroundTrans, Plan Name:
-Gui, PP:Font, s10 Norm cBlack, Segoe UI
-Gui, PP:Add, Edit, x125 y360 w455 h28 vPlanName, %PlanName%
-
 ; ========== BUTTONS ==========
 Gui, PP:Font, s10 Norm, Segoe UI
-Gui, PP:Add, Button, x300 y400 w140 h32 gMakePayments, ✓ Schedule Payments
-Gui, PP:Add, Button, x500 y400 w80 h32 gExitGui, ✗ Cancel
+Gui, PP:Add, Button, x300 y355 w140 h32 gMakePayments, ✓ Schedule Payments
+Gui, PP:Add, Button, x500 y355 w80 h32 gExitGui, ✗ Cancel
 
 ; Register mouse move handler for hover tooltips (shared with Settings)
 OnMessage(0x200, "SettingsMouseMove")
 
-Gui, PP:Show, w600 h450, SideKick_PS v%ScriptVersion% - Payment Calculator
+Gui, PP:Show, w600 h405, SideKick_PS v%ScriptVersion% - Payment Calculator
 
 Return
 
@@ -5138,19 +5132,36 @@ Toolbar_GoCardless:
 			; Only show if there's actual plan text (not just whitespace)
 			cleanPlans := RegExReplace(existingPlans, "^\s+|\s+$")
 			if (StrLen(cleanPlans) > 0) {
-				plansMsg := "`n`n⚠️ Existing Plans:`n" . cleanPlans
+				; Format plans as a bullet-point list (plans are semicolon-separated)
+				planItems := StrSplit(cleanPlans, ";")
+				planList := ""
+				for idx, planItem in planItems {
+					planItem := Trim(planItem)
+					if (planItem != "")
+						planList .= "`n  • " . planItem
+				}
+				plansMsg := "`n`n⚠️ Existing Plans:" . planList
 				hasExistingPlans := true
 			}
 		}
 		
-		; Dark dialog with custom buttons — Replace when existing plans, Add when none
+		; Dark dialog with custom buttons — Replace/Add when existing plans, Add when none
 		msg := "✅ " . clientName . " has an active Direct Debit mandate." . plansMsg
-		if (hasExistingPlans)
-			result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Replace PayPlan", "Cancel"]})
-		else
-			result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
+		gcTips := {}
+		if (hasExistingPlans) {
+			gcTips["Replace PayPlan"] := "Cancel ALL existing payment plans on this mandate and create a new one from the current ProSelect invoice"
+			gcTips["Add PayPlan"] := "Keep existing plans and create an additional GoCardless payment plan from the current ProSelect invoice"
+			gcTips["Go to Client"] := "Open this customer's GoCardless page in your browser to view mandate details, payments and plan history"
+			gcTips["Cancel"] := "Close this dialog without making any changes to the existing plans"
+			result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Replace PayPlan", "Add PayPlan", "Go to Client", "Cancel"], tooltips: gcTips})
+		} else {
+			gcTips["Add PayPlan"] := "Create a new GoCardless payment plan from the current ProSelect invoice for this mandate"
+			gcTips["Go to Client"] := "Open this customer's GoCardless page in your browser to view mandate details and payment history"
+			gcTips["Cancel"] := "Close this dialog without creating a payment plan"
+			result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Go to Client", "Cancel"], tooltips: gcTips})
+		}
 		
-		if (result = "Replace PayPlan" || result = "Add PayPlan") {
+		if (result = "Replace PayPlan") {
 			; Cancel existing plans before creating new one
 			if (hasExistingPlans) {
 				ToolTip, Cancelling old GoCardless plans...
@@ -5162,11 +5173,19 @@ Toolbar_GoCardless:
 					RunCmdToFile(cancelCmd, tempCancel)
 					FileRead, cancelOutput, %tempCancel%
 					FileDelete, %tempCancel%
-					cancelOutput := Trim(cancelOutput)
+					cancelOutput := Trim(cancelOutput, " `t`r`n")
 					FileAppend, % A_Now . " - Toolbar_GoCardless - Cancel result: " . cancelOutput . "`n", %DebugLogFile%
 					
 					if (InStr(cancelOutput, "ERROR|")) {
-						DarkMsgBox("GoCardless Warning", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless.", "warning")
+						DarkMsgBox("GoCardless Error", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless before creating a new plan.", "error")
+						ToolTip
+						return
+					}
+					if (!InStr(cancelOutput, "SUCCESS|")) {
+						FileAppend, % A_Now . " - Toolbar_GoCardless - Cancel returned unexpected result: " . cancelOutput . "`n", %DebugLogFile%
+						DarkMsgBox("GoCardless Warning", "Cancel returned an unexpected result:`n`n" . cancelOutput . "`n`nPlease verify plans are cancelled in GoCardless before creating a new plan.", "warning")
+						ToolTip
+						return
 					}
 				}
 				ToolTip
@@ -5176,7 +5195,13 @@ Toolbar_GoCardless:
 			Sleep, 500
 			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
 		}
-		else if (result = "Open GC Client") {
+		else if (result = "Add PayPlan") {
+			; Create new plan without cancelling existing ones
+			PsConsole("saveAlbum")
+			Sleep, 500
+			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+		}
+		else if (result = "Go to Client") {
 			; Open GoCardless customer page
 			gcUrl := "https://manage.gocardless.com/customers/" . customerId
 			Run, %gcUrl%
@@ -5196,7 +5221,7 @@ Toolbar_GoCardless:
 		RunCmdToFile(scriptCmd, tempNameSearch)
 		FileRead, nameOutput, %tempNameSearch%
 		FileDelete, %tempNameSearch%
-		nameOutput := Trim(nameOutput)
+		nameOutput := Trim(nameOutput, " `t`r`n")
 		ToolTip
 		
 		FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback result: " . nameOutput . "`n", %DebugLogFile%
@@ -5241,18 +5266,35 @@ Toolbar_GoCardless:
 				if (existingPlans != "") {
 					cleanPlans := RegExReplace(existingPlans, "^\s+|\s+$")
 					if (StrLen(cleanPlans) > 0) {
-						plansMsg := "`n`n⚠️ Existing Plans:`n" . cleanPlans
+						; Format plans as a bullet-point list (plans are semicolon-separated)
+						planItems := StrSplit(cleanPlans, ";")
+						planList := ""
+						for idx, planItem in planItems {
+							planItem := Trim(planItem)
+							if (planItem != "")
+								planList .= "`n  • " . planItem
+						}
+						plansMsg := "`n`n⚠️ Existing Plans:" . planList
 						hasExistingPlans := true
 					}
 				}
 				
 				msg := "✅ " . nfName . " has an active Direct Debit mandate." . plansMsg
-				if (hasExistingPlans)
-					result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Replace PayPlan", "Cancel"]})
-				else
-					result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
+				gcTips := {}
+				if (hasExistingPlans) {
+					gcTips["Replace PayPlan"] := "Cancel ALL existing payment plans on this mandate and create a new one from the current ProSelect invoice"
+					gcTips["Add PayPlan"] := "Keep existing plans and create an additional GoCardless payment plan from the current ProSelect invoice"
+					gcTips["Go to Client"] := "Open this customer's GoCardless page in your browser to view mandate details, payments and plan history"
+					gcTips["Cancel"] := "Close this dialog without making any changes to the existing plans"
+					result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Replace PayPlan", "Add PayPlan", "Go to Client", "Cancel"], tooltips: gcTips})
+				} else {
+					gcTips["Add PayPlan"] := "Create a new GoCardless payment plan from the current ProSelect invoice for this mandate"
+					gcTips["Go to Client"] := "Open this customer's GoCardless page in your browser to view mandate details and payment history"
+					gcTips["Cancel"] := "Close this dialog without creating a payment plan"
+					result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Go to Client", "Cancel"], tooltips: gcTips})
+				}
 				
-				if (result = "Replace PayPlan" || result = "Add PayPlan") {
+				if (result = "Replace PayPlan") {
 					if (hasExistingPlans) {
 						ToolTip, Cancelling old GoCardless plans...
 						FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback - Cancelling old plans for mandate " . mandateResult.mandateId . "`n", %DebugLogFile%
@@ -5262,10 +5304,18 @@ Toolbar_GoCardless:
 							RunCmdToFile(cancelCmd, tempCancel)
 							FileRead, cancelOutput, %tempCancel%
 							FileDelete, %tempCancel%
-							cancelOutput := Trim(cancelOutput)
+							cancelOutput := Trim(cancelOutput, " `t`r`n")
 							FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback - Cancel result: " . cancelOutput . "`n", %DebugLogFile%
 							if (InStr(cancelOutput, "ERROR|")) {
-								DarkMsgBox("GoCardless Warning", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless.", "warning")
+								DarkMsgBox("GoCardless Error", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless before creating a new plan.", "error")
+								ToolTip
+								return
+							}
+							if (!InStr(cancelOutput, "SUCCESS|")) {
+								FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback - Cancel returned unexpected result: " . cancelOutput . "`n", %DebugLogFile%
+								DarkMsgBox("GoCardless Warning", "Cancel returned an unexpected result:`n`n" . cancelOutput . "`n`nPlease verify plans are cancelled in GoCardless before creating a new plan.", "warning")
+								ToolTip
+								return
 							}
 						}
 						ToolTip
@@ -5274,7 +5324,13 @@ Toolbar_GoCardless:
 					Sleep, 500
 					GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
 				}
-				else if (result = "Open GC Client") {
+				else if (result = "Add PayPlan") {
+					; Create new plan without cancelling existing ones
+					PsConsole("saveAlbum")
+					Sleep, 500
+					GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+				}
+				else if (result = "Go to Client") {
 					gcUrl := "https://manage.gocardless.com/customers/" . nfCustomerId
 					Run, %gcUrl%
 				}
@@ -5378,7 +5434,7 @@ GC_SearchMandateByNameOrEmail(contactData) {
 	
 	ToolTip
 	
-	scriptOutput := Trim(scriptOutput)
+	scriptOutput := Trim(scriptOutput, " `t`r`n")
 	
 	if (InStr(scriptOutput, "ERROR|")) {
 		errorMsg := StrReplace(scriptOutput, "ERROR|", "")
@@ -5414,18 +5470,35 @@ GC_SearchMandateByNameOrEmail(contactData) {
 		if (mandateResult.plans != "") {
 			cleanPlans := RegExReplace(mandateResult.plans, "^\s+|\s+$")
 			if (StrLen(cleanPlans) > 0) {
-				plansMsg := "`n`n⚠️ Existing Plans:`n" . cleanPlans
+				; Format plans as a bullet-point list (plans are semicolon-separated)
+				planItems := StrSplit(cleanPlans, ";")
+				planList := ""
+				for idx, planItem in planItems {
+					planItem := Trim(planItem)
+					if (planItem != "")
+						planList .= "`n  • " . planItem
+				}
+				plansMsg := "`n`n⚠️ Existing Plans:" . planList
 				hasExistingPlans := true
 			}
 		}
 		
 		msg := "✅ Found mandate for " . foundName . plansMsg
-		if (hasExistingPlans)
-			result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Replace PayPlan", "Cancel"]})
-		else
-			result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Add PayPlan", "Open GC Client", "Cancel"]})
+		gcTips := {}
+		if (hasExistingPlans) {
+			gcTips["Replace PayPlan"] := "Cancel ALL existing payment plans on this mandate and create a new one from the current ProSelect invoice"
+			gcTips["Add PayPlan"] := "Keep existing plans and create an additional GoCardless payment plan from the current ProSelect invoice"
+			gcTips["Go to Client"] := "Open this customer's GoCardless page in your browser to view mandate details, payments and plan history"
+			gcTips["Cancel"] := "Close this dialog without making any changes to the existing plans"
+			result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Replace PayPlan", "Add PayPlan", "Go to Client", "Cancel"], tooltips: gcTips})
+		} else {
+			gcTips["Add PayPlan"] := "Create a new GoCardless payment plan from the current ProSelect invoice for this mandate"
+			gcTips["Go to Client"] := "Open this customer's GoCardless page in your browser to view mandate details and payment history"
+			gcTips["Cancel"] := "Close this dialog without creating a payment plan"
+			result := DarkMsgBox("Mandate Found", msg, "success", {buttons: ["Add PayPlan", "Go to Client", "Cancel"], tooltips: gcTips})
+		}
 		
-		if (result = "Replace PayPlan" || result = "Add PayPlan") {
+		if (result = "Replace PayPlan") {
 			; Cancel existing plans before creating new one
 			if (hasExistingPlans) {
 				ToolTip, Cancelling old GoCardless plans...
@@ -5437,11 +5510,19 @@ GC_SearchMandateByNameOrEmail(contactData) {
 					RunCmdToFile(cancelCmd, tempCancel)
 					FileRead, cancelOutput, %tempCancel%
 					FileDelete, %tempCancel%
-					cancelOutput := Trim(cancelOutput)
+					cancelOutput := Trim(cancelOutput, " `t`r`n")
 					FileAppend, % A_Now . " - GC_SearchMandate - Cancel result: " . cancelOutput . "`n", %DebugLogFile%
 					
 					if (InStr(cancelOutput, "ERROR|")) {
-						DarkMsgBox("GoCardless Warning", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless.", "warning")
+						DarkMsgBox("GoCardless Error", "Could not cancel old plans.`n`n" . StrReplace(cancelOutput, "ERROR|", "") . "`n`nPlease cancel them manually in GoCardless before creating a new plan.", "error")
+						ToolTip
+						return
+					}
+					if (!InStr(cancelOutput, "SUCCESS|")) {
+						FileAppend, % A_Now . " - GC_SearchMandate - Cancel returned unexpected result: " . cancelOutput . "`n", %DebugLogFile%
+						DarkMsgBox("GoCardless Warning", "Cancel returned an unexpected result:`n`n" . cancelOutput . "`n`nPlease verify plans are cancelled in GoCardless before creating a new plan.", "warning")
+						ToolTip
+						return
 					}
 				}
 				ToolTip
@@ -5451,7 +5532,13 @@ GC_SearchMandateByNameOrEmail(contactData) {
 			Sleep, 500
 			GC_ShowPayPlanDialog(contactData, mandateResult)
 		}
-		else if (result = "Open GC Client") {
+		else if (result = "Add PayPlan") {
+			; Create new plan without cancelling existing ones
+			PsConsole("saveAlbum")
+			Sleep, 500
+			GC_ShowPayPlanDialog(contactData, mandateResult)
+		}
+		else if (result = "Go to Client") {
 			; Open GoCardless customer page
 			gcUrl := "https://manage.gocardless.com/customers/" . mandateResult.customerId
 			Run, %gcUrl%
@@ -5903,10 +5990,11 @@ if (Settings_AutoSaveXML && Settings_InvoiceWatchFolder != "") {
 
 ; Run sync_ps_invoice to upload to GHL (non-blocking with progress GUI)
 scriptPath := GetScriptPath("sync_ps_invoice")
+unifiedCliPath := A_ScriptDir . "\SideKick_PS_CLI.exe"
 FileAppend, % A_Now . " - Script path: " . scriptPath . "`n", %DebugLogFile%
 FileAppend, % A_Now . " - Script exists: " . FileExist(scriptPath) . "`n", %DebugLogFile%
 
-if (!FileExist(scriptPath))
+if (!FileExist(scriptPath) && !FileExist(unifiedCliPath))
 {
 	FileAppend, % A_Now . " - ERROR: Script not found`n", %DebugLogFile%
 	ExportInProgress := false  ; Re-enable file watcher
@@ -7820,12 +7908,15 @@ Return
 
 DarkMsgBox_AddTooltip(hwnd, tipText) {
 	static TT_ADDTOOL := 0x432, TTF_IDISHWND := 1, TTF_SUBCLASS := 0x10
+	static TTM_SETDELAYTIME := 0x403, TTDT_INITIAL := 3
 	static hToolTip := 0
 	
 	; Create tooltip control once
 	if (!hToolTip) {
 		hToolTip := DllCall("CreateWindowEx", "UInt", 0, "Str", "tooltips_class32", "Str", ""
 			, "UInt", 0x80000002, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "Ptr", 0, "Ptr", 0, "Ptr", 0, "Ptr", 0, "Ptr")
+		; Set initial tooltip delay to 3 seconds (3000ms)
+		DllCall("SendMessage", "Ptr", hToolTip, "UInt", TTM_SETDELAYTIME, "Ptr", TTDT_INITIAL, "Ptr", 3000)
 	}
 	
 	; Set up TOOLINFO structure

@@ -1155,6 +1155,9 @@ def list_recent_orders(recipient_name: str = "", limit: int = 25, max_pages: int
                 break
             for order in results:
                 total_checked += 1
+                # One entry per order — use the first item that matches the
+                # recipient filter. Multiple items in one order are variants
+                # (e.g. landscape/portrait), not separate cards sent.
                 for item in order.get("items", []):
                     recip = item.get("recipient", {})
                     recip_full = recip.get("name", "")
@@ -1176,6 +1179,7 @@ def list_recent_orders(recipient_name: str = "", limit: int = 25, max_pages: int
                         "est_max_arrival": delivery.get("estimatedMaxArrival"),
                         "created": order.get("timings", {}).get("created"),
                     })
+                    break  # Only first matching item per order
             total_records = body.get("data", {}).get("meta", {}).get("totalRecords", 0)
             if offset + limit >= total_records:
                 break

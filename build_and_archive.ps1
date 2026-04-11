@@ -15,10 +15,19 @@ param(
     
     [switch]$SkipPythonCompile = $false,
     [switch]$ForceRebuild = $true,
-    [switch]$SkipPublish = $false
+    [switch]$SkipPublish = $false,
+    [switch]$SkipSigning = $true
 )
 
 $ErrorActionPreference = "Stop"
+
+# Top-level error trap - logs crash location to build.log before exiting
+trap {
+    $errMsg = "FATAL ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber) - $($_.InvocationInfo.Line.Trim())"
+    Add-Content -Path "$PSScriptRoot\Releases\build.log" -Value "[$((Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))] [FATAL] $errMsg" -ErrorAction SilentlyContinue
+    Write-Host "`n[FATAL] $errMsg" -ForegroundColor Red
+    break
+}
 
 # Paths
 $ScriptDir = $PSScriptRoot
@@ -495,6 +504,10 @@ if (Test-Path $issFile) {
     $issContent = Get-Content $issFile -Raw
     $issContent = $issContent -replace '#define MyAppVersion "[^"]+"', "#define MyAppVersion `"$Version`""
     $issContent = $issContent -replace 'OutputDir=Releases\\[^\r\n]+', "OutputDir=Releases\\latest"
+    if ($SkipSigning) {
+        $issContent = $issContent -replace '(?m)^SignTool=.*\r?\n', ''
+        $issContent = $issContent -replace '(?m)^SignedUninstaller=.*\r?\n', ''
+    }
     Set-Content $issFile $issContent
     Write-Host "  Updated installer.iss to v$Version" -ForegroundColor Green
 }
@@ -511,7 +524,12 @@ $timestampServers = @(
     "http://timestamp.sectigo.com"
 )
 
-if (Test-Path $signtoolExe) {
+$certAvailable = !$SkipSigning -and ($null -ne (Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $certThumbprint }))
+if (!$certAvailable -and !$SkipSigning) {
+    $certAvailable = $null -ne (Get-ChildItem Cert:\LocalMachine\My -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $certThumbprint })
+}
+
+if ((Test-Path $signtoolExe) -and $certAvailable) {
     $exesToSign = Get-ChildItem "$ReleaseDir\*.exe" -ErrorAction SilentlyContinue
     $signedCount = 0
     $signFailCount = 0
@@ -535,8 +553,11 @@ if (Test-Path $signtoolExe) {
     }
     Write-Host "  Summary: $signedCount signed, $signFailCount failed" -ForegroundColor $(if ($signFailCount -gt 0) { 'Yellow' } else { 'Gray' })
 } else {
-    Write-Host "  [SKIP] signtool.exe not found at: $signtoolExe" -ForegroundColor Yellow
-    Write-Host "  Install Windows SDK to enable code signing" -ForegroundColor Yellow
+    if (!(Test-Path $signtoolExe)) {
+        Write-Host "  [SKIP] signtool.exe not found - code signing skipped" -ForegroundColor Yellow
+    } else {
+        Write-Host "  [SKIP] Signing certificate not in store (USB token absent?) - skipping" -ForegroundColor Yellow
+    }
 }
 
 # Build Inno Setup installer
@@ -616,7 +637,13 @@ New-Item -ItemType Directory -Path $ArchiveDir -Force | Out-Null
 if (Test-Path $InnoCompiler) {
     Write-Host "  Compiling installer with Inno Setup..." -ForegroundColor Gray
     $signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-    $isccOutput = cmd /c "`"$InnoCompiler`" /Q `"/SMsSign=`"`"$signtoolExe`"`" sign /tr http://time.certum.pl /td sha256 /fd sha256 /sha1 0A8665226386555FD6AE7BD4EC3A240624887AD9 `$f`" `"$issFile`" 2>&1"
+    if ((Test-Path $signtoolExe) -and $certAvailable) {
+        $signParam = "/SMsSign=`"`"$signtoolExe`"`" sign /tr http://time.certum.pl /td sha256 /fd sha256 /sha1 0A8665226386555FD6AE7BD4EC3A240624887AD9 `$f`""
+        $isccOutput = cmd /c "`"$InnoCompiler`" /Q `"$signParam`" `"$issFile`" 2>&1"
+    } else {
+        Write-Host "  [SKIP] Cert not available - building unsigned installer" -ForegroundColor Yellow
+        $isccOutput = cmd /c "`"$InnoCompiler`" /Q `"$issFile`" 2>&1"
+    }
     $isccExitCode = $LASTEXITCODE
 
     $installerPath = "$ArchiveDir\SideKick_PS_Setup.exe"

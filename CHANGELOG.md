@@ -16,11 +16,27 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.12 (2026-03-24)
+
+### Fixes
+- **Replace PayPlan not cancelling old plan**: When the user clicked "Replace PayPlan", the `--cancel-plans` command ran but on `ERROR|` the code only showed a warning and continued to create the new plan — leaving both the old plan (e.g. Mirror) and the new one active on GoCardless. All four cancel-then-create paths (`Toolbar_GoCardless`, name-fallback, `GC_SearchMandate` in `SideKick_PS.ahk`, and `UpdatePS` in `Inc_Hotkeys.ahk`) now `return` immediately on cancel failure and also verify the result is `SUCCESS|` before proceeding.
+
+---
+
+## v3.0.11 (2026-03-24)
+
+### Fixes
+- **Sale completion GoCardless prompt "Could not find client email"**: The `UpdatePS` label's GoCardless section only checked two sources for the client email — the `GHL_ContactData` cache and `getAlbumData` XML email attribute — both of which can be empty when the album was opened without a prior GHL fetch. Now uses the same robust 3-tier fallback as `Toolbar_GoCardless:`: window title parsing for GHL contact ID (15+ alphanumeric segments) → PSA filename fallback via `SplitPath` on `GetAlbumPath()` → PSA SQLite `clientCode` and email fields → `FetchGHLData()` by discovered ID. The resolved `GHL_ContactData` is also cached so the subsequent `GC_ShowPayPlanDialog` call inherits it.
+- **GoCardless pay plan creation duplicated paylines**: `GC_ShowPayPlanDialog` built the `--clear-method` argument using `resultMethod` before that variable was assigned — it was only assigned 6 lines later. The empty `--clear-method ""` meant `write_psa_payments.py` never cleared existing GoCardless DD entries before writing the new ones, producing exact duplicates. Fixed by moving the `resultMethod` extraction (from the result JSON `"method"` field, with `ddPayMethod` fallback) above the `writeArgs` line where it is consumed.
+- **GoCardless `--clear-method` removing collected GoCardless deposits**: `--clear-method` matched by method name only, so a GoCardless DD deposit that was already collected (e.g. an upfront GoCardless payment recorded as "GoCardless DD" in the album) was treated the same as a future scheduled instalment and removed. The clearing logic now also checks each matching payment's `jdate`: entries with a **past or today** date are preserved (already collected); only entries with a **strictly future** date (upcoming DD plan instalments) are removed. Re-applying a plan never touches any payment that has already been processed.
+- **GoCardless `--clear-method ""` wiping all payments when method is empty**: Python's `"" in "Credit Card"` evaluates to `True`, so an empty `--clear-method` argument would match and delete every payment in the album — including any Cash or Credit Card deposit. Added a guard in `write_psa_payments.py`: if the method string is blank after stripping, clearing is skipped entirely and all existing payments are left intact.
+
+---
+
 ## v3.0.10 (2026-03-23)
 
 ### Fixes
 - **GoCardless payment injection erasing deposit**: `write_psa_payments.py` was called with `--clear` which blanket-deleted all payments in the album group before injecting the GoCardless instalment schedule. Because SideKick_GC only returns DD instalment lines (not the original deposit), today's cash/card downpayment was silently removed every time a pay plan was set up. Fixed by replacing `--clear` with `--clear-method "GoCardless DD"` — only existing GoCardless DD entries are removed; all other payment methods (cash, card, etc.) are preserved.
-
 ---
 
 ## v3.0.9 (2026-03-19)
