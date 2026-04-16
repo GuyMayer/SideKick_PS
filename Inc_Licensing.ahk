@@ -4000,15 +4000,15 @@ CreateDeveloperPanel()
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y125 w100 BackgroundTrans vDevDelayLabel Hidden, Menu Delay:
 	delayText := Settings_MenuDelay . "ms"
-	if (Settings_MenuDelay <= 50)
+	if (Settings_MenuDelay <= 150)
 		delayColor := "00CC00"  ; Green - fast
-	else if (Settings_MenuDelay <= 100)
+	else if (Settings_MenuDelay <= 175)
 		delayColor := "FF9900"  ; Orange - medium
 	else
 		delayColor := "FF6600"  ; Red-orange - slow
 	Gui, Settings:Font, s10 Norm c%delayColor%, Segoe UI
 	Gui, Settings:Add, Text, x315 y125 w340 BackgroundTrans vDevDelayValue Hidden HwndHwndDevDelay, %delayText%
-	RegisterSettingsTooltip(HwndDevDelay, "MENU DELAY CALIBRATION`n`nAuto-detected at startup based on CPU speed.`n`n50ms = Fast PC`n75ms = Good PC`n100ms = Medium PC`n200ms = Slow PC`n`nUsed for menu keystroke timing.")
+	RegisterSettingsTooltip(HwndDevDelay, "MENU DELAY CALIBRATION`n`nAuto-detected at startup based on CPU speed.`n`nMinimum 150ms to ensure toolbar buttons trigger reliably.`n150ms = Fast PC`n200ms = Slow PC`n`nUsed for menu keystroke timing.")
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; BUILD & RELEASE GROUP BOX

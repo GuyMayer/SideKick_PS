@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.13
-; Build Date:  2026-04-11
+; Version:     3.0.14
+; Build Date:  2026-04-16
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -296,7 +296,7 @@ global PlanName := ""                         ; PayPlan reference name (auto-bui
 global Settings_ToolbarIconColor := "White"  ; Toolbar icon color: White, Black, Yellow, Auto
 global Settings_ToolbarAutoBG := true         ; Auto-detect background color for toolbar (default ON)
 global Settings_ToolbarLastBGColor := "333333" ; Last known good toolbar background color
-global Settings_MenuDelay := 50  ; Menu keystroke delay (auto-adjusted: 50ms fast PC, 200ms slow PC)
+global Settings_MenuDelay := 150  ; Menu keystroke delay (auto-adjusted: min 150ms to ensure toolbar buttons trigger)
 global Settings_ToolbarScale := 0.9   ; Toolbar scale factor (0.5 = 50%, 1.0 = 100%)
 global Settings_ToolbarAutoScale := 0 ; Auto-scale toolbar based on ProSelect window size
 global Toolbar_AutoScaleCooldown := 0 ; Tick count of last auto-scale rebuild (debounce)
@@ -2136,10 +2136,11 @@ CreateFloatingToolbar()
 	}
 	
 	; Sort button (shuffle/alpha toggle) - uses emoji for toggle states
+	; Initialise as already-randomised: album is randomised on load, so show 🔤 (click to sort by filename)
 	if (Settings_ShowBtn_Sort) {
-		SortMode_IsRandom := false
+		SortMode_IsRandom := true
 		Gui, Toolbar:Font, s%fontSize%, Segoe UI Emoji
-		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_ToggleSort vTB_Sort +HwndTB_Sort_Hwnd, 🔀
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY1% w%btnW% h%btnH% Center 0x200 BackgroundGray c%iconColor% gToolbar_ToggleSort vTB_Sort +HwndTB_Sort_Hwnd, 🔤
 		ToolbarTooltips[TB_Sort_Hwnd] := "Toggle Sort Mode"
 		nextX += btnSpacing
 	}
@@ -4349,9 +4350,8 @@ Return
 
 ; Calibrate menu delay based on system performance
 ; Runs a quick benchmark and sets Settings_MenuDelay accordingly
-; Fast PC (< 50ms): 50ms delay
-; Medium PC (50-100ms): 100ms delay  
-; Slow PC (> 100ms): 200ms delay
+; Minimum 150ms to ensure toolbar buttons trigger reliably
+; Slow PC (> 100ms benchmark): 200ms delay
 CalibrateMenuDelay() {
 	global Settings_MenuDelay
 	
@@ -4375,17 +4375,17 @@ CalibrateMenuDelay() {
 		elapsed := 1
 	score := iterations / elapsed
 	
-	; Set delay based on score
+	; Set delay based on score (minimum 150ms to ensure toolbar buttons trigger reliably)
 	; Modern PC: score > 500 (very fast)
 	; Good PC: score > 200 (fast)
 	; Normal PC: score > 100 (medium)
 	; Slow PC: score <= 100 (slow)
 	if (score > 500)
-		Settings_MenuDelay := 50
+		Settings_MenuDelay := 150
 	else if (score > 200)
-		Settings_MenuDelay := 75
+		Settings_MenuDelay := 150
 	else if (score > 100)
-		Settings_MenuDelay := 100
+		Settings_MenuDelay := 150
 	else
 		Settings_MenuDelay := 200
 }

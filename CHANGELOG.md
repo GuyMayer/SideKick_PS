@@ -16,6 +16,17 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.14 (2026-04-16)
+
+### Fixes
+- **Menu delay minimum raised to 150ms**: The startup CPU benchmark previously set delays as low as 50ms on fast PCs, which caused toolbar button keystrokes to occasionally miss on fast machines. The calibrated minimum is now 150ms; slow PCs continue to use 200ms. The settings panel colour thresholds and tooltip text have been updated to match.
+- **Sort button initial state reflects randomised album**: The sort toggle previously initialised as 🔀 (click to randomise), implying the album was in filename order. Because albums are randomised automatically after loading, the button now initialises as 🔤 (click to sort by filename), accurately reflecting the current state from the start of every session.
+
+### Changed
+- **Schedule Payments no longer triggers GoCardless setup**: After injecting payment lines into the album, the payment calculator no longer attempts to look up a mandate or create a GoCardless plan automatically. The success dialog now prompts the user to click the **GoCardless toolbar button** to set up the Direct Debit, keeping the two workflows clearly separate.
+
+---
+
 ## v3.0.12 (2026-03-24)
 
 ### Fixes

@@ -101,7 +101,7 @@ When ProSelect is open, a floating toolbar appears docked to the ProSelect title
 | **Open Folder** | 📂 (dynamic) | Open the album's image source folder. Icon changes to match your selected file browser (Bridge, Lightroom, or Explorer) |
 | **Photoshop** | PS (pink) | Send selected image to Photoshop (Ctrl+T) |
 | **Refresh** | 🔄 (cyan) | Update album (Ctrl+U) |
-| **Sort Order** | 🔀 (yellow) | Toggle between random and filename sort order |
+| **Sort Order** | � / 🔀 (yellow) | Toggle between filename and random sort order. Starts as 🔤 (click to sort by filename) since albums are randomised on load |
 | **Quick Print** | 🖨 (orange) | Auto-print with configured template |
 | **Email PDF** | 📧 (orange) | Print invoice to PDF, then email it to the client via a GHL email template |
 | **QR Code** | QR (white) | Display a QR code on-screen (configurable URL) |
@@ -672,7 +672,9 @@ When **Replace** is used, the success dialog confirms how many old payments were
 
 ### After Entry — Set Up DD Immediately
 
-Once payments are entered, **set up GoCardless DD on the spot**:
+Once payments are written to the album, the success dialog will remind you:
+
+> **👉 Click the GoCardless button on the toolbar to set up the Direct Debit plan.**
 
 1. Click the **GC** button on the toolbar
 2. Check if the client has an existing mandate
