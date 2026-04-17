@@ -2915,17 +2915,23 @@ def _build_payment_invoice_items(payments: list, order: dict) -> list:
     return invoice_items
 
 
-def _should_skip_item(item: dict, financials_only: bool) -> bool:
+def _should_skip_item(item: dict, financials_only: bool, skip_zero_extras: bool = False, priced_ids: set | None = None) -> bool:
     """Check if item should be skipped.
 
     Args:
         item: Product item dictionary.
         financials_only: Whether to skip zero-price items.
+        skip_zero_extras: Whether to skip £0 items paired with a priced item.
+        priced_ids: Set of ps_item_id values that have a priced sibling (used with skip_zero_extras).
 
     Returns:
         bool: True if item should be skipped.
     """
-    return financials_only and item['price'] == 0 and item['type'] != 'OrderAdjustment'
+    if financials_only and item['price'] == 0 and item['type'] != 'OrderAdjustment':
+        return True
+    if skip_zero_extras and priced_ids and item.get('ps_item_id') in priced_ids and item['price'] == 0 and item['type'] != 'OrderAdjustment':
+        return True
+    return False
 
 
 def _create_invoice_item(item: dict) -> dict:
@@ -2975,8 +2981,8 @@ def _create_invoice_item(item: dict) -> dict:
         "ps_item_id": item.get('ps_item_id', ''),  # ID (exact)
         "size": item.get('size', ''),  # Size (exact)
         "template": item.get('template', ''),  # Template_Name (exact)
-        # Tax fields (exact from ProSelect)
-        "taxable": item.get('taxable', True),
+        # Tax fields (exact from ProSelect, but force taxable=False for zero-price items)
+        "taxable": item.get('taxable', True) if float(item.get('price', 0)) >= 0.01 else False,
         "tax_rate": item.get('tax_rate', 0.0),
         "tax_label": item.get('tax_label', ''),
         "vat_amount": item.get('vat_amount', 0.0),
@@ -2987,12 +2993,13 @@ def _create_invoice_item(item: dict) -> dict:
     }
 
 
-def _build_product_invoice_items(items: list, financials_only: bool) -> tuple[list, float]:
+def _build_product_invoice_items(items: list, financials_only: bool, skip_zero_extras: bool = False) -> tuple[list, float]:
     """Build invoice line items from product items.
 
     Args:
         items: List of product item dictionaries.
         financials_only: Whether to skip zero-price items.
+        skip_zero_extras: Whether to skip £0 accessory items paired with a priced item.
 
     Returns:
         tuple: (invoice_items list, total_discounts_credits float)
@@ -3000,8 +3007,15 @@ def _build_product_invoice_items(items: list, financials_only: bool) -> tuple[li
     invoice_items = []
     total_discounts_credits = 0.0
 
+    # Build set of ps_item_id values that have at least one priced sibling
+    if skip_zero_extras:
+        priced_ids = {item.get('ps_item_id') for item in items
+                      if float(item.get('price', 0)) > 0 and item.get('ps_item_id')}
+    else:
+        priced_ids = None
+
     for item in items:
-        if _should_skip_item(item, financials_only):
+        if _should_skip_item(item, financials_only, skip_zero_extras, priced_ids):
             continue
 
         if item['price'] < 0:
@@ -3033,7 +3047,7 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
             debug_log(f"Sample keys: {list(products_cache.keys())[:10]}")
 
     for item in invoice_items:
-        item_price = float(item['price'])
+        item_price = float(item['price'])  # Extended_Price = line total (qty × unit price)
         item_qty = int(item['quantity'])
 
         # Skip items with qty <= 0 (bundled free items like Mat/Frame included with main product)
@@ -3042,11 +3056,15 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
             debug_log(f"Skipping item with qty={item_qty}: {item.get('name', 'Unknown')}")
             continue
 
+        # GHL 'amount' is a unit price multiplied by qty on their end.
+        # ProSelect 'Extended_Price' is already the line total, so divide back to get unit price.
+        unit_price = round(item_price / item_qty, 2) if item_qty > 1 else item_price
+
         item_name = str(item['name'])
         item_description = str(item['description'])
         item_sku = item.get('sku', '')
 
-        debug_log(f"Processing item: name='{item_name}', sku='{item_sku}'")
+        debug_log(f"Processing item: name='{item_name}', sku='{item_sku}', extended_price={item_price}, qty={item_qty}, unit_price={unit_price}")
 
         # Try to look up GHL product by SKU if enabled and SKU exists
         if use_ghl_products and item_sku:
@@ -3069,19 +3087,23 @@ def _convert_to_ghl_items(invoice_items: list, use_ghl_products: bool = True) ->
         ghl_item = {
             "name": item_name,
             "description": item_description,
-            "amount": item_price,  # Invoice items use pounds (record-payment uses pence)
+            "amount": unit_price,  # Unit price — GHL multiplies amount × qty internally
             "qty": int(item['quantity']),
             "currency": "GBP",
         }
 
+        # Force taxable=False on zero-price items — GHL and downstream integrations (e.g. Xero)
+        # reject or error when tax is applied to £0 lines.
+        item_is_taxable = item.get('taxable', True) and unit_price >= 0.01
+
         # Only include tax fields for items with price >= £0.01
         # GHL rejects taxes on zero-price items, and taxInclusive can trigger location defaults
-        if item_price >= 0.01:
+        if unit_price >= 0.01:
             ghl_item["taxInclusive"] = item.get('price_includes_tax', True)
 
         # Add tax if item is taxable, has a tax rate, AND has a meaningful price (>= 1p)
         # GHL API error: "taxes allowed only on items with price greater than 0"
-        if item.get('taxable', True) and item.get('tax_rate', 0) > 0 and item_price >= 0.01:
+        if item_is_taxable and item.get('tax_rate', 0) > 0:
             tax_rate = float(item.get('tax_rate', 0))
             tax_label = item.get('tax_label', f'VAT ({tax_rate}%)')
             ghl_item["taxes"] = [{
@@ -3571,7 +3593,8 @@ def check_existing_invoice(contact_id: str, shoot_no: str, order_total: float) -
 
 
 def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: bool = False,
-                            rounding_in_deposit: bool = True, open_browser: bool = True) -> dict:
+                            rounding_in_deposit: bool = True, open_browser: bool = True,
+                            skip_zero_extras: bool = False) -> dict:
     """Update an existing GHL invoice's line items, amounts, and payments.
 
     This preserves provider payments (GoCardless/Stripe) and updates:
@@ -3589,7 +3612,7 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
     Returns:
         dict: Result with success status.
     """
-    debug_log("UPDATE EXISTING INVOICE CALLED", {"invoice_id": invoice_id, "financials_only": financials_only})
+    debug_log("UPDATE EXISTING INVOICE CALLED", {"invoice_id": invoice_id, "financials_only": financials_only, "skip_zero_extras": skip_zero_extras})
 
     order = ps_data.get('order', {})
     items = order.get('items', [])
@@ -3619,7 +3642,7 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
 
     # Step 2: Build new line items from the XML
     print(f"  Building updated invoice items from {len(items)} product items...")
-    invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only)
+    invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only, skip_zero_extras)
 
     if not invoice_items:
         print("✗ No invoice items after building")
@@ -3952,9 +3975,9 @@ def delete_shoot_invoices(contact_id: str, shoot_no: str) -> dict:
     }
 
 
-def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False, rounding_in_deposit: bool = True, open_browser: bool = True) -> dict | None:
+def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = False, rounding_in_deposit: bool = True, open_browser: bool = True, skip_zero_extras: bool = False) -> dict | None:
     """Create an actual invoice in GHL Payments → Invoices using V2 API."""
-    debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only, "rounding_in_deposit": rounding_in_deposit, "open_browser": open_browser})
+    debug_log("CREATE GHL INVOICE CALLED", {"contact_id": contact_id, "financials_only": financials_only, "skip_zero_extras": skip_zero_extras, "rounding_in_deposit": rounding_in_deposit, "open_browser": open_browser})
 
     order = ps_data.get('order', {})
     items = order.get('items', [])
@@ -3967,7 +3990,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
 
     # Always use product items for the invoice (not payment schedule)
     print(f"  Building invoice from {len(items)} product items...")
-    invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only)
+    invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only, skip_zero_extras)
 
     if not invoice_items:
         print("✗ No invoice items after building")
@@ -4616,6 +4639,7 @@ def _parse_cli_args():
         parser = argparse.ArgumentParser(add_help=False)
         parser.add_argument('xml_path', nargs='?')
         parser.add_argument('--financials-only', action='store_true')
+        parser.add_argument('--skip-zero-extras', action='store_true', default=True)
         parser.add_argument('--create-invoice', action='store_true', default=True)
         parser.add_argument('--no-invoice', action='store_true')
         parser.add_argument('--contact-sheet', action='store_true', default=True)
@@ -4641,6 +4665,8 @@ def _parse_cli_args():
         parser.add_argument('xml_path', nargs='?', help='Path to ProSelect XML export file')
         parser.add_argument('--financials-only', action='store_true',
                             help='Only include lines with monetary values')
+        parser.add_argument('--skip-zero-extras', action='store_true', default=True,
+                            help='Skip £0 accessory items paired with a priced item (same ID)')
         parser.add_argument('--create-invoice', action='store_true', default=True,
                             help='Create actual GHL invoice (default: True)')
         parser.add_argument('--no-invoice', action='store_true',
@@ -4691,7 +4717,8 @@ def _process_sync(
     create_contact_sheet: bool,
     collect_folder: str = '',
     rounding_in_deposit: bool = True,
-    open_browser: bool = True
+    open_browser: bool = True,
+    skip_zero_extras: bool = False
 ) -> dict:
     """Process the sync operation.
 
@@ -4785,7 +4812,7 @@ def _process_sync(
         current_step += 1
         write_progress(current_step, total_steps, f"Creating invoice & recording payments...")
         print(f"\n📄 Creating GHL invoice...")
-        invoice_result = create_ghl_invoice(contact_id, ps_data, financials_only, rounding_in_deposit, open_browser)
+        invoice_result = create_ghl_invoice(contact_id, ps_data, financials_only, rounding_in_deposit, open_browser, skip_zero_extras)
         if invoice_result:
             result['invoice'] = invoice_result
     elif not create_invoice:
@@ -4964,9 +4991,10 @@ def main() -> None:
         collect_folder = args.collect_folder if args.collect_folder else ''
         rounding_in_deposit = args.rounding_in_deposit
         open_browser = not args.no_open_browser
+        skip_zero_extras = args.skip_zero_extras
 
         _print_sync_header(args.xml_path, financials_only, create_invoice, create_contact_sheet)
-        result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit, open_browser)
+        result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit, open_browser, skip_zero_extras)
         result['resync'] = True
         result['old_invoices_deleted'] = del_result.get('deleted', 0) + del_result.get('voided', 0)
         _save_and_log_result(result)
@@ -4985,9 +5013,10 @@ def main() -> None:
         financials_only = args.financials_only
         open_browser = not args.no_open_browser
         rounding_in_deposit = args.rounding_in_deposit
+        skip_zero_extras = args.skip_zero_extras
 
         write_progress(1, 3, "Updating invoice items & payments...")
-        result = update_existing_invoice(args.update_invoice, ps_data, financials_only, rounding_in_deposit, open_browser)
+        result = update_existing_invoice(args.update_invoice, ps_data, financials_only, rounding_in_deposit, open_browser, skip_zero_extras)
 
         # Enrich result with client info for error display
         client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
@@ -5018,9 +5047,10 @@ def main() -> None:
     collect_folder = args.collect_folder if args.collect_folder else ''
     rounding_in_deposit = args.rounding_in_deposit
     open_browser = not args.no_open_browser
+    skip_zero_extras = args.skip_zero_extras
 
     _print_sync_header(args.xml_path, financials_only, create_invoice, create_contact_sheet)
-    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit, open_browser)
+    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit, open_browser, skip_zero_extras)
     _save_and_log_result(result)
     sys.exit(0 if result.get('success') else 1)
 

@@ -753,7 +753,7 @@ CreateShortcutsPanel()
 	; TOOLBAR BUTTONS GROUP BOX - Click icons to toggle on/off
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y55 w480 h555 vSCButtonsGroup, Toolbar Buttons
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h590 vSCButtonsGroup, Toolbar Buttons
 	
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
 	Gui, Settings:Add, Text, x210 y78 w450 BackgroundTrans vSCDescription, Click buttons to toggle on/off. Grayed buttons are disabled.
@@ -878,17 +878,26 @@ CreateShortcutsPanel()
 	Gui, Settings:Font, s10 Norm c%lblColorEmailPDF%, Segoe UI
 	Gui, Settings:Add, Text, x255 y529 w380 BackgroundTrans vSCLabel_EmailPDF gToggleTB_EmailPDF, Email PDF  —  Email PDF to client via GHL
 	
+	; Light Blue button (LB) - Teal brand background
+	iconBgLightBlue := Settings_ShowBtn_LightBlue ? "1A87A1" : "444444"
+	iconFgLightBlue := Settings_ShowBtn_LightBlue ? "FFFFFF" : "888888"
+	lblColorLightBlue := Settings_ShowBtn_LightBlue ? labelColor : "666666"
+	Gui, Settings:Font, s10 Bold, Segoe UI
+	Gui, Settings:Add, Text, x215 y560 w30 h28 Center Background%iconBgLightBlue% c%iconFgLightBlue% vSCIcon_LightBlue gToggleTB_LightBlue, LB
+	Gui, Settings:Font, s10 Norm c%lblColorLightBlue%, Segoe UI
+	Gui, Settings:Add, Text, x255 y564 w380 BackgroundTrans vSCLabel_LightBlue gToggleTB_LightBlue, Light Blue  —  Open client in Light Blue
+	
 	; SD Download button (📥) — note: managed separately in File Management
 	Gui, Settings:Font, s14, Segoe UI
-	Gui, Settings:Add, Text, x215 y560 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
+	Gui, Settings:Add, Text, x215 y595 w30 h28 Center BackgroundFF8C00 cWhite vSCIcon_Download, 📥
 	Gui, Settings:Font, s10 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x255 y564 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
+	Gui, Settings:Add, Text, x255 y599 w350 BackgroundTrans vSCLabel_Download, SD Download  —  Managed in File Management tab
 	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; INFO NOTE
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y615 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
+	Gui, Settings:Add, Text, x210 y650 w440 BackgroundTrans vSCInfoNote, ℹ Settings button (⚙) is always visible.  Changes apply after clicking Apply.
 	
 	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
 }
@@ -4125,6 +4134,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_OpenInvoiceURL
 	GuiControl, Settings:Hide, GHLFinancialsOnly
 	GuiControl, Settings:Hide, Toggle_FinancialsOnly
+	GuiControl, Settings:Hide, GHLSkipZeroExtras
+	GuiControl, Settings:Hide, Toggle_SkipZeroExtras
 	GuiControl, Settings:Hide, GHLAutoSaveXML
 	GuiControl, Settings:Hide, Toggle_AutoSaveXML
 	GuiControl, Settings:Hide, GHLContactSheet
@@ -4332,6 +4343,8 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, Toggle_ShowBtn_Cardly
 	GuiControl, Settings:Hide, SCIcon_EmailPDF
 	GuiControl, Settings:Hide, SCLabel_EmailPDF
+	GuiControl, Settings:Hide, SCIcon_LightBlue
+	GuiControl, Settings:Hide, SCLabel_LightBlue
 	GuiControl, Settings:Hide, SCInfoNote
 	
 	; Hide all panels - Print
@@ -4600,6 +4613,8 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_OpenInvoiceURL
 		GuiControl, Settings:Show, GHLFinancialsOnly
 		GuiControl, Settings:Show, Toggle_FinancialsOnly
+		GuiControl, Settings:Show, GHLSkipZeroExtras
+		GuiControl, Settings:Show, Toggle_SkipZeroExtras
 		GuiControl, Settings:Show, GHLAutoSaveXML
 		GuiControl, Settings:Show, Toggle_AutoSaveXML
 		GuiControl, Settings:Show, GHLContactSheet
@@ -4850,6 +4865,10 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, Toggle_ShowBtn_Cardly
 		GuiControl, Settings:Show, SCIcon_EmailPDF
 		GuiControl, Settings:Show, SCLabel_EmailPDF
+		if (LightBlue_Installed) {
+			GuiControl, Settings:Show, SCIcon_LightBlue
+			GuiControl, Settings:Show, SCLabel_LightBlue
+		}
 		GuiControl, Settings:Show, SCInfoNote
 	}
 	else if (tabName = "Print")

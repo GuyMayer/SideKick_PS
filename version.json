@@ -1,9 +1,15 @@
 ﻿{
-  "version": "3.0.14",
-  "build_date": "2026-04-16",
+  "version": "3.0.15",
+  "build_date": "2026-04-17",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "Menu delay floored at 150ms; sort button now reflects randomised album state on load; Schedule Payments no longer auto-triggers GoCardless setup",
+  "release_notes": "GHL invoice unit-price fix; skip \u00a30 paired extras toggle; LB toolbar button hidden when LightBlue not installed",
   "changelog": [
+    "FIX: GHL invoice unit price double-multiplication \u2014 Extended_Price in ProSelect XML is a line total (unit \u00d7 qty); code was passing it as the GHL unit price so GHL multiplied by qty again (e.g. qty 21 \u00d7 \u00a32,310 = \u00a348,510); now divides back to unit price before sending",
+    "NEW: Skip \u00a30 extras toggle in Settings \u2192 GHL tab \u2014 when enabled (default ON), zero-price accessory lines (mats, frames) are excluded from the GHL invoice only when they share the same ProSelect Item ID as a priced parent line; standalone \u00a30 items are kept",
+    "FIX: Light Blue (LB) icon in Toolbar Shortcuts settings tab was missing from the hide-all and show-Shortcuts visibility lists \u2014 it remained visible after switching to other tabs",
+    "NEW: LB toolbar button and its Shortcuts settings row are now hidden automatically when LightBlue is not installed on the machine (checked at startup against the installed exe and sibling dev path)"
+  ]
+}
     "FIX: Menu delay minimum raised to 150ms — benchmark could set delay as low as 50ms on fast PCs causing toolbar keystrokes to occasionally miss; calibrated minimum is now 150ms; slow PCs remain at 200ms",
     "FIX: Sort toggle button now initialises as 🔤 (sort by filename) to correctly reflect that albums are randomised on load — previously showed 🔀 implying filename order",
     "CHANGED: Schedule Payments no longer attempts GoCardless mandate lookup or plan creation after injecting payment lines — success dialog now prompts user to click the GoCardless toolbar button to set up the Direct Debit",
@@ -193,8 +199,8 @@
   ],
   "versions": [
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Fix GHL photo link URL mismatch; Cardly test mode documentation",
       "changelog": [
         "FIX: GHL Photo Link URL - normalise upload URL to public CDN domain (assets.cdn.filesafe.space)",
@@ -205,8 +211,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "GoCardless Direct Debit integration with instalment schedules, mandate checking, and GHL notifications",
       "changelog": [
         "NEW: GoCardless toolbar button - check mandates and send setup links",
@@ -233,8 +239,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Toolbar auto-blend, ESC to cancel export",
       "changelog": [
         "NEW: Auto-blend toolbar background - samples screen behind toolbar and matches color",
@@ -245,8 +251,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "CRITICAL: Fix GHL invoice creation - rich item names, per-line tax, verbose error logging",
       "changelog": [
         "FIX: GHL invoice creation failed when Product_Name was empty (Wall Groupings, Collections)",
@@ -258,8 +264,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Setup Wizard auto-refresh, ProSelect auto-launch, website SEO improvements",
       "changelog": [
         "NEW: Setup Wizard auto-loads GHL tags, opportunity tags, and email templates after setup",
@@ -274,8 +280,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "SKU/Product_Code extraction for GHL/Xero/QuickBooks product matching",
       "changelog": [
         "NEW: SKU field (Product_Code) extracted from ProSelect XML for product matching",
@@ -288,8 +294,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "GHL API compatibility fix for PIT tokens, secure credential storage",
       "changelog": [
         "FIX: GHL API updated to new endpoint for PIT token support",
@@ -297,8 +303,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "PDF toolbar button, GHL Client QR code with barcode scanner support, dynamic agency domain, improved icons",
       "changelog": [
         "NEW: Dedicated PDF toolbar button (maroon) - always prints to PDF",
@@ -317,8 +323,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Detailed sync error dialogs, timestamped logs with 7-day retention, email-first contact search",
       "changelog": [
         "NEW: Detailed error dialog when invoice sync fails - shows available data and what's missing",
@@ -331,8 +337,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Toolbar grab handle and positioning",
       "changelog": [
         "NEW: Toolbar grab handle - Ctrl+Click and drag to reposition",
@@ -342,8 +348,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Local QR code generation, monitor selection for QR display",
       "changelog": [
         "NEW: Local QR Code Generation - no more Google Charts API dependency",
@@ -354,8 +360,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Print to PDF with secondary folder copy, DPI-scaled toolbar",
       "changelog": [
         "NEW: Print to PDF - save PDF to album folder with optional copy to secondary folder",
@@ -365,8 +371,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Room capture email template picker, invoice deletion, shortcuts tab",
       "changelog": [
         "NEW: Room Capture Email Template Picker - choose from GHL templates",
@@ -376,8 +382,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "DPI scaling for DarkMsgBox dialogs",
       "changelog": [
         "IMPROVED: Full high-DPI display support for DarkMsgBox",
@@ -385,8 +391,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Invoice sync enhancements with payment schedules and VAT summary",
       "changelog": [
         "IMPROVED: Payment schedules show as invoice line items with dates",
@@ -397,8 +403,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Date calculation bug fixes",
       "changelog": [
         "FIX: DateDiff errors - replaced with AHK v1 compatible EnvSub",
@@ -407,8 +413,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "DarkMsgBox function, Import/Export settings",
       "changelog": [
         "NEW: DarkMsgBox - universal dark mode message box",
@@ -419,8 +425,8 @@
       ]
     },
     {
-      "version": "3.0.14",
-      "build_date": "2026-04-16",
+      "version": "3.0.15",
+      "build_date": "2026-04-17",
       "release_notes": "Major GHL integration release",
       "changelog": [
         "NEW: GHL Client lookup from Chrome URLs",

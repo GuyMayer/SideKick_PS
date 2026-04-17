@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.14
-; Build Date:  2026-04-16
+; Version:     3.0.15
+; Build Date:  2026-04-17
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -253,6 +253,7 @@ global Settings_DefaultPayType := "Gocardles DD"
 global Settings_GHL_Enabled := 1
 global Settings_GHL_AutoLoad := 0  ; 0=Manual confirmation, 1=Auto-load to ProSelect
 global Settings_OpenInvoiceURL := 1  ; Open invoice URL in browser after sync
+global Settings_SkipZeroExtras := 1  ; Skip £0 accessory items paired with priced prints
 global Settings_AutoSaveXML := 0  ; Auto-save XML copy when exporting to GHL
 global Settings_InvoiceWatchFolder := ""  ; Folder to watch for ProSelect invoice XML files
 global Settings_GHLInvoiceWarningShown := 0  ; Has user been warned about GHL automated emails?
@@ -322,6 +323,8 @@ global Settings_ShowBtn_ReviewOrder := true
 global Settings_ShowBtn_Sort := true
 global Settings_ShowBtn_OpenFolder := true
 global Settings_ShowBtn_Photoshop := true
+global Settings_ShowBtn_LightBlue := true   ; Light Blue button (default ON)
+global LightBlue_Installed := false         ; Set at startup — true if LB exe found
 global Settings_ShowBtn_Refresh := true
 global Settings_ShowBtn_Print := true
 global Settings_ShowBtn_QRCode := true
@@ -584,6 +587,12 @@ FileAppend, % A_Now . " - Detecting ProSelect version...`n", %DebugLogFile%
 ; Detect ProSelect version on startup
 DetectProSelectVersion()
 FileAppend, % A_Now . " - ProSelect version: " . ProSelectVersion . "`n", %DebugLogFile%
+
+; Detect LightBlue installation
+SplitPath, A_ScriptDir,, lbParentDir_
+lbExe_ := A_ProgramFiles . "\SideKick_LB\SideKick_LB.exe"
+lbAhk_ := lbParentDir_ . "\SideKick_LB\SideKick_LB_PubAI.ahk"
+LightBlue_Installed := FileExist(lbExe_) || FileExist(lbAhk_)
 
 ; Check for ProSelect Console path - try newer version first, then fall back
 if FileExist("C:\Program Files\Pro Studio Software\ProSelect 2025\ProSelect Helpers\plrp.install\win\psconsole.exe")
@@ -1904,6 +1913,8 @@ CreateFloatingToolbar()
 		btnCount++
 	if (Settings_ShowBtn_Photoshop)
 		btnCount++
+	if (Settings_ShowBtn_LightBlue)
+		btnCount++
 	if (Settings_ShowBtn_Refresh)
 		btnCount++
 	if (Settings_ShowBtn_Sort)
@@ -1927,7 +1938,7 @@ CreateFloatingToolbar()
 	
 	; Determine which sections have visible buttons (for separator logic)
 	hasGHLButtons := (Settings_ShowBtn_Client || Settings_ShowBtn_Invoice || Settings_ShowBtn_OpenGHL)
-	hasShortcutButtons := (Settings_ShowBtn_Camera || Settings_ShowBtn_ReviewOrder || Settings_ShowBtn_OpenFolder || Settings_ShowBtn_Photoshop || Settings_ShowBtn_Refresh || Settings_ShowBtn_Sort || Settings_ShowBtn_Print || Settings_EnablePDF || Settings_ShowBtn_EmailPDF || Settings_ShowBtn_QRCode || Settings_SDCardEnabled)
+	hasShortcutButtons := (Settings_ShowBtn_Camera || Settings_ShowBtn_ReviewOrder || Settings_ShowBtn_OpenFolder || Settings_ShowBtn_Photoshop || Settings_ShowBtn_LightBlue || Settings_ShowBtn_Refresh || Settings_ShowBtn_Sort || Settings_ShowBtn_Print || Settings_EnablePDF || Settings_ShowBtn_EmailPDF || Settings_ShowBtn_QRCode || Settings_SDCardEnabled)
 	hasServiceButtons := (Settings_GoCardlessEnabled || Settings_ShowBtn_Cardly)
 	separatorCount := 0
 	if (hasGHLButtons && (hasShortcutButtons || hasServiceButtons))
@@ -2126,7 +2137,24 @@ CreateFloatingToolbar()
 		ToolbarTooltips[TB_Photoshop_Hwnd] := "Open in Photoshop"
 		nextX += btnSpacing
 	}
-	
+
+	; Light Blue button (PNG icon - colored to match toolbar icons)
+	if (Settings_ShowBtn_LightBlue && LightBlue_Installed) {
+		lbIconW := Round(btnW * 0.51)
+		lbIconH := Round(btnH * 0.51)
+		lbIconX := nextX + Round((btnW - lbIconW) / 2)
+		lbIconY := btnY + Round((btnH - lbIconH) / 2)
+		iconPath := GenerateLBIcon(iconColor)
+		if (FileExist(iconPath)) {
+			Gui, Toolbar:Add, Picture, x%lbIconX% y%lbIconY% w%lbIconW% h%lbIconH% gToolbar_LightBlue vTB_LightBlue +HwndTB_LightBlue_Hwnd, %iconPath%
+		} else {
+			Gui, Toolbar:Font, s%fontSizeSmall% w400, Segoe UI
+			Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background1A87A1 c%iconColor% gToolbar_LightBlue vTB_LightBlue +HwndTB_LightBlue_Hwnd, LB
+		}
+		ToolbarTooltips[TB_LightBlue_Hwnd] := "Open client in Light Blue"
+		nextX += btnSpacing
+	}
+
 	; Refresh button (sync icon)
 	if (Settings_ShowBtn_Refresh) {
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
@@ -2542,6 +2570,33 @@ GenerateExplorerIcon(colorHex) {
 	lastColor := colorHex
 	
 	psScript := A_ScriptDir . "\GenerateExplorerIcon.ps1"
+	if (FileExist(psScript)) {
+		RunWait, powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%psScript%" -ColorHex "%colorHex%",, Hide
+	}
+	
+	return dstPath
+}
+
+GenerateLBIcon(colorHex) {
+	static lastColor := ""
+	dstPath := A_ScriptDir . "\Icon_LB_Current.png"
+	
+	colorHex := RegExReplace(colorHex, "^0x|^#", "")
+	if (colorHex = "White")
+		colorHex := "FFFFFF"
+	else if (colorHex = "Black")
+		colorHex := "282828"
+	else if (colorHex = "Yellow")
+		colorHex := "FFFF00"
+	else if (colorHex = "Orange")
+		colorHex := "FF8800"
+	
+	if (colorHex = lastColor && FileExist(dstPath))
+		return dstPath
+	
+	lastColor := colorHex
+	
+	psScript := A_ScriptDir . "\GenerateLBIcon.ps1"
 	if (FileExist(psScript)) {
 		RunWait, powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%psScript%" -ColorHex "%colorHex%",, Hide
 	}
@@ -3009,6 +3064,67 @@ if ErrorLevel {
 Sleep, 300
 Send, ^u
 Return
+
+Toolbar_LightBlue:
+; Open current client in Light Blue via SideKick_LB clipboard command
+{
+	; Get current album and extract client name
+	psaPath := GetAlbumPath()
+	if (!psaPath || !FileExist(psaPath)) {
+		DarkMsgBox("Light Blue", "No ProSelect album is open.", "warning")
+		Return
+	}
+	psaClientData := GetPSAClientData(psaPath)
+	firstName := psaClientData.firstName
+	lastName := psaClientData.lastName
+	fullName := Trim(firstName . " " . lastName)
+	if (!fullName) {
+		DarkMsgBox("Light Blue", "Could not read client name from album.", "warning")
+		Return
+	}
+
+	; Check if SideKick_LB is running via its mutex (works across admin/non-admin boundary)
+	hMutex := DllCall("OpenMutex", "UInt", 0x100000, "Int", 0, "Str", "SideKick_LB_SingleInstance", "Ptr")
+	if (hMutex)
+		DllCall("CloseHandle", "Ptr", hMutex)
+	skLbRunning := hMutex
+
+	if (!skLbRunning) {
+		; Try exe (installed) then ahk (dev) in sibling folder
+		lbExePath := A_ProgramFiles . "\SideKick_LB\SideKick_LB.exe"
+		SplitPath, A_ScriptDir,, lbParentDir
+		lbAhkPath := lbParentDir . "\SideKick_LB\SideKick_LB_PubAI.ahk"
+		if (FileExist(lbExePath)) {
+			Run, "%lbExePath%"
+		} else if (FileExist(lbAhkPath)) {
+			Run, "%lbAhkPath%"
+		} else {
+			DarkMsgBox("Light Blue", "SideKick_LB is not running. Please open it first.", "warning")
+			Return
+		}
+		; Poll mutex until LB creates it (up to 15s) — works across privilege boundary
+		Loop, 30 {
+			hMutex := DllCall("OpenMutex", "UInt", 0x100000, "Int", 0, "Str", "SideKick_LB_SingleInstance", "Ptr")
+			if (hMutex) {
+				DllCall("CloseHandle", "Ptr", hMutex)
+				break
+			}
+			Sleep, 500
+		}
+		if (!hMutex) {
+			DarkMsgBox("Light Blue", "Timed out waiting for SideKick_LB to start.", "warning")
+			Return
+		}
+		Sleep, 1500  ; Brief wait for clipboard listener to initialize
+	}
+
+	; Build sk:searchclient\ clipboard command — picked up by LB's OnClipboardChange → Process_SearchClient
+	; which activates Light Blue 2 and does Ctrl+Shift+F search for the client name
+	q := """"
+	clipCmd := "sk:searchclient\" . A_Space . q . firstName . q . A_Space . q . lastName . q
+	ClipBoard := clipCmd
+	Return
+}
 
 Toolbar_OpenFolder:
 ; Open the album's image source folder (extracted from .psa SQLite database)
@@ -6007,6 +6123,8 @@ if (!FileExist(scriptPath) && !FileExist(unifiedCliPath))
 syncArgs := """" . latestXml . """"
 if (Settings_FinancialsOnly)
 	syncArgs .= " --financials-only"
+if (Settings_SkipZeroExtras)
+	syncArgs .= " --skip-zero-extras"
 if (!Settings_ContactSheet)
 	syncArgs .= " --no-contact-sheet"
 if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
@@ -6103,6 +6221,8 @@ if (dupCheckExit = 2) {
 		syncArgs := """" . latestXml . """ --resync"
 		if (Settings_FinancialsOnly)
 			syncArgs .= " --financials-only"
+		if (Settings_SkipZeroExtras)
+			syncArgs .= " --skip-zero-extras"
 		if (!Settings_ContactSheet)
 			syncArgs .= " --no-contact-sheet"
 		if (Settings_CollectContactSheets && Settings_ContactSheetFolder != "")
@@ -6119,6 +6239,8 @@ if (dupCheckExit = 2) {
 		syncArgs := """" . latestXml . """ --update-invoice """ . dupInvId . """"
 		if (Settings_FinancialsOnly)
 			syncArgs .= " --financials-only"
+		if (Settings_SkipZeroExtras)
+			syncArgs .= " --skip-zero-extras"
 		if (Settings_RoundingInDeposit)
 			syncArgs .= " --rounding-in-deposit"
 		if (!Settings_OpenInvoiceURL)
@@ -7195,6 +7317,13 @@ ToggleClick_FinancialsOnly:
 Toggle_FinancialsOnly_State := !Toggle_FinancialsOnly_State
 Settings_FinancialsOnly := Toggle_FinancialsOnly_State
 UpdateToggleSlider("Settings", "FinancialsOnly", Toggle_FinancialsOnly_State, 590)
+SaveSettings()
+Return
+
+ToggleClick_SkipZeroExtras:
+Toggle_SkipZeroExtras_State := !Toggle_SkipZeroExtras_State
+Settings_SkipZeroExtras := Toggle_SkipZeroExtras_State
+UpdateToggleSlider("Settings", "SkipZeroExtras", Toggle_SkipZeroExtras_State, 590)
 SaveSettings()
 Return
 
@@ -8863,6 +8992,11 @@ Settings_ShowBtn_Photoshop := !Settings_ShowBtn_Photoshop
 GoSub, UpdateTBButtonStates
 Return
 
+ToggleTB_LightBlue:
+Settings_ShowBtn_LightBlue := !Settings_ShowBtn_LightBlue
+GoSub, UpdateTBButtonStates
+Return
+
 ToggleTB_Refresh:
 Settings_ShowBtn_Refresh := !Settings_ShowBtn_Refresh
 GoSub, UpdateTBButtonStates
@@ -9012,6 +9146,20 @@ Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 if (!Settings_ShowBtn_Photoshop)
 	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
 GuiControl, Settings:Font, SCLabel_Photoshop
+
+; Light Blue button
+if (Settings_ShowBtn_LightBlue) {
+	GuiControl, Settings:+Background1A87A1, SCIcon_LightBlue
+	Gui, Settings:Font, s10 Bold cFFFFFF, Segoe UI
+} else {
+	GuiControl, Settings:+Background444444, SCIcon_LightBlue
+	Gui, Settings:Font, s10 Bold c%disabledIconColor%, Segoe UI
+}
+GuiControl, Settings:Font, SCIcon_LightBlue
+Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+if (!Settings_ShowBtn_LightBlue)
+	Gui, Settings:Font, s10 Norm c%disabledLabelColor%, Segoe UI
+GuiControl, Settings:Font, SCLabel_LightBlue
 
 ; Refresh button
 if (Settings_ShowBtn_Refresh) {

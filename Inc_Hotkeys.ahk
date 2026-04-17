@@ -199,6 +199,7 @@ LoadSettings()
 	IniRead, Settings_InvoiceWatchFolder, %IniFilename%, GHL, InvoiceWatchFolder, %A_Space%
 	IniRead, Settings_OpenInvoiceURL, %IniFilename%, GHL, OpenInvoiceURL, 1
 	IniRead, Settings_FinancialsOnly, %IniFilename%, GHL, FinancialsOnly, 0
+	IniRead, Settings_SkipZeroExtras, %IniFilename%, GHL, SkipZeroExtras, 1
 	IniRead, Settings_AutoSaveXML, %IniFilename%, GHL, AutoSaveXML, 0
 	IniRead, Settings_ContactSheet, %IniFilename%, GHL, ContactSheet, 1
 	IniRead, Settings_CollectContactSheets, %IniFilename%, GHL, CollectContactSheets, 0
@@ -272,6 +273,7 @@ LoadSettings()
 	IniRead, Settings_ShowBtn_Sort, %IniFilename%, Toolbar, ShowBtn_Sort, 1
 	IniRead, Settings_ShowBtn_OpenFolder, %IniFilename%, Toolbar, ShowBtn_OpenFolder, 1
 	IniRead, Settings_ShowBtn_Photoshop, %IniFilename%, Toolbar, ShowBtn_Photoshop, 1
+	IniRead, Settings_ShowBtn_LightBlue, %IniFilename%, Toolbar, ShowBtn_LightBlue, 1
 	IniRead, Settings_ShowBtn_Refresh, %IniFilename%, Toolbar, ShowBtn_Refresh, 1
 	IniRead, Settings_ShowBtn_Print, %IniFilename%, Toolbar, ShowBtn_Print, 1
 	IniRead, Settings_ShowBtn_QRCode, %IniFilename%, Toolbar, ShowBtn_QRCode, 1
@@ -433,6 +435,7 @@ SaveSettings()
 	IniWrite, %Settings_InvoiceWatchFolder%, %IniFilename%, GHL, InvoiceWatchFolder
 	IniWrite, %Settings_OpenInvoiceURL%, %IniFilename%, GHL, OpenInvoiceURL
 	IniWrite, %Settings_FinancialsOnly%, %IniFilename%, GHL, FinancialsOnly
+	IniWrite, %Settings_SkipZeroExtras%, %IniFilename%, GHL, SkipZeroExtras
 	IniWrite, %Settings_AutoSaveXML%, %IniFilename%, GHL, AutoSaveXML
 	IniWrite, %Settings_ContactSheet%, %IniFilename%, GHL, ContactSheet
 	IniWrite, %Settings_CollectContactSheets%, %IniFilename%, GHL, CollectContactSheets
@@ -479,6 +482,7 @@ SaveSettings()
 	IniWrite, %Settings_ShowBtn_Sort%, %IniFilename%, Toolbar, ShowBtn_Sort
 	IniWrite, %Settings_ShowBtn_OpenFolder%, %IniFilename%, Toolbar, ShowBtn_OpenFolder
 	IniWrite, %Settings_ShowBtn_Photoshop%, %IniFilename%, Toolbar, ShowBtn_Photoshop
+	IniWrite, %Settings_ShowBtn_LightBlue%, %IniFilename%, Toolbar, ShowBtn_LightBlue
 	IniWrite, %Settings_ShowBtn_Refresh%, %IniFilename%, Toolbar, ShowBtn_Refresh
 	IniWrite, %Settings_ShowBtn_Print%, %IniFilename%, Toolbar, ShowBtn_Print
 	IniWrite, %Settings_ShowBtn_QRCode%, %IniFilename%, Toolbar, ShowBtn_QRCode

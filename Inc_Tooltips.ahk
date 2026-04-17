@@ -374,7 +374,7 @@ CreateGHLPanel()
 	; CONNECTION GROUP BOX (y55 to y165)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y55 w480 h110 vGHLConnection Hidden, Connection
+	Gui, Settings:Add, GroupBox, x195 y55 w480 h80 vGHLConnection Hidden, Connection
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
@@ -390,68 +390,74 @@ CreateGHLPanel()
 	CreateToggleSlider("Settings", "GHL_AutoLoad", 630, 108, Settings_GHL_AutoLoad)
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; API CONFIGURATION GROUP BOX (y170 to y300)
+	; API CONFIGURATION GROUP BOX (y140 to y270)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y170 w480 h130 vGHLApiConfig Hidden, API Configuration
+	Gui, Settings:Add, GroupBox, x195 y140 w480 h130 vGHLApiConfig Hidden, API Configuration
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; API Key display (masked)
-	Gui, Settings:Add, Text, x210 y195 w90 BackgroundTrans vGHLApiLabel Hidden gTT_GHLApiKey HwndHwndGHLApiKey, API Key:
+	Gui, Settings:Add, Text, x210 y165 w90 BackgroundTrans vGHLApiLabel Hidden gTT_GHLApiKey HwndHwndGHLApiKey, API Key:
 	RegisterSettingsTooltip(HwndGHLApiKey, "GHL API KEY (Private Integration Token)`n`nUsed for: Contacts, Invoices, Payments, etc.`n`nTo get your key:`n1. Go to GHL Marketplace`n2. My Apps > Create Private App`n3. Copy the Private Integration Token`n`nKeys are stored encrypted in the INI file.")
 	apiKeyDisplay := GHL_API_Key ? SubStr(GHL_API_Key, 1, 8) . "..." . SubStr(GHL_API_Key, -4) : "Not configured"
 	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
-	Gui, Settings:Add, Edit, x305 y192 w250 h25 vGHLApiKeyDisplay Hidden ReadOnly, %apiKeyDisplay%
-	Gui, Settings:Add, Button, x560 y190 w100 h28 gEditGHLApiKey vGHLApiEditBtn Hidden, Edit
+	Gui, Settings:Add, Edit, x305 y162 w250 h25 vGHLApiKeyDisplay Hidden ReadOnly, %apiKeyDisplay%
+	Gui, Settings:Add, Button, x560 y160 w100 h28 gEditGHLApiKey vGHLApiEditBtn Hidden, Edit
 	
 	; Location ID display
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y225 w90 BackgroundTrans vGHLLocLabel Hidden gTT_GHLLocID HwndHwndGHLLocID, Location ID:
+	Gui, Settings:Add, Text, x210 y195 w90 BackgroundTrans vGHLLocLabel Hidden gTT_GHLLocID HwndHwndGHLLocID, Location ID:
 	RegisterSettingsTooltip(HwndGHLLocID, "GHL LOCATION ID`n`nYour GoHighLevel sub-account ID.`nUsed for API calls to the correct location.`n`nFind it in GHL: Settings > Business Profile")
 	locIdDisplay := GHL_LocationID ? GHL_LocationID : "Not configured"
 	Gui, Settings:Font, s10 Norm cFFFFFF, Segoe UI
-	Gui, Settings:Add, Edit, x305 y222 w250 h25 vGHLLocIDDisplay Hidden ReadOnly, %locIdDisplay%
+	Gui, Settings:Add, Edit, x305 y192 w250 h25 vGHLLocIDDisplay Hidden ReadOnly, %locIdDisplay%
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x560 y220 w100 h28 gEditGHLLocationID vGHLLocEditBtn Hidden, Edit
+	Gui, Settings:Add, Button, x560 y190 w100 h28 gEditGHLLocationID vGHLLocEditBtn Hidden, Edit
 	
 	; Status row
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y258 w60 BackgroundTrans vGHLStatus Hidden, Status:
+	Gui, Settings:Add, Text, x210 y228 w60 BackgroundTrans vGHLStatus Hidden, Status:
 	statusText := GHL_API_Key ? "✅ Connected" : "❌ Not configured"
 	statusColor := GHL_API_Key ? "00FF00" : "FF6B6B"
 	Gui, Settings:Font, s10 Norm c%statusColor%, Segoe UI
-	Gui, Settings:Add, Text, x275 y258 w120 BackgroundTrans vGHLStatusText Hidden HwndHwndGHLStatus, %statusText%
+	Gui, Settings:Add, Text, x275 y228 w120 BackgroundTrans vGHLStatusText Hidden HwndHwndGHLStatus, %statusText%
 	RegisterSettingsTooltip(HwndGHLStatus, "CONNECTION STATUS`n`n✅ Connected = API key configured`n`nUse 'Test' to verify.")
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Button, x455 y255 w100 h26 gTestGHLConnection vGHLTestBtn Hidden HwndHwndGHLTest, Test
+	Gui, Settings:Add, Button, x455 y225 w100 h26 gTestGHLConnection vGHLTestBtn Hidden HwndHwndGHLTest, Test
 	RegisterSettingsTooltip(HwndGHLTest, "TEST CONNECTION`n`nVerify your API key works by making`na test request to the GHL API.")
-	Gui, Settings:Add, Button, x560 y255 w100 h26 gRunGHLSetupWizard vGHLSetupBtn Hidden, 🔧 Wizard
+	Gui, Settings:Add, Button, x560 y225 w100 h26 gRunGHLSetupWizard vGHLSetupBtn Hidden, 🔧 Wizard
 	
 	; ═══════════════════════════════════════════════════════════════════════════
-	; INVOICE SYNC GROUP BOX (y305 to y580)
+	; INVOICE SYNC GROUP BOX (y275 to y585)
 	; ═══════════════════════════════════════════════════════════════════════════
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, GroupBox, x195 y305 w480 h280 vGHLInvoiceHeader Hidden, Invoice Sync
+	Gui, Settings:Add, GroupBox, x195 y275 w480 h310 vGHLInvoiceHeader Hidden, Invoice Sync
 	
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
 	
 	; Watch Folder
-	Gui, Settings:Add, Text, x210 y330 w90 BackgroundTrans vGHLWatchLabel Hidden, Watch Folder:
-	Gui, Settings:Add, Edit, x305 y327 w250 h25 cBlack vGHLWatchFolderEdit Hidden, %Settings_InvoiceWatchFolder%
-	Gui, Settings:Add, Button, x560 y325 w100 h28 gBrowseInvoiceFolder vGHLWatchBrowseBtn Hidden, Browse
+	Gui, Settings:Add, Text, x210 y300 w90 BackgroundTrans vGHLWatchLabel Hidden, Watch Folder:
+	Gui, Settings:Add, Edit, x305 y297 w250 h25 cBlack vGHLWatchFolderEdit Hidden, %Settings_InvoiceWatchFolder%
+	Gui, Settings:Add, Button, x560 y295 w100 h28 gBrowseInvoiceFolder vGHLWatchBrowseBtn Hidden, Browse
 	
 	; Open invoice URL toggle slider
-	Gui, Settings:Add, Text, x210 y360 w360 BackgroundTrans vGHLOpenInvoiceURL Hidden HwndHwndOpenInvoiceURL, Open invoice URL
+	Gui, Settings:Add, Text, x210 y330 w360 BackgroundTrans vGHLOpenInvoiceURL Hidden HwndHwndOpenInvoiceURL, Open invoice URL
 	RegisterSettingsTooltip(HwndOpenInvoiceURL, "OPEN INVOICE URL`n`nWhen enabled, opens the newly created invoice`nin Chrome after syncing to GHL.`n`nDisabled: Invoice is created but not opened.")
-	CreateToggleSlider("Settings", "OpenInvoiceURL", 630, 358, Settings_OpenInvoiceURL)
+	CreateToggleSlider("Settings", "OpenInvoiceURL", 630, 328, Settings_OpenInvoiceURL)
 	
 	; Financials only toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x210 y390 w360 BackgroundTrans vGHLFinancialsOnly Hidden HwndHwndFinancialsOnly, Financials only (exclude image lines)
+	Gui, Settings:Add, Text, x210 y360 w360 BackgroundTrans vGHLFinancialsOnly Hidden HwndHwndFinancialsOnly, Financials only (exclude image lines)
 	RegisterSettingsTooltip(HwndFinancialsOnly, "FINANCIALS ONLY MODE`n`nWhen enabled, invoice sync will only include:`n• Lines with monetary values`n• Comment/text lines`n`nExcludes lines that are just image numbers (e.g. 001, 002).`nThis keeps your GHL invoices clean and financial-focused.")
-	CreateToggleSlider("Settings", "FinancialsOnly", 630, 388, Settings_FinancialsOnly)
+	CreateToggleSlider("Settings", "FinancialsOnly", 630, 358, Settings_FinancialsOnly)
+	
+	; Skip zero-value extras toggle slider
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y390 w360 BackgroundTrans vGHLSkipZeroExtras Hidden HwndHwndSkipZeroExtras, Skip £0 extras (mats/frames paired with prints)
+	RegisterSettingsTooltip(HwndSkipZeroExtras, "SKIP £0 EXTRAS`n`nWhen enabled, paired £0 accessory lines (e.g. mats, frames)`nare removed from the GHL invoice.`n`nA £0 line is only skipped if it shares the same Item ID`nas a priced line — standalone £0 items are kept.`n`nDefault: ON")
+	CreateToggleSlider("Settings", "SkipZeroExtras", 630, 388, Settings_SkipZeroExtras)
 	
 	; Auto-save XML toggle slider
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
@@ -480,9 +486,9 @@ CreateGHLPanel()
 	Gui, Settings:Add, Button, x480 y479 w40 h27 gRefreshGHLTags vGHLTagsRefresh Hidden HwndHwndTagsRefresh, 🔄
 	RegisterSettingsTooltip(HwndTagsRefresh, "REFRESH CONTACT TAGS`n`nFetch your existing contact tags from GHL.")
 	Gui, Settings:Font, s8 Norm c%labelColor%, Segoe UI
-	Gui, Settings:Add, Text, x525 y483 w100 BackgroundTrans vAutoTagContactLabel Hidden, Auto tag on inv
+	Gui, Settings:Add, Text, x525 y453 w100 BackgroundTrans vAutoTagContactLabel Hidden, Auto tag on inv
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
-	CreateToggleSlider("Settings", "AutoAddContactTags", 630, 478, Settings_AutoAddContactTags)
+	CreateToggleSlider("Settings", "AutoAddContactTags", 630, 448, Settings_AutoAddContactTags)
 	
 	; GHL Opportunity Tags field with ComboBox
 	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI

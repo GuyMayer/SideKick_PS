@@ -16,6 +16,18 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.15 (2026-04-17)
+
+### Fixes
+- **GHL invoice unit-price double-multiplication**: `Extended_Price` in the ProSelect XML is a line total (unit × qty). The code was passing it directly to GHL as the unit `amount` field, so GHL multiplied by qty a second time — e.g. qty 21 × £2,310 = £48,510 instead of £2,310. Fixed by dividing back to the true unit price before building the GHL line item.
+- **LB icon visible on wrong settings tab**: The Light Blue icon and label in the Toolbar Shortcuts settings panel were missing from both the hide-all sweep and the Shortcuts show block in `ShowSettingsTab`, causing them to remain visible after switching to any other tab.
+
+### New Features
+- **Skip £0 paired extras toggle** (Settings → GHL): New toggle (default ON) that removes zero-price accessory lines (mats, frames, etc.) from GHL invoices when they share the same ProSelect Item ID as a priced parent line. Standalone £0 items are kept. Applies to new invoice, replace, and update flows.
+- **LB toolbar button hidden when LightBlue is not installed**: At startup SideKick_PS now detects whether LightBlue is installed (installed exe or sibling dev path). If not found, the LB toolbar button is not created and the LB row is hidden in the Toolbar Shortcuts settings tab.
+
+---
+
 ## v3.0.14 (2026-04-16)
 
 ### Fixes
