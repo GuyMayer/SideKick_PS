@@ -16,6 +16,20 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.16 (2026-04-18)
+
+### Fixes
+- **GHL contact/opp tag refresh overwrites unsaved selection**: Clicking 🔄 in the Settings GHL tab to refresh tags from GHL was silently reverting the ComboBox back to the previously-saved INI value. All four refresh handlers (`RefreshGHLTags`, `RefreshGHLTagsSilent`, `RefreshGHLOppTags`, `RefreshGHLOppTagsSilent`) were reading `Settings_GHLTags` / `Settings_GHLOppTags` globals instead of the live ComboBox state, so whatever tag the user had just selected was lost. Fixed by using `GuiControlGet` to read the current ComboBox value before rebuilding the list.
+
+---
+
+## v3.0.16 (2026-04-18)
+
+### Fixes
+- **GHL contact/opp tag refresh overwrites unsaved selection**: Clicking 🔄 in the Settings GHL tab to refresh tags from GHL was silently reverting the ComboBox back to the previously-saved INI value. All four refresh handlers (`RefreshGHLTags`, `RefreshGHLTagsSilent`, `RefreshGHLOppTags`, `RefreshGHLOppTagsSilent`) were reading `Settings_GHLTags` / `Settings_GHLOppTags` globals instead of the live ComboBox state, so whatever tag the user had just selected was lost. Fixed by using `GuiControlGet` to read the current ComboBox value before rebuilding the list.
+
+---
+
 ## v3.0.15 (2026-04-17)
 
 ### Fixes

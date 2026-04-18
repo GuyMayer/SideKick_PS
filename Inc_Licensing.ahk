@@ -3363,6 +3363,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 	
 	; Extract each payment from the payments array
 	pos := 1
+	payCount := 0
 	while (pos := InStr(resultJson, """date"":", false, pos)) {
 		; Extract date: "YYYY-MM-DD"
 		dateStart := InStr(resultJson, """", false, pos + 7) + 1
@@ -3393,6 +3394,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 			day := dateParts[3] + 0
 			writeArgs .= " """ . day . "," . month . "," . year . "," . resultMethod . "," . amount . """"
 			foundPayments := true
+			payCount++
 		}
 		
 		pos := amtEnd
@@ -3418,7 +3420,7 @@ GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 		PsConsole("openAlbum", psaFile, "true")
 		Sleep, 2000
 		SoundPlay, *48
-		DarkMsgBox("Payments Created & Injected", "GoCardless payments created and injected into the album!`nThe album has been reloaded with the updated payments.", "success")
+		DarkMsgBox("Pay Plan Created", "Pay plan created — " . payCount . " payment" . (payCount = 1 ? "" : "s") . ".", "success")
 	} else {
 		DarkMsgBox("Payments Created", "GoCardless payments created!`n`nCould not inject into .psa: " . SubStr(writeOutput, 1, 200), "warning")
 	}

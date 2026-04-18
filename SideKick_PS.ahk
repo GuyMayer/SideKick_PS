@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.15
-; Build Date:  2026-04-17
+; Version:     3.0.16
+; Build Date:  2026-04-18
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -10201,7 +10201,8 @@ RefreshGHLTags:
 			IniWrite, %GHL_CachedTags%, %IniFilename%, GHL, CachedTags
 			
 			; Update the Contact Tags ComboBox
-			currentValue := Settings_GHLTags
+			; Read current ComboBox value (not the global) to preserve any unsaved selection
+			GuiControlGet, currentValue, Settings:, GHLTagsEdit
 			newList := currentValue
 			if (GHL_CachedTags != "") {
 				if (newList != "")
@@ -10292,7 +10293,8 @@ RefreshGHLOppTags:
 			IniWrite, %GHL_CachedOppTags%, %IniFilename%, GHL, CachedOppTags
 			
 			; Update the Opportunity Tags ComboBox
-			currentValue := Settings_GHLOppTags
+			; Read current ComboBox value (not the global) to preserve any unsaved selection
+			GuiControlGet, currentValue, Settings:, GHLOppTagsEdit
 			newList := currentValue
 			if (GHL_CachedOppTags != "") {
 				if (newList != "")
@@ -10359,7 +10361,8 @@ RefreshGHLTagsSilent:
 			
 			IniWrite, %GHL_CachedTags%, %IniFilename%, GHL, CachedTags
 			
-			currentValue := Settings_GHLTags
+			; Read current ComboBox value (not the global) to preserve any unsaved selection
+			GuiControlGet, currentValue, Settings:, GHLTagsEdit
 			newList := currentValue
 			if (GHL_CachedTags != "") {
 				if (newList != "")
@@ -10418,7 +10421,8 @@ RefreshGHLOppTagsSilent:
 			
 			IniWrite, %GHL_CachedOppTags%, %IniFilename%, GHL, CachedOppTags
 			
-			currentValue := Settings_GHLOppTags
+			; Read current ComboBox value (not the global) to preserve any unsaved selection
+			GuiControlGet, currentValue, Settings:, GHLOppTagsEdit
 			newList := currentValue
 			if (GHL_CachedOppTags != "") {
 				if (newList != "")
