@@ -14,6 +14,8 @@ Compile with::
         --hidden-import=write_psa_payments ^
         --hidden-import=read_psa_payments  ^
         --hidden-import=read_psa_images    ^
+        --hidden-import=read_supplier_status_db ^
+        --hidden-import=sync_supplier_status_to_ghl ^
         SideKick_PS_CLI.py
 
 Copyright (c) 2026 GuyMayer.  All rights reserved.

@@ -29,6 +29,7 @@ import configparser
 import base64
 import ctypes
 import traceback
+import sqlite3
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -168,11 +169,11 @@ _EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
 def _redact_pii(obj) -> object:
     """Return a deep copy of *obj* with personal data masked.
 
-    • dict  – values whose key (lower-cased) is in _PII_KEYS are replaced
+    - dict  – values whose key (lower-cased) is in _PII_KEYS are replaced
               with '[REDACTED]'.
-    • list  – each item is recursively redacted.
-    • str   – email-address patterns are replaced with '[REDACTED_EMAIL]'.
-    • other – returned unchanged.
+    - list  – each item is recursively redacted.
+    - str   – email-address patterns are replaced with '[REDACTED_EMAIL]'.
+    - other – returned unchanged.
     """
     if isinstance(obj, dict):
         return {k: '[REDACTED]' if k.lower() in _PII_KEYS else _redact_pii(v)
@@ -772,7 +773,7 @@ try:
     LOCATION_ID = CONFIG['LOCATION_ID']  # Module-level for product/price lookups
     debug_log("Config loaded successfully", {"location_id": CONFIG.get('LOCATION_ID'), "api_key_set": bool(API_KEY)})
 except Exception as e:
-    print(f"⚠ Config Error: {e}")
+    print(f"[WARN] Config Error: {e}")
     debug_log("CONFIG ERROR", str(e))
     API_KEY = ""
     LOCATION_ID = ""
@@ -881,10 +882,313 @@ def get_media_folder_id() -> str | None:
 
 # GHL Custom Field IDs (from ghl_all_fields.json)
 CUSTOM_FIELDS = {
+    # Contact-level fields
     'session_job_no': '82WRQe9Rl6o8uJQ8cgZV',
     'session_status': 'rcBTBSNw75gA0BOaVPEr',
     'session_date': 'j2lMRPMOYHIxapnz5qDK',
 }
+
+# Opportunity-level custom field IDs (model=opportunity)
+OPP_CUSTOM_FIELDS = {
+    'job_number': 'NB9y9rQqcSeV1mLF4q2v',
+    'invoice_reference': '201pXcaWtrcw2rDnhGnp',
+    'payment_status': 'SJff8258CBB2oxWpCJIq',
+    'ordered_products': 'Ku0bYIvAOrLicNTCZZEG',
+    'notes': 'un03xwZ6Eb3zleDKHuGN',
+    'hold_reason': 'tz22eYuXaGPb2nn0q5Js',
+    'production_start_date': 'qJC8YkyvFBKWi0vhrJDq',
+    'order_release_date': 'PwIU5Qp2uGKBEHAuKO3s',
+}
+
+# Optional opportunity financial field aliases (resolved dynamically by field name if present in GHL).
+_OPP_FINANCIAL_FIELD_ALIASES = {
+    'order_total_value': ['order_total_value', 'order total value'],
+    'total_paid_to_date': ['total_paid_to_date', 'total paid to date'],
+    'paid_ratio_percent': ['paid_ratio_percent', 'paid ratio percent'],
+    'payments_count': ['payments_count', 'payments count'],
+    'amount_remaining': ['amount_remaining', 'amount remaining'],
+}
+
+PRODUCTION_PIPELINE_NAME = 'Boudoir Production Pipeline'
+PRODUCTION_ORDER_CONFIRMED_STAGE = 'New Order'
+PRODUCTION_COMPLETE_STAGE = 'Complete'
+PRODUCTION_NO_SALE_STAGE = 'No Sale'
+
+# Stage-name aliases to handle historical naming differences across locations.
+_PRODUCTION_STAGE_ALIASES: dict[str, list[str]] = {
+    'awaiting approval': ['proofing'],
+    'order confirmed': ['new order'],
+    'complete': ['compleate', 'complete'],
+    'completed': ['compleate', 'complete'],
+}
+
+# Default archive root paths (first existing one wins).
+ARCHIVE_ROOTS = [r'D:\Shoot_Archive', r'E:\Shoot Archive']
+
+# Additional archive roots file (same file used by generate_psa_xml_exports.py).
+_ADDITIONAL_ARCHIVES_FILE = r'D:\Shoot_Archive\_Additional_Archives.txt'
+
+
+def _load_additional_archive_roots() -> list[str]:
+    """Load extra archive root paths from _Additional_Archives.txt.
+    Shoots found in these roots are considered fully complete."""
+    try:
+        if not os.path.isfile(_ADDITIONAL_ARCHIVES_FILE):
+            return []
+        roots = []
+        with open(_ADDITIONAL_ARCHIVES_FILE, encoding='utf-8', errors='ignore') as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith(';') or line.startswith('#'):
+                    continue
+                if os.path.isdir(line):
+                    roots.append(line)
+        return roots
+    except OSError:
+        return []
+
+# Folder name → production stage name (checked in priority order: most advanced first).
+# Folder paths are relative to the shoot's Processed\ subfolder.
+_ARCHIVE_STAGE_MAP: list[tuple[str, str]] = [
+    ('PRINTING',  'Proofing'),  # print files prepared
+    ('Book',      'Design'),
+    ('Box',       'Design'),
+    ('WallArt',   'Design'),
+    ('Prints',    'Design'),
+    ('RT',        'Retouching'),
+]
+
+
+def _find_shoot_folder(shoot_no: str, archive_roots: list[str] | None = None) -> tuple[str | None, bool]:
+    """Return (folder_path, is_additional_archive) for the shoot.
+    is_additional_archive=True means the shoot has been moved to a secondary
+    archive and should be treated as fully complete."""
+    import re as _re
+    pattern = _re.compile(_re.escape(shoot_no.strip()), _re.IGNORECASE)
+    # Check additional (completed) archives first — they take priority.
+    for root in _load_additional_archive_roots():
+        if not os.path.isdir(root):
+            continue
+        try:
+            for name in os.listdir(root):
+                if pattern.search(name):
+                    return os.path.join(root, name), True
+        except OSError:
+            continue
+    # Then check the primary archive roots.
+    for root in (archive_roots or ARCHIVE_ROOTS):
+        if not os.path.isdir(root):
+            continue
+        try:
+            for name in os.listdir(root):
+                if pattern.search(name):
+                    return os.path.join(root, name), False
+        except OSError:
+            continue
+    return None, False
+
+
+def _folder_has_files(path: str) -> bool:
+    """Return True if the folder exists and contains at least one file (recursive)."""
+    if not os.path.isdir(path):
+        return False
+    for _, _, files in os.walk(path):
+        if files:
+            return True
+    return False
+
+
+def _infer_stage_from_archive(shoot_no: str, archive_roots: list[str] | None = None) -> str:
+    """Infer the furthest production stage reached based on archive location and subfolder contents.
+
+    Shoots found in additional/secondary archives (_Additional_Archives.txt) are
+    considered fully complete and returned as PRODUCTION_COMPLETE_STAGE.
+    Returns a pipeline stage name matching STAGES in build_ghl_production_pipeline.py,
+    or PRODUCTION_ORDER_CONFIRMED_STAGE when nothing conclusive is found.
+    """
+    if not shoot_no:
+        return PRODUCTION_ORDER_CONFIRMED_STAGE
+
+    shoot_folder, is_additional = _find_shoot_folder(shoot_no, archive_roots)
+    if not shoot_folder:
+        debug_log(f"_infer_stage_from_archive: no archive folder found for {shoot_no!r}")
+        return PRODUCTION_ORDER_CONFIRMED_STAGE
+
+    # Shoot has been moved to a secondary/completed archive — it's done.
+    if is_additional:
+        debug_log(f"_infer_stage_from_archive: {shoot_no!r} → '{PRODUCTION_COMPLETE_STAGE}' (in additional archive)")
+        return PRODUCTION_COMPLETE_STAGE
+
+    processed = os.path.join(shoot_folder, 'Processed')
+    if not os.path.isdir(processed):
+        return PRODUCTION_ORDER_CONFIRMED_STAGE
+
+    for subfolder, stage in _ARCHIVE_STAGE_MAP:
+        if _folder_has_files(os.path.join(processed, subfolder)):
+            debug_log(f"_infer_stage_from_archive: {shoot_no!r} → {stage!r} (found files in Processed/{subfolder})")
+            return stage
+
+    return PRODUCTION_ORDER_CONFIRMED_STAGE
+
+
+def _slug(value: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '_', str(value or '').strip().lower()).strip('_')
+
+
+def _resolve_optional_opp_financial_field_ids() -> dict[str, str]:
+    """Resolve optional financial opportunity field IDs by field name.
+
+    This allows writing totals/paid values when those fields exist in GHL,
+    without hard-coding IDs.
+    """
+    url = f"https://services.leadconnectorhq.com/locations/{LOCATION_ID}/customFields"
+    params = {'model': 'opportunity'}
+    resolved: dict[str, str] = {}
+
+    try:
+        response = requests.get(url, headers=_get_ghl_headers(), params=params, timeout=30)
+        if response.status_code != 200:
+            return resolved
+
+        fields = response.json().get('customFields', [])
+        if not isinstance(fields, list):
+            return resolved
+
+        by_slug: dict[str, str] = {}
+        for f in fields:
+            if not isinstance(f, dict):
+                continue
+            fid = str(f.get('id') or f.get('_id') or '').strip()
+            fname = str(f.get('name') or '').strip()
+            if fid and fname:
+                by_slug[_slug(fname)] = fid
+
+        for logical_key, aliases in _OPP_FINANCIAL_FIELD_ALIASES.items():
+            for alias in aliases:
+                fid = by_slug.get(_slug(alias), '')
+                if fid:
+                    resolved[logical_key] = fid
+                    break
+    except Exception as e:
+        debug_log(f"OPTIONAL OPP FIELD RESOLVE ERROR: {e}")
+
+    return resolved
+
+
+def _summarize_payment_status(order_data: dict) -> tuple[float, float, float, int, float, str]:
+    """Return (order_total, total_paid, amount_remaining, payments_count, paid_ratio, label)."""
+    total = float(order_data.get('total_amount', 0) or 0)
+    payments = order_data.get('payments', []) if isinstance(order_data, dict) else []
+    total_paid = 0.0
+    if isinstance(payments, list):
+        for p in payments:
+            if not isinstance(p, dict):
+                continue
+            try:
+                total_paid += float(p.get('amount', 0) or 0)
+            except Exception:
+                continue
+    total_paid = round(total_paid, 2)
+    amount_remaining = round(max(0.0, total - total_paid), 2)
+    payments_count = len(payments) if isinstance(payments, list) else 0
+    paid_ratio = round((total_paid / total) * 100.0, 2) if total > 0 else 0.0
+
+    # ProSelect XML payment lines are typically payment-plan schedule entries,
+    # not a definitive "already paid" ledger. Prefer plan-aware labels first.
+    if payments_count > 1:
+        label = 'Pay Plan Active'
+    elif payments_count == 1:
+        one_payment = 0.0
+        try:
+            one_payment = float((payments[0] or {}).get('amount', 0) or 0) if isinstance(payments, list) else 0.0
+        except Exception:
+            one_payment = 0.0
+        if total > 0 and abs(one_payment - total) <= 0.01:
+            label = 'Paid in Full'
+        elif one_payment > 0:
+            label = 'Paid'
+        else:
+            label = 'Payment Due'
+    else:
+        if total <= 0:
+            label = 'Unknown'
+        else:
+            label = 'Payment Due'
+
+    return total, total_paid, amount_remaining, payments_count, paid_ratio, label
+
+
+def _is_non_product_financial_line(name: str) -> bool:
+    """Return True for non-product financial lines (credits/deposits)."""
+    text = str(name or '').strip().lower()
+    if not text:
+        return False
+    return ('credit' in text) or ('deposit' in text)
+
+
+def _calculate_release_goods_date(order_data: dict, threshold_pct: float = 0.25) -> str:
+    """Return the date (YYYY-MM-DD) when cumulative payments first reach threshold_pct of order total.
+
+    Payments are sorted by date ascending; the date of the payment that pushes
+    the running total to or above the threshold is returned.  Returns '' if
+    there are no payments or no order total.
+    """
+    total = float((order_data or {}).get('total_amount', 0) or 0)
+    payments = (order_data or {}).get('payments', [])
+    if total <= 0 or not isinstance(payments, list) or not payments:
+        return ''
+
+    threshold = total * threshold_pct
+
+    # Sort by date string (ISO YYYY-MM-DD sorts lexicographically).
+    def _payment_sort_key(p: dict) -> str:
+        return str(p.get('date') or '').strip()
+
+    sorted_payments = sorted(
+        [p for p in payments if isinstance(p, dict)],
+        key=_payment_sort_key
+    )
+
+    running = 0.0
+    for p in sorted_payments:
+        try:
+            running += float(p.get('amount', 0) or 0)
+        except Exception:
+            continue
+        if running >= threshold:
+            raw_date = str(p.get('date') or '').strip()
+            # Normalise to YYYY-MM-DD (handle datetime strings).
+            if raw_date and 'T' in raw_date:
+                raw_date = raw_date.split('T')[0]
+            return raw_date
+
+    return ''
+
+
+def _extract_ghl_contact_id_from_album_name(album_name: str) -> str | None:
+    """Extract a likely GHL contact ID from album name text.
+
+    Expected album formats include values like:
+    - ShootNo_Name_GhlContactId
+    - Any string containing a 15+ char alphanumeric token.
+    """
+    name = str(album_name or '').strip()
+    if not name:
+        return None
+
+    # Prefer right-most token-like segment first (ID is usually appended at the end).
+    parts = re.split(r'[_\-\s]+', name)
+    for part in reversed(parts):
+        token = re.sub(r'[^A-Za-z0-9]', '', part or '')
+        if len(token) >= 15 and token.isalnum():
+            return token
+
+    # Fallback: any contiguous 15+ alphanumeric sequence in the full string.
+    matches = re.findall(r'[A-Za-z0-9]{15,}', name)
+    if matches:
+        return matches[-1]
+
+    return None
 
 def parse_proselect_xml(xml_path: str) -> dict | None:
     """Parse ProSelect XML export and extract order data"""
@@ -913,55 +1217,58 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
         album_name = get_text(root, 'Album_Name')
         email = get_text(root, 'Email_Address')
 
-        # Determine GHL contact ID with multiple fallback strategies
-        # GHL contact IDs are 20+ alphanumeric chars (e.g., UWge6H1hK1raUtu1nrAo)
+        # Determine GHL contact ID with multiple fallback strategies.
+        # Priority: Album_Name -> Client_ID -> API lookup by job/email.
         ghl_contact_id = None
+        ghl_contact_source = ''
 
-        # Strategy 1: If Client_ID looks like a GHL ID (20+ chars), use it directly
-        if client_id_raw and len(client_id_raw) >= 15 and client_id_raw.isalnum():
+        # Strategy 1: album name ID (primary).
+        if album_name:
+            album_contact_id = _extract_ghl_contact_id_from_album_name(album_name)
+            if album_contact_id:
+                ghl_contact_id = album_contact_id
+                ghl_contact_source = 'album_name'
+                debug_log("Using Album_Name as GHL contact ID", {
+                    "id": ghl_contact_id,
+                    "album_name": album_name,
+                })
+
+        # Strategy 2: Client_ID if it already looks like a direct GHL ID.
+        if not ghl_contact_id and client_id_raw and len(client_id_raw) >= 15 and client_id_raw.isalnum():
             ghl_contact_id = client_id_raw
-            debug_log(f"Using Client_ID as GHL contact ID", {"id": ghl_contact_id})
+            ghl_contact_source = 'client_id'
+            debug_log("Using Client_ID as GHL contact ID", {"id": ghl_contact_id})
 
-        # Strategy 2: Extract GHL contact ID from Album_Name
-        # Formats: "ShootNo_Name_GHLContactID" or just containing a 15+ char alphanumeric segment
-        if not ghl_contact_id and album_name:
-            # Try splitting by underscore first
-            if '_' in album_name:
-                parts = album_name.split('_')
-                # Check each part for a GHL-like ID (15+ chars, alphanumeric)
-                for part in reversed(parts):  # Check from end first
-                    clean_part = part.strip()
-                    if len(clean_part) >= 15 and clean_part.isalnum():
-                        ghl_contact_id = clean_part
-                        debug_log(f"Extracted GHL contact ID from Album_Name (underscore split)", {
-                            "album_name": album_name,
-                            "extracted_id": ghl_contact_id
-                        })
-                        break
-
-            # If still not found, look for any 20+ char alphanumeric sequence
-            if not ghl_contact_id:
-                matches = re.findall(r'[A-Za-z0-9]{20,}', album_name)
-                if matches:
-                    ghl_contact_id = matches[-1]  # Use last match (usually the ID)
-                    debug_log(f"Extracted GHL contact ID from Album_Name (regex)", {
-                        "album_name": album_name,
-                        "extracted_id": ghl_contact_id
-                    })
-
-        # Strategy 3: If no valid ID found yet, search GHL by email
-        if not ghl_contact_id and email:
-            debug_log(f"No GHL ID found in Client_ID or Album_Name, searching by email", {"email": email})
-            found_id = find_ghl_contact(email, None)
-            if found_id:
-                ghl_contact_id = found_id
-                debug_log(f"Found GHL contact ID by email search", {"id": ghl_contact_id})
+        # Strategy 3: API lookup (client id / email, then name as last resort).
+        if not ghl_contact_id:
+            _first = get_text(root, 'First_Name').strip()
+            _last = get_text(root, 'Last_Name').strip()
+            if email or client_id_raw:
+                debug_log("No direct GHL ID found in Album_Name/Client_ID, searching by job/email", {
+                    "email": email,
+                    "client_id_raw": client_id_raw,
+                })
+                found_id = find_ghl_contact(email, client_id_raw)
+                if found_id:
+                    ghl_contact_id = found_id
+                    ghl_contact_source = 'api_lookup'
+                    debug_log("Found GHL contact ID by API lookup", {"id": ghl_contact_id})
+            # Last resort: name search (catches contacts with no email in XML)
+            if not ghl_contact_id and (_first or _last):
+                found_id = find_ghl_contact_by_name(_first, _last)
+                if found_id:
+                    ghl_contact_id = found_id
+                    ghl_contact_source = 'name_search'
+                    debug_log("Found GHL contact ID by name search", {"id": ghl_contact_id})
+            # Persist resolved ID back into XML so future runs skip the API search
+            if ghl_contact_id and ghl_contact_source in ('api_lookup', 'name_search'):
+                _inject_ghl_id_into_xml(xml_path, ghl_contact_id)
 
         # Log final result
         if ghl_contact_id:
-            debug_log(f"Final GHL contact ID determined", {
+            debug_log("Final GHL contact ID determined", {
                 "ghl_contact_id": ghl_contact_id,
-                "source": "Client_ID" if client_id_raw == ghl_contact_id else ("Album_Name" if client_id_raw != ghl_contact_id else "email_search"),
+                "source": ghl_contact_source or "unknown",
                 "client_id_raw": client_id_raw,
                 "album_name": album_name
             })
@@ -974,6 +1281,7 @@ def parse_proselect_xml(xml_path: str) -> dict | None:
 
         data: dict = {
             'ghl_contact_id': ghl_contact_id,  # GHL contact ID from ProSelect
+            'client_id_raw': client_id_raw,
             'email': get_text(root, 'Email_Address'),
             'first_name': get_text(root, 'First_Name'),
             'last_name': get_text(root, 'Last_Name'),
@@ -1342,14 +1650,14 @@ def add_tags_to_contact(contact_id: str, tags: list[str]) -> bool:
             "body": response.text[:500] if response.text else "EMPTY"
         })
         if response.status_code in [200, 201]:
-            print(f"   🏷️ Added tags: {', '.join(tags)}")
+            print(f"   [TAGS] Added tags: {', '.join(tags)}")
             return True
         else:
-            print(f"   ⚠️ Failed to add tags: {response.status_code}")
+            print(f"   [WARN] Failed to add tags: {response.status_code}")
             return False
     except Exception as e:
         debug_log(f"ADD TAGS FAILED: {e}")
-        print(f"   ⚠️ Failed to add tags: {e}")
+        print(f"   [WARN] Failed to add tags: {e}")
         return False
 
 
@@ -1362,31 +1670,747 @@ def get_contact_opportunities(contact_id: str) -> list[dict]:
     Returns:
         list[dict]: List of opportunities for the contact.
     """
-    url = f"https://services.leadconnectorhq.com/opportunities/search"
-    payload = {
-        "locationId": CONFIG.get('LOCATION_ID', ''),
-        "contactId": contact_id
+    # GHL's POST /opportunities/search with contactId is unreliable — use GET with contact_id param.
+    url = "https://services.leadconnectorhq.com/opportunities/search"
+    params = {
+        "location_id": CONFIG.get('LOCATION_ID', ''),
+        "contact_id": contact_id,
+        "limit": 100,
     }
 
     debug_log(f"SEARCHING OPPORTUNITIES FOR CONTACT: {contact_id}")
 
     try:
-        response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
+        response = requests.get(url, headers=_get_ghl_headers(), params=params, timeout=30)
         debug_log(f"OPPORTUNITIES RESPONSE: Status={response.status_code}", {
+            "body": response.text[:500] if response.text else "EMPTY"
+        })
+        if response.status_code == 200:
+            opps = response.json().get('opportunities', [])
+            if opps:
+                return opps
+    except Exception as e:
+        debug_log(f"GET OPPORTUNITIES (GET) FAILED: {e}")
+
+    # Fallback: POST search
+    try:
+        payload = {
+            "locationId": CONFIG.get('LOCATION_ID', ''),
+            "contactId": contact_id,
+        }
+        response = requests.post(url, headers=_get_ghl_headers(), json=payload, timeout=30)
+        debug_log(f"OPPORTUNITIES POST RESPONSE: Status={response.status_code}", {
             "body": response.text[:500] if response.text else "EMPTY"
         })
         if response.status_code == 200:
             return response.json().get('opportunities', [])
     except Exception as e:
-        debug_log(f"GET OPPORTUNITIES FAILED: {e}")
+        debug_log(f"GET OPPORTUNITIES (POST) FAILED: {e}")
 
     return []
 
 
-def add_tags_to_opportunity(opportunity_id: str, tags: list[str]) -> bool:
-    """Add tags to a GHL opportunity.
+def _get_pipeline_and_stage_ids(pipeline_name: str, stage_name: str) -> tuple[str | None, str | None]:
+    """Resolve pipeline ID and stage ID by names."""
+    url = "https://services.leadconnectorhq.com/opportunities/pipelines"
+    params = {"locationId": CONFIG.get('LOCATION_ID', '')}
 
-    Note: GHL v2 API updates opportunity via PUT with tags array.
+    try:
+        response = requests.get(url, headers=_get_ghl_headers(), params=params, timeout=30)
+        if response.status_code != 200:
+            debug_log("PIPELINE LOOKUP FAILED", {
+                "status": response.status_code,
+                "body": response.text[:500] if response.text else "EMPTY",
+            })
+            return None, None
+
+        pipelines = response.json().get('pipelines', [])
+        if not isinstance(pipelines, list):
+            return None, None
+
+        wanted_pipeline = str(pipeline_name or '').strip().lower()
+        wanted_stage = str(stage_name or '').strip().lower()
+
+        for pipeline in pipelines:
+            if not isinstance(pipeline, dict):
+                continue
+            if str(pipeline.get('name', '')).strip().lower() != wanted_pipeline:
+                continue
+
+            pipeline_id = str(pipeline.get('id') or pipeline.get('_id') or '').strip() or None
+            stage_id = None
+            stages = pipeline.get('stages', [])
+            if isinstance(stages, list):
+                stage_map: dict[str, str] = {}
+                for stage in stages:
+                    if not isinstance(stage, dict):
+                        continue
+                    sname = str(stage.get('name', '')).strip().lower()
+                    sid = str(stage.get('id') or stage.get('_id') or '').strip() or None
+                    if sname and sid:
+                        stage_map[sname] = sid
+
+                if wanted_stage in stage_map:
+                    stage_id = stage_map[wanted_stage]
+                else:
+                    for alias in _PRODUCTION_STAGE_ALIASES.get(wanted_stage, []):
+                        alias_key = str(alias or '').strip().lower()
+                        if alias_key in stage_map:
+                            stage_id = stage_map[alias_key]
+                            debug_log("STAGE ALIAS MATCH", {
+                                "requested": stage_name,
+                                "alias": alias,
+                            })
+                            break
+
+            return pipeline_id, stage_id
+    except Exception as e:
+        debug_log(f"PIPELINE LOOKUP ERROR: {e}")
+
+    return None, None
+
+
+def _opportunity_text_blob(opp: dict) -> str:
+    """Build searchable text from common opportunity fields and custom field values."""
+    parts: list[str] = []
+
+    for key in ('name', 'title', 'opportunityTitle', 'description'):
+        value = str(opp.get(key) or '').strip()
+        if value:
+            parts.append(value)
+
+    custom_fields = opp.get('customFields', [])
+    if isinstance(custom_fields, list):
+        for field in custom_fields:
+            if not isinstance(field, dict):
+                continue
+            field_value = str(
+                field.get('field_value')
+                or field.get('value')
+                or field.get('fieldValue')
+                or ''
+            ).strip()
+            if field_value:
+                parts.append(field_value)
+
+    return ' '.join(parts).lower()
+
+
+def _contains_token(haystack: str, token: str) -> bool:
+    """True when token appears as a standalone alnum-bounded term.
+
+    This avoids partial substring collisions (e.g. P2601 matching P26012).
+    """
+    hs = str(haystack or '')
+    tk = str(token or '').strip()
+    if not hs or not tk:
+        return False
+    pattern = rf"(?<![a-z0-9]){re.escape(tk)}(?![a-z0-9])"
+    return re.search(pattern, hs, flags=re.IGNORECASE) is not None
+
+
+def _parse_flexible_datetime(value: str) -> datetime | None:
+    """Parse a best-effort datetime from common API date formats."""
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+
+    normalized = raw.replace('Z', '+00:00')
+    try:
+        return datetime.fromisoformat(normalized)
+    except Exception:
+        pass
+
+    fmts = [
+        '%Y-%m-%d',
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S.%f',
+    ]
+    for fmt in fmts:
+        try:
+            return datetime.strptime(raw, fmt)
+        except Exception:
+            continue
+
+    return None
+
+
+def _best_opportunity_datetime(opp: dict) -> datetime | None:
+    """Extract the most useful datetime from an opportunity record."""
+    date_keys = (
+        'dateAdded',
+        'createdAt',
+        'dateCreated',
+        'updatedAt',
+        'lastStatusChangeAt',
+        'pipelineStageUpdatedAt',
+        'lastActivityDate',
+    )
+    for key in date_keys:
+        dt = _parse_flexible_datetime(str(opp.get(key) or '').strip())
+        if dt is not None:
+            return dt
+    return None
+
+
+def _extract_service_type_from_ps_data(ps_data: dict) -> str:
+    """Infer a service/session type for this sync from available PS data."""
+    explicit = str(ps_data.get('service_type') or ps_data.get('session_type') or '').strip()
+    if explicit:
+        return explicit
+
+    order = ps_data.get('order', {}) if isinstance(ps_data, dict) else {}
+    items = order.get('items', []) if isinstance(order, dict) else []
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get('product_line') or item.get('type') or '').strip()
+            if value:
+                return value
+
+    return ''
+
+
+def _opportunity_label(opp: dict) -> str:
+    """Build a compact display label for user disambiguation prompts."""
+    opp_id = str(opp.get('id') or '').strip()
+    title = str(
+        opp.get('name')
+        or opp.get('title')
+        or opp.get('opportunityTitle')
+        or 'Untitled opportunity'
+    ).strip()
+    stage_name = str(opp.get('pipelineStageName') or '').strip()
+    status = str(opp.get('status') or '').strip()
+    dt = _best_opportunity_datetime(opp)
+    dt_text = dt.strftime('%Y-%m-%d') if dt else 'unknown date'
+
+    meta = []
+    if stage_name:
+        meta.append(stage_name)
+    if status:
+        meta.append(status)
+    meta.append(dt_text)
+
+    return f"{title} [{', '.join(meta)}] ({opp_id})"
+
+
+def _prompt_user_to_choose_opportunity(candidates: list[dict], shoot_no: str, service_type: str, shoot_date: str) -> dict | None:
+    """Show a popup with candidate opportunities and let user choose one."""
+    if not candidates:
+        return None
+
+    try:
+        import tkinter as tk
+        from tkinter import simpledialog, messagebox
+    except Exception:
+        return None
+
+    # Show newest first to align with user expectation.
+    ordered = list(candidates)
+    ordered.sort(
+        key=lambda opp: (_best_opportunity_datetime(opp).timestamp() if _best_opportunity_datetime(opp) else 0),
+        reverse=True,
+    )
+
+    lines: list[str] = []
+    for idx, opp in enumerate(ordered, start=1):
+        lines.append(f"{idx}. {_opportunity_label(opp)}")
+
+    context_bits = []
+    if shoot_no:
+        context_bits.append(f"shoot: {shoot_no}")
+    if service_type:
+        context_bits.append(f"service: {service_type}")
+    if shoot_date:
+        context_bits.append(f"date: {shoot_date}")
+    context_text = " | ".join(context_bits) if context_bits else "current sync"
+
+    prompt = (
+        f"Multiple opportunities match for {context_text}.\n\n"
+        "Enter the number to move into Production:\n\n"
+        + "\n".join(lines)
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    try:
+        while True:
+            choice = simpledialog.askstring(
+                "Choose Opportunity",
+                prompt,
+                parent=root,
+            )
+            if choice is None:
+                return None
+            choice = str(choice).strip()
+            if not choice.isdigit():
+                messagebox.showerror("Invalid Selection", "Please enter a valid number from the list.", parent=root)
+                continue
+            idx = int(choice)
+            if 1 <= idx <= len(ordered):
+                return ordered[idx - 1]
+            messagebox.showerror("Invalid Selection", "Number is out of range.", parent=root)
+    finally:
+        root.destroy()
+
+
+def _select_target_opportunities(
+    opportunities: list[dict],
+    shoot_no: str,
+    album_name: str,
+    service_type: str = '',
+    shoot_date: str = '',
+) -> tuple[list[dict], str | None, list[dict]]:
+    """Select the best opportunity candidates for this sync.
+
+    Returns:
+        (selected_opportunities, error_message, unresolved_candidates)
+    """
+    open_opps: list[dict] = []
+    # "Won" in a marketing pipeline means the client booked — that's exactly what
+    # we want to move to production, so only exclude genuinely terminal statuses.
+    closed_statuses = {'lost', 'abandoned', 'canceled', 'cancelled'}
+
+    for opp in opportunities:
+        if not isinstance(opp, dict):
+            continue
+        status = str(opp.get('status') or '').strip().lower()
+        if status in closed_statuses:
+            continue
+        if not str(opp.get('id') or '').strip():
+            continue
+        open_opps.append(opp)
+
+    if not open_opps:
+        return [], None, []
+
+    needle_shoot = str(shoot_no or '').strip().lower()
+    needle_album = str(album_name or '').strip().lower()
+    needle_service = str(service_type or '').strip().lower()
+    shoot_dt = _parse_flexible_datetime(str(shoot_date or '').strip())
+
+    candidates = list(open_opps)
+
+    # Shoot/job number is the canonical unique key for PS sync.
+    # If provided, enforce strict token matching and do not silently fall back.
+    if needle_shoot:
+        shoot_matched: list[dict] = []
+        for opp in candidates:
+            if _contains_token(_opportunity_text_blob(opp), needle_shoot):
+                shoot_matched.append(opp)
+
+        if len(shoot_matched) == 1:
+            return shoot_matched, None, []
+
+        if len(shoot_matched) > 1:
+            return [], (
+                f"Multiple open opportunities contain shoot/job '{shoot_no}'. "
+                "Please choose the correct one."
+            ), shoot_matched
+
+        return [], (
+            f"No open opportunity matched shoot/job '{shoot_no}'. "
+            "Please verify the opportunity contains the job number."
+        ), open_opps
+
+    if needle_album:
+        matched: list[dict] = []
+        for opp in candidates:
+            blob = _opportunity_text_blob(opp)
+            if needle_album and needle_album in blob:
+                matched.append(opp)
+
+        if matched:
+            candidates = matched
+
+    if needle_service and len(candidates) > 1:
+        service_matched: list[dict] = []
+        for opp in candidates:
+            if needle_service in _opportunity_text_blob(opp):
+                service_matched.append(opp)
+        if service_matched:
+            candidates = service_matched
+
+    if len(candidates) == 1:
+        return candidates, None, []
+
+    if len(candidates) > 1 and shoot_dt is not None:
+        dated_rows: list[tuple[dict, datetime]] = []
+        for opp in candidates:
+            opp_dt = _best_opportunity_datetime(opp)
+            if opp_dt is not None:
+                dated_rows.append((opp, opp_dt))
+
+        if dated_rows:
+            # Prefer closest opportunity date to shoot date; if tied, pick newest.
+            dated_rows.sort(key=lambda row: (abs((row[1] - shoot_dt).total_seconds()), -row[1].timestamp()))
+            return [dated_rows[0][0]], None, []
+
+    if len(candidates) > 1:
+        dated_candidates = [(opp, _best_opportunity_datetime(opp)) for opp in candidates]
+        dated_candidates = [(opp, dt) for opp, dt in dated_candidates if dt is not None]
+        if dated_candidates:
+            # Fallback: choose newest opportunity when no shoot date matching was possible.
+            dated_candidates.sort(key=lambda row: row[1].timestamp(), reverse=True)
+            return [dated_candidates[0][0]], None, []
+
+        if len(open_opps) == 1:
+            # Safe fallback: if there is only one open opportunity, use it.
+            return open_opps, None, []
+
+        return [], (
+            f"Ambiguous opportunities for shoot '{shoot_no}'. "
+            f"Found {len(open_opps)} open opportunities but could not resolve by shoot/album/service/date."
+        ), candidates
+
+    if len(open_opps) == 1:
+        return open_opps, None, []
+
+    return [], (
+        f"Ambiguous opportunities for contact. Found {len(open_opps)} open opportunities "
+        "and no shoot/album identifier was provided."
+    ), open_opps
+
+
+def _create_production_opportunity(
+    contact_id: str,
+    shoot_no: str,
+    album_name: str,
+    service_type: str,
+    shoot_date: str,
+    ps_data: dict | None,
+    pipeline_id: str,
+    stage_id: str,
+    stage_name: str,
+) -> str:
+    """Create a new opportunity in the Production pipeline for a contact that has none.
+
+    Returns the new opportunity ID on success, or '' on failure.
+    """
+    if not contact_id or not pipeline_id or not stage_id:
+        debug_log('CREATE OPPORTUNITY: missing required ids', {
+            'contact_id': contact_id, 'pipeline_id': pipeline_id, 'stage_id': stage_id,
+        })
+        return ''
+
+    order = (ps_data or {}).get('order', {}) if isinstance(ps_data, dict) else {}
+    order_total, total_paid, amount_remaining, payments_count, paid_ratio, payment_status_label = _summarize_payment_status(order)
+    release_goods_date = _calculate_release_goods_date(order)
+    payment_summary_note = (
+        f"Order Total: £{order_total:.2f} | Paid: £{total_paid:.2f} | "
+        f"Remaining: £{amount_remaining:.2f} | Payments: {payments_count} | Paid %: {paid_ratio:.2f}"
+        + (f" | Order Release Date: {release_goods_date}" if release_goods_date else '')
+    )
+
+    items = order.get('items', []) if isinstance(order, dict) else []
+    ordered_products = []
+    if isinstance(items, list):
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            name = str(it.get('product') or it.get('description') or '').strip()
+            if name and not _is_non_product_financial_line(name):
+                ordered_products.append(name)
+    ordered_products_text = ', '.join(sorted(set(ordered_products))) if ordered_products else ''
+
+    # Build a meaningful opportunity name: "Shoot_No - Album Name" or fallback.
+    first_name = str((ps_data or {}).get('first_name') or '').strip()
+    last_name = str((ps_data or {}).get('last_name') or '').strip()
+    client_name = f"{first_name} {last_name}".strip() or album_name or shoot_no or 'New Order'
+    opp_name = f"{shoot_no} - {client_name}" if shoot_no else client_name
+
+    custom_fields: list[dict] = []
+    if shoot_no:
+        custom_fields.append({'id': OPP_CUSTOM_FIELDS['job_number'], 'field_value': shoot_no})
+    if shoot_date:
+        custom_fields.append({'id': OPP_CUSTOM_FIELDS['production_start_date'], 'field_value': shoot_date})
+    if payment_status_label:
+        custom_fields.append({'id': OPP_CUSTOM_FIELDS['payment_status'], 'field_value': payment_status_label})
+    if ordered_products_text:
+        custom_fields.append({'id': OPP_CUSTOM_FIELDS['ordered_products'], 'field_value': ordered_products_text})
+    if release_goods_date:
+        custom_fields.append({'id': OPP_CUSTOM_FIELDS['order_release_date'], 'field_value': release_goods_date})
+    custom_fields.append({'id': OPP_CUSTOM_FIELDS['notes'], 'field_value': payment_summary_note})
+
+    payload = {
+        'title': opp_name,
+        'contactId': contact_id,
+        'pipelineId': pipeline_id,
+        'pipelineStageId': stage_id,
+        'status': 'open',
+        'monetaryValue': int(round(order_total)),
+        'customFields': custom_fields,
+    }
+
+    debug_log('CREATE OPPORTUNITY PAYLOAD', payload)
+
+    try:
+        response = requests.post(
+            'https://services.leadconnectorhq.com/opportunities/',
+            headers=_get_ghl_headers(),
+            json=payload,
+            timeout=30,
+        )
+        debug_log(f'CREATE OPPORTUNITY RESPONSE: {response.status_code}', {
+            'body': response.text[:500] if response.text else 'EMPTY',
+        })
+        if response.status_code in (200, 201):
+            data = response.json()
+            new_id = str(data.get('opportunity', {}).get('id') or data.get('id') or '').strip()
+            if new_id:
+                print(f"   [OPP] Created opportunity: {opp_name} → {stage_name}")
+            return new_id
+        else:
+            debug_log(f'CREATE OPPORTUNITY FAILED ({response.status_code})', {
+                'body': response.text[:500],
+            })
+            print(f"   [WARN] Failed to create opportunity: {response.status_code}")
+            return ''
+    except Exception as e:
+        debug_log(f'CREATE OPPORTUNITY EXCEPTION: {e}')
+        print(f"   [WARN] Failed to create opportunity: {e}")
+        return ''
+
+
+def move_contact_opportunity_to_production(
+    contact_id: str,
+    shoot_no: str = '',
+    album_name: str = '',
+    service_type: str = '',
+    shoot_date: str = '',
+    ps_data: dict | None = None,
+) -> dict:
+    """Move the matching existing opportunity into Production; create one if none exists."""
+    if not contact_id:
+        return {'success': False, 'error': 'Missing contact_id', 'moved': 0, 'scanned': 0}
+
+    # Detect furthest stage already reached in the archive before touching GHL.
+    inferred_stage = _infer_stage_from_archive(shoot_no) if shoot_no else PRODUCTION_ORDER_CONFIRMED_STAGE
+
+    # If the shoot has zero order total, route to No Sale stage regardless of archive state.
+    # (payments_count == 0 is too blunt — a client may have an order but no payment records yet)
+    _order_data = (ps_data or {}).get('order', {}) if isinstance(ps_data, dict) else {}
+    _order_total, _, _, _, _, _ = _summarize_payment_status(_order_data)
+    if _order_total <= 0:
+        inferred_stage = PRODUCTION_NO_SALE_STAGE
+
+    pipeline_id, stage_id = _get_pipeline_and_stage_ids(PRODUCTION_PIPELINE_NAME, inferred_stage)
+    stage_warning = ''
+    if not pipeline_id:
+        stage_warning = f"Production pipeline not found: {PRODUCTION_PIPELINE_NAME}"
+        debug_log(f"move_contact_opportunity_to_production: {stage_warning}; proceeding with value/field updates only")
+    elif not stage_id:
+        # Fall back to Order Confirmed if the inferred stage name isn't found.
+        debug_log(f"move_contact_opportunity_to_production: stage {inferred_stage!r} not found, falling back to Order Confirmed")
+        inferred_stage = PRODUCTION_ORDER_CONFIRMED_STAGE
+        pipeline_id, stage_id = _get_pipeline_and_stage_ids(PRODUCTION_PIPELINE_NAME, PRODUCTION_ORDER_CONFIRMED_STAGE)
+        if not stage_id:
+            stage_warning = f"Production stage not found: {PRODUCTION_ORDER_CONFIRMED_STAGE}"
+            debug_log(f"move_contact_opportunity_to_production: {stage_warning}; proceeding with value/field updates only")
+
+    opportunities = get_contact_opportunities(contact_id)
+    if not opportunities:
+        # No existing opportunity — create one in the Production pipeline.
+        created_opp_id = _create_production_opportunity(
+            contact_id, shoot_no, album_name, service_type, shoot_date, ps_data,
+            pipeline_id, stage_id, inferred_stage,
+        )
+        if created_opp_id:
+            return {
+                'success': True,
+                'moved': 1,
+                'scanned': 0,
+                'created': True,
+                'opportunity_id': created_opp_id,
+                'pipeline': PRODUCTION_PIPELINE_NAME,
+                'stage': inferred_stage,
+                'message': 'No existing opportunity — created new one in Production pipeline',
+            }
+        return {
+            'success': False,
+            'moved': 0,
+            'scanned': 0,
+            'error': 'No existing opportunities and failed to create a new one',
+        }
+
+    selected_opps, selection_error, unresolved_candidates = _select_target_opportunities(
+        opportunities,
+        shoot_no,
+        album_name,
+        service_type,
+        shoot_date,
+    )
+    if selection_error:
+        if len(unresolved_candidates) == 1:
+            # Defensive fallback: treat a single unresolved candidate as selected.
+            selected_opps = [unresolved_candidates[0]]
+            selection_error = None
+        else:
+            chosen = _prompt_user_to_choose_opportunity(unresolved_candidates, shoot_no, service_type, shoot_date)
+            if chosen:
+                selected_opps = [chosen]
+                selection_error = None
+
+    if selection_error:
+        return {
+            'success': False,
+            'error': selection_error,
+            'moved': 0,
+            'scanned': len(opportunities),
+            'candidate_count': len(unresolved_candidates),
+            'candidates': [_opportunity_label(opp) for opp in unresolved_candidates[:20]],
+        }
+
+    if not selected_opps:
+        return {
+            'success': True,
+            'moved': 0,
+            'scanned': 0,
+            'message': 'No eligible open opportunities found; nothing to move',
+        }
+
+    moved = 0
+    moved_opportunity_id = ''
+    scanned = 0
+    failed = 0
+    optional_financial_ids = _resolve_optional_opp_financial_field_ids()
+
+    order = (ps_data or {}).get('order', {}) if isinstance(ps_data, dict) else {}
+    items = order.get('items', []) if isinstance(order, dict) else []
+    ordered_products = []
+    if isinstance(items, list):
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            name = str(it.get('product') or it.get('description') or '').strip()
+            if name and not _is_non_product_financial_line(name):
+                ordered_products.append(name)
+    ordered_products_text = ', '.join(sorted(set(ordered_products))) if ordered_products else ''
+
+    order_total, total_paid, amount_remaining, payments_count, paid_ratio, payment_status_label = _summarize_payment_status(order)
+    release_goods_date = _calculate_release_goods_date(order)
+    payment_summary_note = (
+        f"Order Total: £{order_total:.2f} | Paid: £{total_paid:.2f} | "
+        f"Remaining: £{amount_remaining:.2f} | Payments: {payments_count} | Paid %: {paid_ratio:.2f}"
+        + (f" | Order Release Date: {release_goods_date}" if release_goods_date else '')
+    )
+
+    for opp in selected_opps:
+
+        opp_id = str(opp.get('id') or '').strip()
+        if not opp_id:
+            continue
+
+        scanned += 1
+
+        current_pipeline_id = str(opp.get('pipelineId') or '').strip()
+        current_stage_id = str(opp.get('pipelineStageId') or '').strip()
+        # "already there" only if pipeline AND stage both match — an opp in the
+        # same pipeline but a lower stage should still be advanced.
+        can_move_stage = bool(pipeline_id and stage_id)
+        already_there = bool(can_move_stage and current_pipeline_id == pipeline_id and current_stage_id == stage_id)
+
+        # Build opportunity-level custom fields to populate on move.
+        opp_cf: list[dict] = []
+        if shoot_no:
+            opp_cf.append({'id': OPP_CUSTOM_FIELDS['job_number'], 'field_value': shoot_no})
+        if shoot_date:
+            opp_cf.append({'id': OPP_CUSTOM_FIELDS['production_start_date'], 'field_value': shoot_date})
+        if payment_status_label:
+            opp_cf.append({'id': OPP_CUSTOM_FIELDS['payment_status'], 'field_value': payment_status_label})
+        if ordered_products_text:
+            opp_cf.append({'id': OPP_CUSTOM_FIELDS['ordered_products'], 'field_value': ordered_products_text})
+        if release_goods_date:
+            opp_cf.append({'id': OPP_CUSTOM_FIELDS['order_release_date'], 'field_value': release_goods_date})
+        opp_cf.append({'id': OPP_CUSTOM_FIELDS['notes'], 'field_value': payment_summary_note})
+
+        # Write optional financial fields if they exist in this GHL location.
+        if optional_financial_ids.get('order_total_value'):
+            opp_cf.append({'id': optional_financial_ids['order_total_value'], 'field_value': str(order_total)})
+        if optional_financial_ids.get('total_paid_to_date'):
+            opp_cf.append({'id': optional_financial_ids['total_paid_to_date'], 'field_value': str(total_paid)})
+        if optional_financial_ids.get('paid_ratio_percent'):
+            opp_cf.append({'id': optional_financial_ids['paid_ratio_percent'], 'field_value': str(paid_ratio)})
+        if optional_financial_ids.get('payments_count'):
+            opp_cf.append({'id': optional_financial_ids['payments_count'], 'field_value': str(payments_count)})
+        if optional_financial_ids.get('amount_remaining'):
+            opp_cf.append({'id': optional_financial_ids['amount_remaining'], 'field_value': str(amount_remaining)})
+
+        # De-duplicate by field id (keep last value for same id).
+        by_id: dict[str, dict] = {}
+        for row in opp_cf:
+            fid = str(row.get('id') or '').strip()
+            if fid:
+                by_id[fid] = row
+        opp_cf = list(by_id.values())
+
+        payload: dict = {'customFields': opp_cf} if opp_cf else {}
+        # Keep the native opportunity value in sync with ProSelect order total.
+        payload['monetaryValue'] = int(round(order_total))
+
+        if can_move_stage and not already_there:
+            payload['pipelineId'] = pipeline_id
+            payload['pipelineStageId'] = stage_id
+            payload['status'] = 'open'
+        elif not opp_cf:
+            # Already in correct stage and no fields to update — skip.
+            continue
+
+        try:
+            response = requests.put(
+                f"https://services.leadconnectorhq.com/opportunities/{opp_id}",
+                headers=_get_ghl_headers(),
+                json=payload,
+                timeout=30,
+            )
+            if response.status_code == 200:
+                if not already_there:
+                    moved += 1
+                    if not moved_opportunity_id:
+                        moved_opportunity_id = opp_id
+            else:
+                failed += 1
+                debug_log("MOVE TO PRODUCTION FAILED", {
+                    'opportunity_id': opp_id,
+                    'status': response.status_code,
+                    'body': response.text[:500] if response.text else 'EMPTY',
+                })
+        except Exception as e:
+            failed += 1
+            debug_log(f"MOVE TO PRODUCTION ERROR: {e}", {'opportunity_id': opp_id})
+
+    return {
+        'success': failed == 0,
+        'moved': moved,
+        'scanned': scanned,
+        'failed': failed,
+        'matched_shoot_no': shoot_no,
+        'matched_service_type': service_type,
+        'matched_shoot_date': shoot_date,
+        'pipeline': PRODUCTION_PIPELINE_NAME,
+        'stage': inferred_stage,
+        'payment_status': payment_status_label,
+        'order_total': order_total,
+        'total_paid': total_paid,
+        'amount_remaining': amount_remaining,
+        'payments_count': payments_count,
+        'paid_ratio_percent': paid_ratio,
+        'financial_fields_resolved': list(optional_financial_ids.keys()),
+        'opportunity_id': moved_opportunity_id,
+        'stage_warning': stage_warning,
+    }
+
+
+def add_tags_to_opportunity(opportunity_id: str, tags: list[str]) -> bool:
+    """Add tags to the contact that owns a GHL opportunity.
+
+    GHL v2 PUT /opportunities does not accept a 'tags' field — tags in GHL
+    live on the contact, not the opportunity.  We GET the opportunity to
+    resolve the contactId, then POST to /contacts/{id}/tags.
 
     Args:
         opportunity_id: The GHL opportunity ID.
@@ -1398,7 +2422,6 @@ def add_tags_to_opportunity(opportunity_id: str, tags: list[str]) -> bool:
     if not tags:
         return True
 
-    # First get current opportunity to preserve existing tags
     url = f"https://services.leadconnectorhq.com/opportunities/{opportunity_id}"
 
     try:
@@ -1408,31 +2431,17 @@ def add_tags_to_opportunity(opportunity_id: str, tags: list[str]) -> bool:
             return False
 
         opportunity = response.json().get('opportunity', {})
-        existing_tags = opportunity.get('tags', [])
-
-        # Merge tags (avoid duplicates)
-        all_tags = list(set(existing_tags + tags))
-
-        # Update opportunity with merged tags
-        update_payload = {"tags": all_tags}
-        response = requests.put(url, headers=_get_ghl_headers(), json=update_payload, timeout=30)
-
-        debug_log(f"UPDATE OPPORTUNITY TAGS RESPONSE: Status={response.status_code}", {
-            "body": response.text[:500] if response.text else "EMPTY"
-        })
-
-        if response.status_code == 200:
-            new_tags = [t for t in tags if t not in existing_tags]
-            if new_tags:
-                print(f"   🏷️ Added opportunity tags: {', '.join(new_tags)}")
-            return True
-        else:
-            print(f"   ⚠️ Failed to update opportunity tags: {response.status_code}")
+        contact_id = opportunity.get('contactId') or opportunity.get('contact', {}).get('id', '')
+        if not contact_id:
+            debug_log(f"ADD OPPORTUNITY TAGS: no contactId on opportunity {opportunity_id}")
             return False
+
+        # Tags belong to the contact in GHL v2 — delegate to the contact tags endpoint.
+        return add_tags_to_contact(contact_id, tags)
 
     except Exception as e:
         debug_log(f"ADD OPPORTUNITY TAGS FAILED: {e}")
-        print(f"   ⚠️ Failed to add opportunity tags: {e}")
+        print(f"   [WARN] Failed to add opportunity tags: {e}")
         return False
 
 
@@ -1479,6 +2488,8 @@ def _search_ghl_contacts(filters: list, search_type: str) -> str | None:
     url = "https://services.leadconnectorhq.com/contacts/search"
     payload = {
         "locationId": CONFIG.get('LOCATION_ID', ''),
+        "page": 1,
+        "pageLimit": 100,
         "filters": filters
     }
 
@@ -1501,26 +2512,19 @@ def _search_ghl_contacts(filters: list, search_type: str) -> str | None:
 
 
 def find_ghl_contact(email: str, client_id: str | None) -> str | None:
-    """Find GHL contact by email or client_id.
+    """Find GHL contact by client_id first, then email fallback.
+    Only called when no GHL contact ID was found in the PSA filename.
 
     Args:
         email: Contact email address.
         client_id: ProSelect client ID (session_job_no).
 
     Returns:
-        dict | None: Contact data if found, None otherwise.
+        str | None: GHL contact ID if found, None otherwise.
     """
     debug_log("FIND GHL CONTACT CALLED", {"email": email, "client_id": client_id})
 
-    # Search by email first - PRIMARY method (most reliable)
-    if email:
-        filters = [{"field": "email", "operator": "eq", "value": email}]
-        contact_id = _search_ghl_contacts(filters, "EMAIL")
-        if contact_id:
-            print(f"✓ Found contact by email")
-            return contact_id
-
-    # Fallback: search by client_id in custom field (session_job_no)
+    # Search by client_id/job reference first.
     if client_id:
         filters = [{
             "field": "customFields." + CUSTOM_FIELDS['session_job_no'],
@@ -1529,12 +2533,85 @@ def find_ghl_contact(email: str, client_id: str | None) -> str | None:
         }]
         contact_id = _search_ghl_contacts(filters, "CLIENT_ID")
         if contact_id:
-            print(f"✓ Found contact by Client ID: {client_id}")
+            print(f"[OK] Found contact by Client ID: {client_id}", flush=True)
+            return contact_id
+
+    # Fallback: search by email.
+    if email:
+        filters = [{"field": "email", "operator": "eq", "value": email}]
+        contact_id = _search_ghl_contacts(filters, "EMAIL")
+        if contact_id:
+            print(f"[OK] Found contact by email", flush=True)
             return contact_id
 
     debug_log(f"CONTACT NOT FOUND", {"client_id": client_id, "email": email})
-    print(f"✗ Contact not found - Client ID: {client_id}")
     return None
+
+
+def find_ghl_contact_by_name(first_name: str, last_name: str) -> str | None:
+    """Search GHL contacts by name using the GET /contacts/ query endpoint.
+
+    Tries:
+    1. GET /contacts/?query=<full name>  — matches the GHL UI search behaviour
+    2. GET /contacts/?query=<last name>  — fallback if full name returns nothing
+    """
+    if not first_name and not last_name:
+        return None
+
+    full_name = f"{first_name} {last_name}".strip()
+    location_id = CONFIG.get('LOCATION_ID', '')
+    url = "https://services.leadconnectorhq.com/contacts/"
+
+    for query_term in ([full_name] if full_name else []) + ([last_name] if last_name and last_name != full_name else []):
+        params = {
+            "locationId": location_id,
+            "query": query_term,
+            "limit": 20,
+        }
+        debug_log(f"SEARCHING BY NAME (GET query={query_term!r})", params)
+        try:
+            response = requests.get(url, headers=_get_ghl_headers(), params=params, timeout=60)
+            debug_log(f"NAME SEARCH RESPONSE: Status={response.status_code}", {
+                "body": response.text[:500] if response.text else "EMPTY"
+            })
+            if response.status_code == 200:
+                contacts = response.json().get('contacts', [])
+                if contacts:
+                    # Narrow to exact last name match when multiple hits returned
+                    if last_name:
+                        exact = [c for c in contacts
+                                 if (c.get('lastName') or '').lower() == last_name.lower()]
+                        contacts = exact or contacts
+                    cid = contacts[0]['id']
+                    debug_log(f"CONTACT FOUND BY NAME", {"contact_id": cid, "query": query_term})
+                    print(f"[OK] Found contact by name: {full_name}", flush=True)
+                    return cid
+        except Exception as e:
+            debug_log(f"NAME SEARCH FAILED (query={query_term!r}): {e}")
+
+    debug_log(f"CONTACT NOT FOUND BY NAME", {"first_name": first_name, "last_name": last_name})
+    return None
+
+
+def _inject_ghl_id_into_xml(xml_path: str, ghl_id: str) -> bool:
+    """Write the resolved GHL contact ID back into the XML Client_ID element."""
+    if not xml_path or not ghl_id or not os.path.exists(xml_path):
+        return False
+    try:
+        import xml.etree.ElementTree as _ET
+        _ET.register_namespace('', '')
+        tree = _ET.parse(xml_path)
+        root = tree.getroot()
+        elem = root.find('Client_ID')
+        if elem is None:
+            elem = _ET.SubElement(root, 'Client_ID')
+        elem.text = ghl_id
+        tree.write(xml_path, encoding='unicode', xml_declaration=False)
+        debug_log(f"Injected GHL ID into XML", {"xml_path": xml_path, "ghl_id": ghl_id})
+        return True
+    except Exception as e:
+        debug_log(f"_inject_ghl_id_into_xml failed: {e}", {"xml_path": xml_path})
+        return False
 
 
 def calculate_payment_summary(order_data: dict) -> dict:
@@ -1878,13 +2955,11 @@ def delete_client_invoices(xml_path: str) -> dict:
     email = ps_data.get('email', '')
     shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
 
-    # Strategy 1: Extract GHL contact ID from album name first (most reliable)
+    # Strategy 1: Extract GHL contact ID from album name first (most reliable).
     contact_id = None
     if album_name:
-        # Look for 20+ char alphanumeric ID in album name
-        matches = re.findall(r'[A-Za-z0-9]{20,}', album_name)
-        if matches:
-            contact_id = matches[-1]  # Use last match (usually the ID at end)
+        contact_id = _extract_ghl_contact_id_from_album_name(album_name)
+        if contact_id:
             debug_log(f"Found contact ID in album name", {"contact_id": contact_id, "album_name": album_name})
 
     # Strategy 2: Use ghl_contact_id from XML if album name didn't have it
@@ -1897,7 +2972,7 @@ def delete_client_invoices(xml_path: str) -> dict:
     # Strategy 3: Search by email to find contact ID
     if not contact_id and email:
         debug_log(f"Searching for contact by email", {"email": email})
-        found_id = find_ghl_contact(email, None)
+        found_id = find_ghl_contact(email, ps_data.get('client_id_raw'))
         if found_id:
             contact_id = found_id
             debug_log(f"Found contact ID by email search", {"contact_id": contact_id, "email": email})
@@ -1906,7 +2981,7 @@ def delete_client_invoices(xml_path: str) -> dict:
         "client_name": client_name, "shoot_no": shoot_no,
         "contact_id": contact_id, "album_name": album_name, "email": email
     })
-    print(f"\n🗑️ Delete invoices for shoot: {shoot_no}")
+    print(f"\n[DELETE] Delete invoices for shoot: {shoot_no}")
     print(f"  Contact ID: {contact_id}")
 
     if not contact_id:
@@ -1941,9 +3016,9 @@ def delete_client_invoices(xml_path: str) -> dict:
     problem_invoices = analysis.get('problem_invoice_numbers', [])
 
     if analysis.get('need_manual_refund'):
-        print(f"  ⚠ {len(analysis['need_manual_refund'])} invoice(s) have payment provider transactions")
+        print(f"  [WARN] {len(analysis['need_manual_refund'])} invoice(s) have payment provider transactions")
         for prob in analysis['need_manual_refund']:
-            print(f"    • #{prob['number']} - £{prob['amount_paid']:.2f} via provider")
+            print(f"    - #{prob['number']} - £{prob['amount_paid']:.2f} via provider")
         print(f"  These require manual refund in GHL before API can void them.")
 
     # Delete/void all invoices
@@ -2007,9 +3082,9 @@ def delete_client_invoices(xml_path: str) -> dict:
     })
 
     if invoices_failed > 0:
-        print(f"\n⚠ Done with errors: {invoices_deleted} deleted, {invoices_voided} voided, {invoices_failed} failed, {schedules_cancelled} schedules")
+        print(f"\n[WARN] Done with errors: {invoices_deleted} deleted, {invoices_voided} voided, {invoices_failed} failed, {schedules_cancelled} schedules")
     else:
-        print(f"\n✓ Done: {invoices_deleted} deleted, {invoices_voided} voided, {schedules_cancelled} schedules cancelled")
+        print(f"\n[OK] Done: {invoices_deleted} deleted, {invoices_voided} voided, {schedules_cancelled} schedules cancelled")
 
     # Success only if no failures
     all_success = invoices_failed == 0 and (invoices_deleted > 0 or invoices_voided > 0 or len(invoices) == 0)
@@ -2110,11 +3185,11 @@ def cancel_ghl_schedule(schedule_id: str) -> dict:
 
         if response.status_code in [200, 204]:
             debug_log(f"SCHEDULE CANCELLED SUCCESSFULLY: {schedule_id}")
-            print(f"    ✓ Schedule cancelled")
+            print(f"    [OK] Schedule cancelled")
             return {'success': True, 'schedule_id': schedule_id}
         elif response.status_code == 404:
             debug_log(f"SCHEDULE NOT FOUND (may already be cancelled): {schedule_id}")
-            print(f"    ⚠ Schedule not found (may already be cancelled)")
+            print(f"    [WARN] Schedule not found (may already be cancelled)")
             return {'success': True, 'schedule_id': schedule_id, 'message': 'Not found'}
         else:
             # Try disabling by updating liveMode to false
@@ -2132,18 +3207,18 @@ def cancel_ghl_schedule(schedule_id: str) -> dict:
 
             if patch_response.status_code in [200, 204]:
                 debug_log(f"SCHEDULE DISABLED VIA PATCH: {schedule_id}")
-                print(f"    ✓ Schedule disabled")
+                print(f"    [OK] Schedule disabled")
                 return {'success': True, 'schedule_id': schedule_id, 'disabled': True}
             else:
                 error_msg = f"Cancel failed (HTTP {response.status_code})"
                 debug_log(f"SCHEDULE CANCEL FAILED: {schedule_id}", {"delete_status": response.status_code, "patch_status": patch_response.status_code})
-                print(f"    ✗ {error_msg}")
+                print(f"    [FAIL] {error_msg}")
                 return {'success': False, 'error': error_msg, 'schedule_id': schedule_id}
 
     except requests.exceptions.RequestException as e:
         error_msg = f"Network error: {str(e)}"
         debug_log(f"SCHEDULE CANCEL NETWORK ERROR: {schedule_id}", {"error": str(e)})
-        print(f"    ✗ {error_msg}")
+        print(f"    [FAIL] {error_msg}")
         return {'success': False, 'error': error_msg, 'schedule_id': schedule_id}
 
 
@@ -2193,7 +3268,7 @@ def void_recorded_payments(invoice_id: str, invoice: dict) -> int:
 
             if response.status_code in [200, 204]:
                 debug_log(f"PAYMENT RECORD REMOVED: {pay_id}")
-                print(f"    ✓ Payment record {pay_id} removed")
+                print(f"    [OK] Payment record {pay_id} removed")
                 voided_count += 1
             else:
                 debug_log(f"DELETE PAYMENT FAILED for {pay_id}: {response.status_code}")
@@ -2227,7 +3302,7 @@ def void_recorded_payments(invoice_id: str, invoice: dict) -> int:
 
             if response.status_code in [200, 201]:
                 debug_log(f"REFUND RECORDED SUCCESSFULLY: £{total_paid:.2f}")
-                print(f"    ✓ Refund of £{total_paid:.2f} recorded")
+                print(f"    [OK] Refund of £{total_paid:.2f} recorded")
                 return 1
             else:
                 debug_log(f"RECORD REFUND FAILED: {response.status_code}")
@@ -2254,7 +3329,7 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dic
         dict: Result with success status and any error message.
     """
     debug_log("DELETE GHL INVOICE CALLED", {"invoice_id": invoice_id, "schedule_ids": schedule_ids})
-    print(f"\n🗑️ Processing invoice deletion: {invoice_id}")
+    print(f"\n Processing invoice deletion: {invoice_id}")
 
     # Step 0: Cancel any recurring schedules first
     schedules_cancelled = 0
@@ -2272,7 +3347,7 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dic
 
     if not invoice_data:
         debug_log(f"INVOICE NOT FOUND: {invoice_id} (may already be deleted)")
-        print(f"  ⚠ Invoice not found (may already be deleted)")
+        print(f"  [WARN] Invoice not found (may already be deleted)")
         return {'success': True, 'invoice_id': invoice_id, 'deleted': False, 'schedules_cancelled': schedules_cancelled, 'message': 'Invoice not found'}
 
     invoice = invoice_data.get('invoice', invoice_data)
@@ -2293,7 +3368,7 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dic
         debug_log(f"PAYMENTS VOIDED: {payments_voided}")
 
         if payments_voided > 0:
-            print(f"  ✓ {payments_voided} payment(s) voided/refunded")
+            print(f"  [OK] {payments_voided} payment(s) voided/refunded")
             # Re-fetch invoice to check updated status
             invoice_data = get_ghl_invoice(invoice_id)
             if invoice_data:
@@ -2302,11 +3377,11 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dic
                 if remaining_paid > 0:
                     # Still has payments - try void as fallback
                     debug_log(f"REMAINING PAYMENTS AFTER VOID: £{remaining_paid:.2f} - falling back to void invoice")
-                    print(f"  ⚠ £{remaining_paid:.2f} still recorded - voiding invoice")
+                    print(f"  [WARN] £{remaining_paid:.2f} still recorded - voiding invoice")
                     void_result = void_ghl_invoice(invoice_id)
                     if void_result.get('success'):
                         debug_log(f"INVOICE VOIDED SUCCESSFULLY (with remaining payments)", {"invoice_id": invoice_id})
-                        print(f"  ✓ Invoice voided")
+                        print(f"  [OK] Invoice voided")
                         return {
                             'success': True,
                             'invoice_id': invoice_id,
@@ -2319,11 +3394,11 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dic
         else:
             # Couldn't void payments - try voiding the whole invoice
             debug_log(f"INDIVIDUAL PAYMENT VOID FAILED - trying full invoice void")
-            print(f"  ⚠ Could not void individual payments - voiding invoice...")
+            print(f"  [WARN] Could not void individual payments - voiding invoice...")
             void_result = void_ghl_invoice(invoice_id)
             if void_result.get('success'):
                 debug_log(f"INVOICE VOIDED SUCCESSFULLY (individual payments not voidable)", {"invoice_id": invoice_id})
-                print(f"  ✓ Invoice voided")
+                print(f"  [OK] Invoice voided")
                 return {
                     'success': True,
                     'invoice_id': invoice_id,
@@ -2347,11 +3422,11 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dic
 
         if response.status_code in [200, 204]:
             debug_log(f"INVOICE DELETED SUCCESSFULLY: {invoice_id}")
-            print(f"  ✓ Invoice deleted successfully")
+            print(f"  [OK] Invoice deleted successfully")
             return {'success': True, 'invoice_id': invoice_id, 'deleted': True, 'schedules_cancelled': schedules_cancelled}
         elif response.status_code == 403:
             debug_log(f"DELETE INVOICE 403 - API KEY LACKS PERMISSION", {"invoice_id": invoice_id})
-            print(f"  ✗ API key lacks permission to delete invoices")
+            print(f"  [FAIL] API key lacks permission to delete invoices")
             print(f"    Enable 'invoices.write' scope in GHL Private Integrations")
             return {
                 'success': False,
@@ -2364,8 +3439,8 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dic
             error_text = response.text.lower()
             if 'payment' in error_text or 'refund' in error_text:
                 debug_log(f"DELETE BLOCKED BY PAYMENTS - manual refund needed", {"invoice_id": invoice_id, "response": response.text[:500]})
-                print(f"  ✗ Cannot delete - payments must be refunded first")
-                print(f"    Go to GHL Payments → Invoices → Refund all payments, then try again")
+                print(f"  [FAIL] Cannot delete - payments must be refunded first")
+                print(f"    Go to GHL Payments  Invoices  Refund all payments, then try again")
                 return {
                     'success': False,
                     'error': 'Payments must be refunded in GHL before invoice can be deleted',
@@ -2375,23 +3450,23 @@ def delete_ghl_invoice(invoice_id: str, schedule_ids: list | None = None) -> dic
             else:
                 error_msg = f"Delete failed: {response.text}"
                 debug_log(f"DELETE INVOICE 400 ERROR (non-payment)", {"invoice_id": invoice_id, "response": response.text[:500]})
-                print(f"  ✗ {error_msg}")
+                print(f"  [FAIL] {error_msg}")
                 return {'success': False, 'error': error_msg, 'invoice_id': invoice_id}
         elif response.status_code == 404:
             debug_log(f"DELETE INVOICE 404 - NOT FOUND: {invoice_id}")
-            print(f"  ⚠ Invoice not found")
+            print(f"  [WARN] Invoice not found")
             return {'success': True, 'invoice_id': invoice_id, 'deleted': False, 'message': 'Invoice not found'}
         else:
             error_msg = f"Delete failed (HTTP {response.status_code})"
             debug_log(f"DELETE INVOICE UNEXPECTED STATUS", {"invoice_id": invoice_id, "status": response.status_code, "response": response.text[:500]})
-            print(f"  ✗ {error_msg}")
+            print(f"  [FAIL] {error_msg}")
             print(f"    Response: {response.text}")
             return {'success': False, 'error': error_msg, 'invoice_id': invoice_id}
 
     except requests.exceptions.RequestException as e:
         error_msg = f"Network error: {str(e)}"
         debug_log(f"DELETE INVOICE NETWORK ERROR", {"invoice_id": invoice_id, "error": str(e)})
-        print(f"  ✗ Error deleting invoice: {error_msg}")
+        print(f"  [FAIL] Error deleting invoice: {error_msg}")
         return {'success': False, 'error': error_msg, 'invoice_id': invoice_id}
 
 
@@ -2562,16 +3637,16 @@ def create_recurring_invoice_schedule(
         if response.status_code in [200, 201]:
             data = response.json()
             schedule_id = data.get('_id', 'Unknown')
-            print(f"  ✓ Created recurring schedule: {schedule_id}")
+            print(f"  [OK] Created recurring schedule: {schedule_id}")
             print(f"    {num_payments} x £{amount:.2f}/month starting {start_date}")
             return data
         else:
-            print(f"  ✗ Failed to create schedule ({response.status_code})")
+            print(f"  [FAIL] Failed to create schedule ({response.status_code})")
             debug_log("SCHEDULE CREATE FAILED", {"response": response.text})
             return None
 
     except Exception as e:
-        print(f"  ✗ Schedule error: {e}")
+        print(f"  [FAIL] Schedule error: {e}")
         debug_log("SCHEDULE CREATE EXCEPTION", {"error": str(e)})
         return None
 
@@ -2633,7 +3708,7 @@ def upload_to_ghl_media(file_path: str) -> str | None:
 
     if not os.path.exists(file_path):
         debug_log("UPLOAD ERROR: FILE NOT FOUND", {"file_path": file_path})
-        print(f"    ✗ File not found: {file_path}")
+        print(f"    [FAIL] File not found: {file_path}")
         return None
 
     file_size = os.path.getsize(file_path)
@@ -2690,11 +3765,11 @@ def upload_to_ghl_media(file_path: str) -> str | None:
                     "status_code": response.status_code,
                     "error": response.text[:500]
                 })
-                print(f"    ✗ Upload failed ({response.status_code}): {response.text[:100]}")
+                print(f"    [FAIL] Upload failed ({response.status_code}): {response.text[:100]}")
                 return None
     except Exception as e:
         debug_log("MEDIA UPLOAD EXCEPTION", {"error": str(e)})
-        print(f"    ✗ Upload error: {e}")
+        print(f"    [FAIL] Upload error: {e}")
         return None
 
 
@@ -2853,7 +3928,7 @@ def send_room_capture_email(contact_id: str, image_path: str, subject: str = '',
         if response.status_code in [200, 201]:
             result_data = response.json()
             msg_id = result_data.get('messageId') or result_data.get('id', '')
-            print(f"  ✓ Email sent successfully")
+            print(f"  [OK] Email sent successfully")
             return {
                 'success': True,
                 'message_id': msg_id,
@@ -2862,11 +3937,11 @@ def send_room_capture_email(contact_id: str, image_path: str, subject: str = '',
             }
         else:
             error_text = response.text[:200] if response.text else 'Unknown error'
-            print(f"  ✗ Email send failed ({response.status_code}): {error_text}")
+            print(f"  [FAIL] Email send failed ({response.status_code}): {error_text}")
             return {'success': False, 'error': f'API error {response.status_code}: {error_text}'}
     except Exception as e:
         debug_log("SEND EMAIL EXCEPTION", {"error": str(e)})
-        print(f"  ✗ Email error: {e}")
+        print(f"  [FAIL] Email error: {e}")
         return {'success': False, 'error': str(e)}
 
 
@@ -3211,10 +4286,15 @@ def _build_invoice_payload(
     }
 
     if total_discounts_credits > 0:
-        payload["discount"] = {
-            "type": "fixed",
-            "value": float(total_discounts_credits)  # Invoice discounts use pounds
-        }
+        items_total = sum(float(i.get('amount', 0)) * int(i.get('qty', i.get('quantity', 1))) for i in ghl_items)
+        capped_discount = min(total_discounts_credits, items_total)
+        if capped_discount < total_discounts_credits:
+            print(f"  [WARN] Discount £{total_discounts_credits:.2f} exceeds items total £{items_total:.2f} — capped to £{capped_discount:.2f}")
+        if capped_discount > 0:
+            payload["discount"] = {
+                "type": "fixed",
+                "value": float(capped_discount)  # Invoice discounts use pounds
+            }
 
     # GHL paymentSchedule API is not well documented and causes errors
     # Future payments are logged but not scheduled via API
@@ -3253,7 +4333,7 @@ def _process_invoice_payments(invoice_id: str, payments: list) -> int:
 
     if past_payments:
         total_payments = len(past_payments)
-        print(f"\n💳 Recording {total_payments} past payment(s)...")
+        print(f"\n[PAYMENT] Recording {total_payments} past payment(s)...")
         for i, payment in enumerate(past_payments):
             # Update progress for each payment
             write_progress(4, 5, f"Recording payment {i+1}/{total_payments}...")
@@ -3262,11 +4342,11 @@ def _process_invoice_payments(invoice_id: str, payments: list) -> int:
             success, _ = record_ghl_payment(invoice_id, payment)
             if success:
                 payments_recorded += 1
-        print(f"  ✓ Recorded {payments_recorded}/{total_payments} past payments")
+        print(f"  [OK] Recorded {payments_recorded}/{total_payments} past payments")
 
     if future_payments:
         # Future payments will be handled by recurring invoice schedule
-        print(f"  📅 {len(future_payments)} future installment(s) pending (recurring schedule)")
+        print(f"   {len(future_payments)} future installment(s) pending (recurring schedule)")
 
     return payments_recorded
 
@@ -3279,7 +4359,7 @@ def _open_invoice_in_browser(invoice_id: str) -> None:
     """
     location_id = CONFIG.get('LOCATION_ID', '')
     invoice_url = f"https://app.thefullybookedphotographer.com/v2/location/{location_id}/payments/invoices/{invoice_id}"
-    print(f"\n🌐 Opening invoice in browser in 5 seconds...")
+    print(f"\n Opening invoice in browser in 5 seconds...")
     print(f"  URL: {invoice_url}")
     time.sleep(5)
     os.startfile(invoice_url)
@@ -3315,14 +4395,15 @@ def _send_invoice(invoice_id: str) -> bool:
         })
 
         if response.status_code in [200, 201]:
-            print(f"  ✓ Invoice published - now visible in GHL")
+            print(f"  [OK] Invoice published - now visible in GHL")
             return True
         else:
-            print(f"  ⚠ Could not publish invoice: {response.status_code}")
-            debug_log(f"SEND INVOICE ERROR: {response.text}")
+            # 422 is expected when the invoice already has full payment recorded
+            # (GHL auto-transitions to 'paid' status, making the send endpoint moot).
+            debug_log(f"SEND INVOICE SKIPPED ({response.status_code}): {response.text}")
             return False
     except Exception as e:
-        print(f"  ⚠ Error publishing invoice: {e}")
+        print(f"  [WARN] Error publishing invoice: {e}")
         debug_log(f"SEND INVOICE EXCEPTION: {e}")
         return False
 
@@ -3348,7 +4429,7 @@ def _adjust_invoice_totals(invoice_items: list, ghl_items: list, ps_order_total:
         if ghl_item['amount'] > 0:
             ghl_item['amount'] = round(ghl_item['amount'] + adjustment, 2)
             break
-    print(f"  ✓ Totals adjusted (rounding fix: £{adjustment:.2f} on Payment 1)")
+    print(f"  [OK] Totals adjusted (rounding fix: £{adjustment:.2f} on Payment 1)")
 
 
 def _handle_invoice_success(
@@ -3380,7 +4461,7 @@ def _handle_invoice_success(
     invoice_id = invoice_data.get('invoice', {}).get('_id', invoice_data.get('_id', 'Unknown'))
     invoice_number = invoice_data.get('invoice', {}).get('invoiceNumber', 'N/A')
 
-    print(f"\n✓ Invoice created successfully!")
+    print(f"\n[OK] Invoice created successfully!")
     print(f"  Invoice ID: {invoice_id}")
     print(f"  Invoice #: {invoice_number}")
     print(f"  Total: £{order.get('total_amount', 0):.2f}")
@@ -3421,9 +4502,9 @@ def _handle_invoice_success(
             payment_plan_name = f"{client_name} - {shoot_no} Payment Plan" if shoot_no else f"{client_name} Payment Plan"
             payment_1_name = f"{client_name} - {shoot_no} Payment 1" if shoot_no else f"{client_name} Payment 1"
 
-            print(f"\n📅 Creating recurring payment schedule...")
+            print(f"\n Creating recurring payment schedule...")
             if rounding_diff != 0:
-                print(f"  ⚠ Rounding adjustment: £{rounding_diff:.2f} applied to first payment")
+                print(f"  [WARN] Rounding adjustment: £{rounding_diff:.2f} applied to first payment")
 
             # First payment amount includes rounding adjustment
             first_payment_amount = round(base_amount + rounding_diff, 2)
@@ -3582,9 +4663,9 @@ def check_existing_invoice(contact_id: str, shoot_no: str, order_total: float) -
                 'invoice_number': inv_number,
                 'invoice_name': inv_name,
                 'status': inv_status,
-                'total': inv_total / 100 if inv_total > 1000 else inv_total,  # GHL stores in cents
-                'amount_due': inv_amount_due / 100 if inv_amount_due > 1000 else inv_amount_due,
-                'amount_paid': inv_amount_paid / 100 if inv_amount_paid > 1000 else inv_amount_paid,
+                'total': inv_total,
+                'amount_due': inv_amount_due,
+                'amount_paid': inv_amount_paid,
                 'created': created[:10] if created else '',
             }
 
@@ -3620,7 +4701,7 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
 
     if not items:
         debug_log("ERROR: No items to update invoice with")
-        print("✗ No items in XML to update invoice")
+        print("[FAIL] No items in XML to update invoice")
         return {'success': False, 'error': 'No items in XML to update invoice'}
 
     # Step 1: Fetch existing invoice to know current payment state
@@ -3631,9 +4712,6 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
     if existing_data:
         existing_inv = existing_data.get('invoice', existing_data)
         existing_amount_paid = existing_inv.get('amountPaid', 0)
-        # Normalize cents to pounds
-        if existing_amount_paid > 1000:
-            existing_amount_paid = existing_amount_paid / 100
         existing_payments_count = len(existing_inv.get('recordPayment', existing_inv.get('payments', [])))
         debug_log("EXISTING INVOICE STATE", {
             "amount_paid": existing_amount_paid,
@@ -3645,7 +4723,7 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
     invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only, skip_zero_extras)
 
     if not invoice_items:
-        print("✗ No invoice items after building")
+        print("[FAIL] No invoice items after building")
         return {'success': False, 'error': 'No invoice items after building'}
 
     ps_order_total = order.get('total_amount', 0)
@@ -3666,7 +4744,7 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
 
     # Step 3: Pre-check - if new total < existing paid, warn early
     if ps_order_total < existing_amount_paid - 0.01:
-        print(f"  ⚠ New order total (£{ps_order_total:.2f}) is less than amount already paid (£{existing_amount_paid:.2f})")
+        print(f"  [WARN] New order total (£{ps_order_total:.2f}) is less than amount already paid (£{existing_amount_paid:.2f})")
         print(f"  Attempting to set invoice to draft first...")
         # Try moving to draft to bypass payment restrictions
         draft_result = update_invoice_to_draft(invoice_id)
@@ -3685,10 +4763,15 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
     }
 
     if total_discounts_credits > 0:
-        payload["discount"] = {
-            "type": "fixed",
-            "value": float(total_discounts_credits)
-        }
+        items_total = sum(float(i.get('amount', 0)) * int(i.get('qty', i.get('quantity', 1))) for i in ghl_items)
+        capped_discount = min(total_discounts_credits, items_total)
+        if capped_discount < total_discounts_credits:
+            print(f"  [WARN] Discount £{total_discounts_credits:.2f} exceeds items total £{items_total:.2f} — capped to £{capped_discount:.2f}")
+        if capped_discount > 0:
+            payload["discount"] = {
+                "type": "fixed",
+                "value": float(capped_discount)
+            }
 
     url = f"https://services.leadconnectorhq.com/invoices/{invoice_id}"
     debug_log(f"UPDATE INVOICE REQUEST: {url}", payload)
@@ -3706,7 +4789,22 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
                 error_msg = f"Invoice validation failed - total may be less than amount paid"
                 if existing_amount_paid > 0:
                     error_msg += f" (new total: £{ps_order_total:.2f}, already paid: £{existing_amount_paid:.2f})"
-            print(f"✗ {error_msg}")
+
+                # Production-only follow-up syncs can legitimately hit this when
+                # invoice financials are already settled; skip invoice mutation
+                # but continue with downstream automation (supplier/pipeline sync).
+                print(f"[WARN] {error_msg}")
+                print("  [INFO] Invoice update skipped (already paid amount exceeds/equals new total)")
+                return {
+                    'success': True,
+                    'updated': False,
+                    'invoice_id': invoice_id,
+                    'invoice_skipped': True,
+                    'warning': error_msg,
+                    'client_name': client_name,
+                    'shoot_no': shoot_no,
+                }
+            print(f"[FAIL] {error_msg}")
             print(f"  Response: {response.text}")
             error_log(f"GHL Invoice Update Failed: {error_msg}", {
                 "status_code": response.status_code,
@@ -3720,13 +4818,12 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
         updated_data = response.json()
         inv = updated_data.get('invoice', updated_data)
         inv_number = inv.get('invoiceNumber', inv.get('number', 'N/A'))
-
-        print(f"\n✓ Invoice #{inv_number} items updated!")
+        print(f"\n[OK] Invoice #{inv_number} items updated!")
         print(f"  New total: £{ps_order_total:.2f}")
 
     except requests.exceptions.RequestException as e:
         error_msg = f"Network error: {str(e)}"
-        print(f"✗ Error updating invoice: {error_msg}")
+        print(f"[FAIL] Error updating invoice: {error_msg}")
         error_log(f"GHL Invoice Update Network Error: {error_msg}", {"invoice_id": invoice_id}, exception=e)
         return {'success': False, 'error': error_msg}
 
@@ -3762,7 +4859,7 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
                     new_to_record.append(p)
 
             if new_to_record:
-                print(f"\n💳 Recording {len(new_to_record)} new payment(s) (£{new_payment_amount:.2f})...")
+                print(f"\n[PAYMENT] Recording {len(new_to_record)} new payment(s) (£{new_payment_amount:.2f})...")
                 for i, payment in enumerate(new_to_record):
                     write_progress(2, 3, f"Recording payment {i+1}/{len(new_to_record)}...")
                     if i > 0:
@@ -3770,9 +4867,9 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
                     success, _ = record_ghl_payment(invoice_id, payment)
                     if success:
                         payments_recorded += 1
-                print(f"  ✓ Recorded {payments_recorded}/{len(new_to_record)} new payment(s)")
-        else:
-            print(f"  ℹ No new past payments to record (existing: £{existing_amount_paid:.2f})")
+                print(f"  [OK] Recorded {payments_recorded}/{len(new_to_record)} new payment(s)")
+            else:
+                print(f"  [INFO] No new past payments to record (existing: £{existing_amount_paid:.2f})")
 
     # Step 6: Handle future payment schedules
     contact_id = ps_data.get('ghl_contact_id', '')
@@ -3784,7 +4881,7 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
 
         if future_payments:
             # Cancel any existing schedules for this shoot first
-            print(f"\n📅 Updating payment schedules...")
+            print(f"\n Updating payment schedules...")
             existing_schedules = list_contact_schedules(contact_id)
             for sched in existing_schedules:
                 sched_name = sched.get('name', '')
@@ -3855,8 +4952,6 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
     if final_data:
         final_inv = final_data.get('invoice', final_data)
         final_due = final_inv.get('amountDue', 0)
-        if final_due > 1000:
-            final_due = final_due / 100
 
     print(f"  Amount due: £{final_due:.2f}")
 
@@ -3900,7 +4995,7 @@ def delete_shoot_invoices(contact_id: str, shoot_no: str) -> dict:
         dict: Result with deletion details.
     """
     debug_log("DELETE SHOOT INVOICES", {"contact_id": contact_id, "shoot_no": shoot_no})
-    print(f"\n🗑️ Deleting invoices for shoot: {shoot_no}")
+    print(f"\n Deleting invoices for shoot: {shoot_no}")
 
     if not contact_id or not shoot_no:
         return {'success': False, 'error': 'Missing contact_id or shoot_no'}
@@ -3962,7 +5057,7 @@ def delete_shoot_invoices(contact_id: str, shoot_no: str) -> dict:
     total_removed = deleted + voided
     success = failed == 0 and total_removed > 0
 
-    print(f"\n  {'✓' if success else '⚠'} {deleted} deleted, {voided} voided, {failed} failed, {schedules_cancelled} schedules cancelled")
+    print(f"\n  {'' if success else ''} {deleted} deleted, {voided} voided, {failed} failed, {schedules_cancelled} schedules cancelled")
 
     return {
         'success': success,
@@ -3983,9 +5078,14 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     items = order.get('items', [])
     payments = order.get('payments', [])
 
-    if not items and not payments:
-        debug_log("ERROR: No items or payments to invoice")
-        print("✗ No items or payments to invoice")
+    if not payments:
+        debug_log("SKIP INVOICE: No payment lines in ProSelect order")
+        print("[SKIP] Skipping invoice creation: no payment lines in ProSelect order")
+        return None
+
+    if not items:
+        debug_log("ERROR: No product items to invoice")
+        print("[FAIL] No product items to invoice")
         return None
 
     # Always use product items for the invoice (not payment schedule)
@@ -3993,7 +5093,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     invoice_items, total_discounts_credits = _build_product_invoice_items(items, financials_only, skip_zero_extras)
 
     if not invoice_items:
-        print("✗ No invoice items after building")
+        print("[FAIL] No invoice items after building")
         return None
 
     ps_order_total = order.get('total_amount', 0)
@@ -4060,10 +5160,10 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
                 address['country'] = ghl_contact.get('country', '')
             debug_log("USING GHL CONTACT DETAILS", {"email": email, "phone": phone, "address": address})
         else:
-            print("  ⚠ Could not fetch contact from GHL")
+            print("  [WARN] Could not fetch contact from GHL")
 
     if not email:
-        print("✗ Contact has no email - required for invoice")
+        print("[FAIL] Contact has no email - required for invoice")
         return {'success': False, 'error': 'Contact has no email address'}
 
     payload = _build_invoice_payload(
@@ -4075,7 +5175,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     today = datetime.now().strftime('%Y-%m-%d')
     future_payments = [p for p in payments if p.get('date', '') > today]
 
-    print(f"\n📋 Invoice Details:")
+    print(f"\n[DETAILS] Invoice Details:")
     print(f"  ProSelect Order Total: £{ps_order_total:.2f}")
     print(f"  Payment installments: {len(future_payments)}")
     if future_payments:
@@ -4100,7 +5200,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
                 error_msg = "Contact not found - link client to GHL first"
             elif response.status_code == 422:
                 error_msg = "Invoice validation failed - check item data"
-            print(f"✗ {error_msg}")
+            print(f"[FAIL] {error_msg}")
             print(f"  Response: {response.text}")
             # Log error for diagnostics (always - even when DEBUG_MODE off)
             # Include first 10 items for debugging
@@ -4118,7 +5218,7 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
 
     except requests.exceptions.RequestException as e:
         error_msg = f"Network error: {str(e)}"
-        print(f"✗ Error creating invoice: {error_msg}")
+        print(f"[FAIL] Error creating invoice: {error_msg}")
         error_log(f"GHL Invoice Network Error: {error_msg}", {"contact_id": contact_id}, exception=e)
         return {'success': False, 'error': error_msg}
 
@@ -4139,15 +5239,15 @@ def _verify_contact_update(contact_id: str, headers: dict) -> None:
         if verify_response.status_code == 200:
             verify_data = verify_response.json()
             if verify_data.get('contact', {}).get('id') == contact_id:
-                print(f"  ✓ Update verified - data saved to GHL")
+                print(f"  [OK] Update verified - data saved to GHL")
                 debug_log("UPDATE VERIFICATION SUCCESS", {"contact_id": contact_id})
             else:
-                print(f"  ⚠ Could not verify update")
+                print(f"  [WARN] Could not verify update")
                 debug_log("UPDATE VERIFICATION FAILED - ID MISMATCH")
         else:
-            print(f"  ⚠ Verification request failed: {verify_response.status_code}")
+            print(f"  [WARN] Verification request failed: {verify_response.status_code}")
     except Exception as ve:
-        print(f"  ⚠ Verification skipped: {ve}")
+        print(f"  [WARN] Verification skipped: {ve}")
         debug_log(f"VERIFICATION EXCEPTION: {ve}")
 
 
@@ -4163,7 +5263,7 @@ def _build_contact_custom_values(album_name: str, payment_summary: dict, order: 
         dict: Custom field values.
     """
     values = {
-        CUSTOM_FIELDS['session_job_no']: album_name,
+        CUSTOM_FIELDS['session_job_no']: album_name.split('_')[0] if '_' in album_name else album_name,
         CUSTOM_FIELDS['session_status']: payment_summary.get('status', 'Order Placed'),
         CUSTOM_FIELDS['session_date']: order.get('date', ''),
     }
@@ -4199,7 +5299,7 @@ def update_ghl_contact(contact_id: str, ps_data: dict) -> dict | None:
             'payments': payment_summary['payment_count'], 'status': payment_summary['status']
         }
 
-        print(f"\n✓ Successfully updated GHL contact")
+        print(f"\n[OK] Successfully updated GHL contact")
         print(f"  Contact ID: {contact_id}")
         print(f"  Client: [redacted]")
         print(f"  Order Total: £{payment_summary['total']:.2f}")
@@ -4225,7 +5325,7 @@ def update_ghl_contact(contact_id: str, ps_data: dict) -> dict | None:
             elif status_code >= 500:
                 error_msg = "GHL server error - try again later"
             print(f"  Response: {e.response.text}")
-        print(f"✗ Error updating contact: {error_msg}")
+        print(f"[FAIL] Error updating contact: {error_msg}")
         return {'success': False, 'error': error_msg, 'contact_id': contact_id}
 
 def list_ghl_folders() -> None:
@@ -4457,7 +5557,7 @@ Products: {image_count} items
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"""
 
     add_contact_note(contact_id, note_body)
-    print(f"   ✓ Note added to contact")
+    print(f"   [OK] Note added to contact")
 
 
 def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_folder: str = '', psa_path: str = '') -> None:
@@ -4469,7 +5569,7 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
         collect_folder: Optional folder to save a local copy of the contact sheet.
         psa_path: Path to .psa album file for extracting thumbnails.
     """
-    print(f"\n📸 Creating contact sheet...")
+    print(f"\n Creating contact sheet...")
     debug_log("CONTACT SHEET - Starting creation", {"xml_path": xml_path, "psa_path": psa_path})
 
     temp_thumb_folder = None  # Track temp folder for cleanup
@@ -4489,7 +5589,7 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
         thumb_folder = None
 
         if psa_path and os.path.exists(psa_path):
-            print(f"   ℹ Extracting thumbnails from album...")
+            print(f"   [INFO] Extracting thumbnails from album...")
             debug_log("CONTACT SHEET - Extracting from PSA", {"psa_path": psa_path})
 
             try:
@@ -4501,7 +5601,7 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
 
                 if result.get("success") and result.get("count", 0) > 0:
                     thumb_folder = temp_thumb_folder
-                    print(f"   ✓ Extracted {result['count']} thumbnails")
+                    print(f"   [OK] Extracted {result['count']} thumbnails")
                     debug_log("CONTACT SHEET - PSA extraction success", {"count": result['count']})
                 else:
                     debug_log("CONTACT SHEET - PSA extraction failed", result)
@@ -4509,7 +5609,7 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
                 debug_log("CONTACT SHEET - PSA extraction error", {"error": str(psa_err)})
 
         if not thumb_folder:
-            print(f"   ℹ No thumbnail folder found")
+            print(f"   [INFO] No thumbnail folder found")
             debug_log("CONTACT SHEET - No thumbnail folder", {"xml_path": xml_path})
             return
 
@@ -4523,10 +5623,10 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
         result_path = create_contact_sheet_jpg(thumb_folder, jpg_path, title, subtitle, cs_data.get('image_labels', {}))
 
         if not result_path:
-            print(f"   ⚠ Failed to create JPG")
+            print(f"   [WARN] Failed to create JPG")
             debug_log("CONTACT SHEET - JPG creation failed")
             return
-        print(f"   ✓ JPG created: {os.path.basename(jpg_path)}")
+        print(f"   [OK] JPG created: {os.path.basename(jpg_path)}")
         debug_log("CONTACT SHEET - JPG created", {"result_path": result_path})
 
         folder_id = get_media_folder_id() or find_folder_by_name("Order Sheets")
@@ -4534,10 +5634,10 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
 
         jpg_url = upload_to_folder(jpg_path, folder_id)
         if not jpg_url:
-            print(f"   ⚠ Failed to upload JPG")
+            print(f"   [WARN] Failed to upload JPG")
             debug_log("CONTACT SHEET - Upload failed")
             return
-        print(f"   ✓ Uploaded to GHL Media")
+        print(f"   [OK] Uploaded to GHL Media")
         debug_log("CONTACT SHEET - Upload success", {"jpg_url": jpg_url})
 
         # Save local copy if collect folder is specified
@@ -4549,19 +5649,19 @@ def _create_and_upload_contact_sheet(xml_path: str, contact_id: str, collect_fol
             collect_path = os.path.join(collect_folder, f"{safe_name}.jpg")
             try:
                 shutil.copy2(jpg_path, collect_path)
-                print(f"   ✓ Saved local copy: {collect_path}")
+                print(f"   [OK] Saved local copy: {collect_path}")
                 debug_log("CONTACT SHEET - Local copy saved", {"collect_path": collect_path})
             except Exception as copy_err:
-                print(f"   ⚠ Failed to save local copy: {copy_err}")
+                print(f"   [WARN] Failed to save local copy: {copy_err}")
                 debug_log("CONTACT SHEET - Local copy failed", {"error": str(copy_err)})
 
         _add_contact_sheet_note(contact_id, cs_data, thumb_folder, jpg_url)
 
     except ImportError as e:
-        print(f"   ⚠ Contact sheet module not found: {e}")
+        print(f"   [WARN] Contact sheet module not found: {e}")
         debug_log("CONTACT SHEET - ImportError", str(e))
     except Exception as e:
-        print(f"   ⚠ Contact sheet error: {e}")
+        print(f"   [WARN] Contact sheet error: {e}")
         debug_log("CONTACT SHEET - Exception", {"error": str(e), "type": type(e).__name__})
     finally:
         # Clean up temp thumbnail folder if we created one
@@ -4623,7 +5723,7 @@ def _save_and_log_result(result: dict) -> None:
     if DEBUG_MODE and GIST_ENABLED:
         gist_url = upload_debug_log_to_gist()
         if gist_url:
-            print(f"📤 Debug log uploaded: {gist_url}")
+            print(f" Debug log uploaded: {gist_url}")
 
 
 def _parse_cli_args():
@@ -4660,6 +5760,14 @@ def _parse_cli_args():
         parser.add_argument('--check-duplicate', action='store_true')
         parser.add_argument('--resync', action='store_true')
         parser.add_argument('--update-invoice', type=str, default='')
+        parser.add_argument('--no-supplier-sync', action='store_true')
+        parser.add_argument('--supplier-ssh-host', type=str, default='toypi.tail009b36.ts.net')
+        parser.add_argument('--supplier-remote-db-path', type=str, default='/home/guy/.openclaw/data/supplier_status.db')
+        parser.add_argument('--read-psa-meta', type=str, default='', metavar='PSA_PATH')
+        parser.add_argument('--batch-sync-month', type=str, default='')
+        parser.add_argument('--batch-xml-folder', type=str, default='')
+        parser.add_argument('--batch-skip-existing-invoices', action='store_true')
+        parser.add_argument('--batch-skip-existing-opportunities', action='store_true')
     else:
         parser = argparse.ArgumentParser(description='Sync ProSelect invoice to GHL')
         parser.add_argument('xml_path', nargs='?', help='Path to ProSelect XML export file')
@@ -4707,7 +5815,769 @@ def _parse_cli_args():
                             help='Delete existing invoice for this shoot then sync new one')
         parser.add_argument('--update-invoice', type=str, default='',
                             help='Update an existing GHL invoice ID with new data from XML')
+        parser.add_argument('--no-supplier-sync', action='store_true',
+                            help='Skip automatic supplier status sync after invoice sync')
+        parser.add_argument('--supplier-ssh-host', type=str, default='toypi.tail009b36.ts.net',
+                            help='ToyPi/OpenClaw SSH host for supplier status sync')
+        parser.add_argument('--supplier-remote-db-path', type=str, default='/home/guy/.openclaw/data/supplier_status.db',
+                            help='Remote supplier SQLite DB path on ToyPi/OpenClaw host')
+        parser.add_argument('--read-psa-meta', type=str, default='', metavar='PSA_PATH',
+                            help='Read sk_ps_meta table from PSA file and print as JSON, then exit')
+        parser.add_argument('--batch-sync-month', type=str, default='',
+                    help='Run batch sync for a month (YYYY-MM or YYYY-MM-DD)')
+        parser.add_argument('--batch-xml-folder', type=str, default='',
+                    help='Folder containing exported XML files for batch sync')
+        parser.add_argument('--batch-skip-existing-invoices', action='store_true',
+                    help='Skip invoice creation when a matching invoice already exists')
+        parser.add_argument('--batch-skip-existing-opportunities', action='store_true',
+                    help='Skip moving opportunities already in the Production pipeline')
+        parser.add_argument('--batch-force-opp-stage', action='store_true',
+                    help='Re-evaluate and update opportunity stage even for already-synced shoots')
     return parser.parse_args()
+
+
+def _build_supplier_job_ref(shoot_no: str, last_name: str) -> str:
+    """Build canonical supplier job reference: P{digits}P_Lastname."""
+    shoot_digits_match = re.search(r'(\d+)', str(shoot_no or ''))
+    if not shoot_digits_match:
+        return ""
+
+    clean_last_name = re.sub(r'[^A-Za-z]', '', str(last_name or '').strip())
+    if not clean_last_name:
+        return ""
+
+    return f"P{shoot_digits_match.group(1)}P_{clean_last_name}"
+
+
+def _find_candidate_psa_path(base_dir: str, album_name: str = '') -> str:
+    """Return a best-match .psa from base_dir/Unprocessed, preferring album_name matches."""
+    if not base_dir or not os.path.isdir(base_dir):
+        return ''
+
+    # Only scan Unprocessed subfolder — never pick up PSAs from elsewhere in the shoot folder.
+    scan_dir = os.path.join(base_dir, 'Unprocessed')
+    if not os.path.isdir(scan_dir):
+        return ''
+
+    try:
+        psa_files = [
+            os.path.join(scan_dir, f)
+            for f in os.listdir(scan_dir)
+            if str(f).lower().endswith('.psa')
+        ]
+    except Exception:
+        return ''
+
+    if not psa_files:
+        return ''
+
+    if album_name:
+        target = str(album_name).strip().lower()
+        exact = [p for p in psa_files if os.path.splitext(os.path.basename(p))[0].strip().lower() == target]
+        if exact:
+            return max(exact, key=os.path.getmtime)
+        contains = [p for p in psa_files if target in os.path.splitext(os.path.basename(p))[0].strip().lower()]
+        if contains:
+            return max(contains, key=os.path.getmtime)
+
+    return max(psa_files, key=os.path.getmtime)
+
+
+def _resolve_psa_path_for_sync(xml_path: str, ps_data: dict) -> str:
+    """Resolve a likely .psa path for current sync context."""
+    album_name = str((ps_data or {}).get('album_name') or '').strip()
+    album_path = str((ps_data or {}).get('album_path') or '').strip()
+    xml_dir = os.path.dirname(os.path.abspath(xml_path)) if xml_path else ''
+
+    if album_path and os.path.isfile(album_path) and album_path.lower().endswith('.psa'):
+        return album_path
+
+    from_album = _find_candidate_psa_path(album_path, album_name)
+    if from_album:
+        return from_album
+
+    from_xml_dir = _find_candidate_psa_path(xml_dir, album_name)
+    if from_xml_dir:
+        return from_xml_dir
+
+    return ''
+
+
+def _ensure_psa_meta_table(conn: sqlite3.Connection) -> None:
+    """Ensure SideKick metadata table exists in PSA SQLite DB."""
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS sk_ps_meta (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            value TEXT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        '''
+    )
+
+
+def psa_meta_set(psa_path: str, key: str, value: str) -> bool:
+    """Set one metadata key/value in PSA custom metadata table."""
+    if not psa_path or not os.path.exists(psa_path) or not key:
+        return False
+
+    try:
+        conn = sqlite3.connect(psa_path)
+        try:
+            _ensure_psa_meta_table(conn)
+            conn.execute(
+                '''
+                INSERT INTO sk_ps_meta (key, value, updated_at)
+                VALUES (?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value,
+                    updated_at=datetime('now')
+                ''',
+                (str(key), str(value) if value is not None else '')
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception as e:
+        debug_log(f"psa_meta_set failed: {e}", {'psa_path': psa_path, 'key': key})
+        return False
+
+
+def psa_meta_set_many(psa_path: str, values: dict[str, str]) -> tuple[bool, int]:
+    """Set multiple metadata keys in PSA custom metadata table."""
+    if not psa_path or not os.path.exists(psa_path) or not isinstance(values, dict) or not values:
+        return False, 0
+
+    written = 0
+    try:
+        conn = sqlite3.connect(psa_path)
+        try:
+            _ensure_psa_meta_table(conn)
+            for key, value in values.items():
+                if not key:
+                    continue
+                conn.execute(
+                    '''
+                    INSERT INTO sk_ps_meta (key, value, updated_at)
+                    VALUES (?, ?, datetime('now'))
+                    ON CONFLICT(key) DO UPDATE SET
+                        value=excluded.value,
+                        updated_at=datetime('now')
+                    ''',
+                    (str(key), str(value) if value is not None else '')
+                )
+                written += 1
+            conn.commit()
+            return True, written
+        finally:
+            conn.close()
+    except Exception as e:
+        debug_log(f"psa_meta_set_many failed: {e}", {'psa_path': psa_path})
+        return False, written
+
+
+def psa_meta_get_all(psa_path: str) -> dict[str, str]:
+    """Read all key/value pairs from PSA custom metadata table."""
+    if not psa_path or not os.path.exists(psa_path):
+        return {}
+
+    try:
+        conn = sqlite3.connect(psa_path)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sk_ps_meta'")
+            if not cur.fetchone():
+                return {}
+            cur.execute('SELECT key, value FROM sk_ps_meta ORDER BY key')
+            return {str(k): str(v or '') for k, v in cur.fetchall() if k is not None}
+        finally:
+            conn.close()
+    except Exception as e:
+        debug_log(f"psa_meta_get_all failed: {e}", {'psa_path': psa_path})
+        return {}
+
+
+def _persist_psa_sync_metadata(
+    xml_path: str,
+    ps_data: dict,
+    contact_id: str,
+    shoot_no: str,
+    album_name: str,
+    invoice_id: str = '',
+    opportunity_id: str = '',
+) -> dict:
+    """Persist the canonical sync metadata into the resolved PSA file."""
+    psa_path = _resolve_psa_path_for_sync(xml_path, ps_data)
+    if not psa_path:
+        return {
+            'success': False,
+            'psa_path': '',
+            'written': 0,
+            'keys': [],
+            'reason': 'No PSA file resolved for this sync',
+        }
+
+    meta_values = {
+        'schema_version': '1',
+        'ghl_contact_id': str(contact_id or ''),
+        'ghl_location_id': str(LOCATION_ID or ''),
+        'shoot_no': str(shoot_no or ''),
+        'album_name': str(album_name or ''),
+        'last_sync_at': datetime.now().isoformat(timespec='seconds'),
+    }
+    if invoice_id:
+        meta_values['ghl_last_invoice_id'] = str(invoice_id)
+    if opportunity_id:
+        meta_values['ghl_last_opportunity_id'] = str(opportunity_id)
+
+    meta_ok, meta_written = psa_meta_set_many(psa_path, meta_values)
+    return {
+        'success': meta_ok,
+        'psa_path': psa_path,
+        'written': meta_written,
+        'keys': sorted(meta_values.keys()),
+    }
+
+
+def _try_parse_date(value: str) -> datetime | None:
+    """Best-effort parser for ProSelect and UI date values."""
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+
+    if re.match(r'^\d{4}-\d{2}', raw):
+        try:
+            return datetime.fromisoformat(raw[:10])
+        except ValueError:
+            pass
+
+    for fmt in ('%d/%m/%Y', '%d-%m-%Y', '%m/%d/%Y', '%Y%m%d'):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+
+    return None
+
+
+def _parse_batch_month(value: str) -> tuple[int, int]:
+    """Return batch year/month from a YYYY-MM or YYYY-MM-DD style value."""
+    raw = str(value or '').strip()
+    match = re.match(r'^(\d{4})-(\d{2})', raw)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+
+    parsed = _try_parse_date(raw)
+    if parsed is not None:
+        return parsed.year, parsed.month
+
+    raise ValueError(f'Invalid batch month: {value!r}')
+
+
+def _ps_data_matches_batch_month(ps_data: dict, xml_path: str, year: int, month: int) -> bool:
+    """Match batch month against XML order date, falling back to file modified date."""
+    order_data = (ps_data or {}).get('order', {}) if isinstance(ps_data, dict) else {}
+    for candidate in (
+        order_data.get('date', ''),
+        (ps_data or {}).get('shoot_date', ''),
+    ):
+        parsed = _try_parse_date(str(candidate or ''))
+        if parsed is not None:
+            return parsed.year == year and parsed.month == month
+
+    try:
+        modified_dt = datetime.fromtimestamp(os.path.getmtime(xml_path))
+        return modified_dt.year == year and modified_dt.month == month
+    except OSError:
+        return False
+
+
+def _get_opportunity_id(opp: dict) -> str:
+    """Extract a stable opportunity ID from a GHL opportunity payload."""
+    if not isinstance(opp, dict):
+        return ''
+    return str(opp.get('id') or opp.get('_id') or '').strip()
+
+
+def _find_existing_production_opportunity(
+    contact_id: str,
+    shoot_no: str = '',
+    album_name: str = '',
+    service_type: str = '',
+    shoot_date: str = '',
+) -> dict | None:
+    """Return the matching opportunity when it is already in the Production pipeline."""
+    if not contact_id:
+        return None
+
+    pipeline_id, _stage_id = _get_pipeline_and_stage_ids(PRODUCTION_PIPELINE_NAME, PRODUCTION_ORDER_CONFIRMED_STAGE)
+    if not pipeline_id:
+        return None
+
+    opportunities = get_contact_opportunities(contact_id)
+    if not opportunities:
+        return None
+
+    selected_opps, selection_error, unresolved_candidates = _select_target_opportunities(
+        opportunities,
+        shoot_no,
+        album_name,
+        service_type,
+        shoot_date,
+    )
+    candidates = list(selected_opps or [])
+    if selection_error and len(unresolved_candidates) == 1:
+        candidates = [unresolved_candidates[0]]
+
+    for opp in candidates:
+        opp_pipeline_id = str(opp.get('pipelineId') or opp.get('pipeline_id') or '').strip()
+        if opp_pipeline_id == str(pipeline_id):
+            return opp
+
+    return None
+
+
+def run_batch_sync_month(
+    batch_month: str,
+    xml_folder: str,
+    financials_only: bool = False,
+    create_contact_sheet: bool = False,
+    collect_folder: str = '',
+    rounding_in_deposit: bool = False,
+    open_browser: bool = False,
+    skip_zero_extras: bool = True,
+    supplier_sync_enabled: bool = False,
+    supplier_ssh_host: str = '',
+    supplier_remote_db_path: str = '',
+    skip_existing_invoices: bool = False,
+    skip_existing_opportunities: bool = False,
+    force_opp_stage_eval: bool = False,
+) -> dict:
+    """Process XML exports for a selected month, using PSA metadata as the sync ledger."""
+    del collect_folder, supplier_ssh_host, supplier_remote_db_path
+
+    if not xml_folder or not os.path.isdir(xml_folder):
+        return {'success': False, 'error': f'XML folder not found: {xml_folder}'}
+
+    year, month = _parse_batch_month(batch_month)
+    xml_paths: list[str] = []
+    for root, _dirs, files in os.walk(xml_folder):
+        for filename in files:
+            if filename.lower().endswith('.xml'):
+                xml_paths.append(os.path.join(root, filename))
+    xml_paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+
+    summary = {
+        'success': True,
+        'batch_month': f'{year:04d}-{month:02d}',
+        'xml_folder': xml_folder,
+        'xml_files_found': len(xml_paths),
+        'matched_month': 0,
+        'processed': 0,
+        'skipped_synced': 0,
+        'skipped_existing_invoices': 0,
+        'skipped_existing_opportunities': 0,
+        'failed': 0,
+        'items': [],
+    }
+
+    if not xml_paths:
+        summary['success'] = False
+        summary['error'] = 'No XML files found in the selected folder'
+        return summary
+
+    print(f"Batch scan: found {len(xml_paths)} XML file(s) in {xml_folder}", flush=True)
+    print(f"Filtering for month: {year:04d}-{month:02d}", flush=True)
+
+    # Deduplicate XMLs: keep only the latest file per shoot, using shoot_no from filename.
+    # target_month_str must be defined before dedup so the conflict-warning filter can use it
+    target_month_str = f"{year:04d}-{month:02d}"
+
+    # Filename format: 2026-04-21_233724_P26034P_1.xml — shoot_no is between underscores, e.g. P26034P.
+    # Trailing letter is optional to handle malformed codes like P26010 (no trailing P).
+    # Normalise key: strip trailing non-digit suffix so P26010P, P26010_J etc. all → P26010.
+    # This avoids parsing XML here (which would trigger API lookups).
+    # IMPORTANT: same shoot_no + different client name = separate shoots (number reuse error).
+    _shoot_no_re = re.compile(r'_([A-Z]\d{3,}[A-Z]?)(?:_|\.)', re.IGNORECASE)
+    _shoot_no_normalise_re = re.compile(r'^([A-Z]\d+)[A-Z]?$', re.IGNORECASE)
+
+    def _quick_client_name(xml_path: str) -> str:
+        """Read First_Name + Last_Name from XML without full parse (no API calls)."""
+        try:
+            import xml.etree.ElementTree as _ET
+            _tree = _ET.parse(xml_path)
+            fn = (_tree.findtext('First_Name') or '').strip()
+            ln = (_tree.findtext('Last_Name') or '').strip()
+            return f"{fn} {ln}".strip().lower()
+        except Exception:
+            return ''
+
+    # shoot_no -> list of (xml_path, mod_time, client_name)
+    shoot_candidates: dict[str, list[tuple[str, float, str]]] = {}
+    orphan_files: list[str] = []
+    for xml_path in xml_paths:
+        filename = os.path.basename(xml_path)
+        m = _shoot_no_re.search(filename)
+        if m:
+            raw_no = m.group(1).upper()
+            # Normalise: P26010P → P26010, P26010_J → P26010 (strip trailing non-digit letter)
+            nm = _shoot_no_normalise_re.match(raw_no)
+            shoot_no = nm.group(1).upper() if nm else raw_no
+            mod_time = os.path.getmtime(xml_path)
+            client = _quick_client_name(xml_path)
+            shoot_candidates.setdefault(shoot_no, []).append((xml_path, mod_time, client))
+        else:
+            orphan_files.append(xml_path)
+
+    deduped_paths: list[str] = []
+    for shoot_no, candidates in shoot_candidates.items():
+        # Group by client name to detect shoot number reuse
+        by_client: dict[str, list[tuple[str, float]]] = {}
+        for path, mtime, client in candidates:
+            by_client.setdefault(client or '__unknown__', []).append((path, mtime))
+
+        if len(by_client) > 1:
+            # Only warn if at least one of the conflicting files is in the target month
+            # (avoids constant noise from old historical data that will never be processed)
+            any_in_month = any(
+                os.path.basename(p).startswith(target_month_str)
+                for files in by_client.values()
+                for p, _ in files
+            )
+            if any_in_month:
+                client_list = ', '.join(
+                    f"{c!r} ({len(v)} file(s))" for c, v in by_client.items()
+                )
+                print(
+                    f"[WARN] Shoot number {shoot_no} used for multiple clients: {client_list}. "
+                    f"Treating as separate shoots.", flush=True
+                )
+
+        for client, files in by_client.items():
+            # Keep only the latest file for each client group
+            latest = max(files, key=lambda x: x[1])[0]
+            deduped_paths.append(latest)
+
+    deduped_paths += orphan_files
+
+    if len(deduped_paths) < len(xml_paths):
+        duplicates_removed = len(xml_paths) - len(deduped_paths)
+        print(f"Removed {duplicates_removed} duplicate XML file(s) (keeping latest of each shoot)", flush=True)
+    xml_paths = deduped_paths
+
+    # Cache shoot_no → resolved GHL contact ID within this batch run.
+    # Allows a second spelling of the same shoot (e.g. P25107 'Sreeter' vs 'Streeter')
+    # to reuse the ID found by the first without an extra API call.
+    _shoot_id_cache: dict[str, str] = {}
+
+    for xml_path in xml_paths:
+        # Fast date pre-check: read only <DateSQL> from the XML before doing a full
+        # parse (which would trigger GHL API calls for contact lookups).
+        try:
+            import xml.etree.ElementTree as _ET
+            _tree = _ET.parse(xml_path)
+            _date_sql = (_tree.findtext('.//Order/DateSQL') or '').strip()
+            if _date_sql and not _date_sql.startswith(target_month_str):
+                continue
+        except Exception:
+            pass  # Malformed XML or missing field — let full parse decide
+
+        item = {
+            'xml_path': xml_path,
+            'success': False,
+        }
+        try:
+            ps_data = parse_proselect_xml(xml_path)
+            if not ps_data:
+                item['error'] = 'Failed to parse XML'
+                summary['failed'] += 1
+                summary['items'].append(item)
+                continue
+
+            if not _ps_data_matches_batch_month(ps_data, xml_path, year, month):
+                continue
+
+            album_name = ps_data.get('album_name', '')
+            shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+            contact_id = str(ps_data.get('ghl_contact_id', '') or '').strip()
+            client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
+
+            # Hard skip any test shoot — client name contains "test" (case-insensitive)
+            if 'test' in client_name.lower():
+                print(f"\n  - Skip: test shoot ({client_name})", flush=True)
+                summary['failed'] += 1
+                item['success'] = False
+                item['error'] = f'test shoot skipped ({client_name})'
+                summary['items'].append(item)
+                continue
+
+            summary['matched_month'] += 1
+            print(f"\n[{summary['matched_month']}] Processing {shoot_no or '(no shoot)'} - {client_name or album_name or os.path.basename(xml_path)}", flush=True)
+            service_type = _extract_service_type_from_ps_data(ps_data)
+            order_data = ps_data.get('order', {}) if isinstance(ps_data, dict) else {}
+            shoot_date = str(order_data.get('date') or '').strip() if isinstance(order_data, dict) else ''
+            psa_path = _resolve_psa_path_for_sync(xml_path, ps_data)
+            psa_meta = psa_meta_get_all(psa_path) if psa_path else {}
+
+            # Seed cache with any ID already known for this shoot
+            if contact_id and shoot_no:
+                _shoot_id_cache[shoot_no.upper()] = contact_id
+
+            item.update({
+                'client_name': client_name,
+                'album_name': album_name,
+                'shoot_no': shoot_no,
+                'contact_id': contact_id,
+                'psa_path': psa_path,
+            })
+
+            if psa_meta.get('last_sync_at') or psa_meta.get('ghl_last_opportunity_id') or psa_meta.get('ghl_last_invoice_id'):
+                item['success'] = True
+                item['skipped'] = 'already_synced'
+                summary['skipped_synced'] += 1
+                if force_opp_stage_eval and contact_id:
+                    print('  - Skip: already synced — re-evaluating opportunity stage only', flush=True)
+                    move_result = move_contact_opportunity_to_production(
+                        contact_id, shoot_no, album_name, service_type, shoot_date, ps_data
+                    )
+                    item['production_move'] = move_result
+                    if move_result.get('success') and int(move_result.get('moved', 0) or 0) > 0:
+                        print(f"  [OPP] Stage updated: {move_result.get('stage')}", flush=True)
+                else:
+                    print('  - Skip: already synced in PSA metadata', flush=True)
+                summary['items'].append(item)
+                continue
+
+            if not contact_id:
+                # Use sibling shoot ID if already resolved in this batch run (same shoot, typo name)
+                norm_shoot = shoot_no.upper() if shoot_no else ''
+                if norm_shoot and norm_shoot in _shoot_id_cache:
+                    contact_id = _shoot_id_cache[norm_shoot]
+                    print(f"[OK] Found contact via shoot cache ({norm_shoot})", flush=True)
+                    _inject_ghl_id_into_xml(xml_path, contact_id)
+                    if psa_path:
+                        psa_meta_set(psa_path, 'ghl_contact_id', contact_id)
+                    item['contact_id'] = contact_id
+                    ps_data['ghl_contact_id'] = contact_id
+
+            if not contact_id:
+                # Final fallback: search GHL by first + last name
+                first_name = ps_data.get('first_name', '').strip()
+                last_name = ps_data.get('last_name', '').strip()
+                contact_id = find_ghl_contact_by_name(first_name, last_name) or ''
+
+            if contact_id:
+                # Found via fallback — persist into XML and PSA so future runs don't need to search
+                _inject_ghl_id_into_xml(xml_path, contact_id)
+                if psa_path:
+                    psa_meta_set(psa_path, 'ghl_contact_id', contact_id)
+                item['contact_id'] = contact_id
+                ps_data['ghl_contact_id'] = contact_id
+                if norm_shoot := shoot_no.upper():
+                    _shoot_id_cache[norm_shoot] = contact_id
+
+            if not contact_id:
+                item['error'] = 'No GHL Contact ID in XML'
+                summary['failed'] += 1
+                summary['items'].append(item)
+                print('  - Failed: no GHL Contact ID in XML', flush=True)
+                continue
+
+            result = update_ghl_contact(contact_id, ps_data) or {'success': False, 'error': 'Contact update returned no result'}
+            if result is None:
+                result = {'success': False, 'error': 'Contact update returned no result'}
+
+            invoice_id = ''
+            opp_id = ''
+            existing_invoice = None
+            create_invoice_for_item = True
+            if skip_existing_invoices:
+                order_total = order_data.get('total_amount', 0) if isinstance(order_data, dict) else 0
+                existing_invoice = check_existing_invoice(contact_id, shoot_no, order_total)
+                if existing_invoice:
+                    create_invoice_for_item = False
+                    summary['skipped_existing_invoices'] += 1
+                    invoice_id = str(existing_invoice.get('invoice_id') or '').strip()
+                    result['invoice'] = {
+                        'success': True,
+                        'skipped_existing': True,
+                        **existing_invoice,
+                    }
+                    print('  - Skip invoice: existing invoice found', flush=True)
+
+            if create_invoice_for_item and result.get('success'):
+                invoice_result = create_ghl_invoice(
+                    contact_id,
+                    ps_data,
+                    financials_only,
+                    rounding_in_deposit,
+                    open_browser,
+                    skip_zero_extras,
+                )
+                if invoice_result:
+                    result['invoice'] = invoice_result
+                    invoice_id = str(invoice_result.get('invoice_id') or '').strip()
+
+            if result.get('success'):
+                existing_production = None
+                if skip_existing_opportunities:
+                    existing_production = _find_existing_production_opportunity(
+                        contact_id,
+                        shoot_no,
+                        album_name,
+                        service_type,
+                        shoot_date,
+                    )
+
+                if existing_production is not None:
+                    opp_id = _get_opportunity_id(existing_production)
+                    result['production_move'] = {
+                        'success': True,
+                        'moved': 0,
+                        'existing': True,
+                        'opportunity_id': opp_id,
+                        'message': 'Opportunity already in Production pipeline',
+                    }
+                    summary['skipped_existing_opportunities'] += 1
+                    print('  - Skip opportunity: already in Production pipeline', flush=True)
+                else:
+                    move_result = move_contact_opportunity_to_production(
+                        contact_id,
+                        shoot_no,
+                        album_name,
+                        service_type,
+                        shoot_date,
+                        ps_data,
+                    )
+                    result['production_move'] = move_result
+                    opp_id = str(move_result.get('opportunity_id') or '').strip()
+
+                if CONFIG.get('AUTO_ADD_CONTACT_TAGS', True):
+                    sync_tag = CONFIG.get('SYNC_TAG', 'PS Invoice')
+                    if sync_tag:
+                        add_tags_to_contact(contact_id, [sync_tag])
+
+                if CONFIG.get('AUTO_ADD_OPP_TAGS', True):
+                    opp_tags = CONFIG.get('OPPORTUNITY_TAGS', [])
+                    if opp_tags:
+                        tagged = tag_contact_opportunities(contact_id, opp_tags)
+                        if tagged > 0:
+                            result['opportunities_tagged'] = tagged
+
+                result['psa_meta'] = _persist_psa_sync_metadata(
+                    xml_path,
+                    ps_data,
+                    contact_id,
+                    shoot_no,
+                    album_name,
+                    invoice_id,
+                    opp_id,
+                )
+                if not result['psa_meta'].get('success'):
+                    result.setdefault('warnings', []).append('PSA metadata write failed')
+
+            if supplier_sync_enabled and create_invoice_for_item and result.get('success'):
+                supplier_job_ref = _build_supplier_job_ref(shoot_no, ps_data.get('last_name', ''))
+                if supplier_job_ref:
+                    result['supplier_sync'] = _run_supplier_sync(supplier_job_ref, supplier_ssh_host, supplier_remote_db_path)
+
+            item['success'] = bool(result.get('success'))
+            if result.get('error'):
+                item['error'] = result.get('error')
+            if existing_invoice:
+                item['invoice'] = 'existing'
+            elif result.get('invoice'):
+                item['invoice'] = 'created'
+            if result.get('production_move', {}).get('existing'):
+                item['opportunity'] = 'existing'
+            elif result.get('production_move'):
+                item['opportunity'] = 'processed'
+
+            if item['success']:
+                summary['processed'] += 1
+                print('  - Done', flush=True)
+            else:
+                summary['success'] = False
+                summary['failed'] += 1
+                print(f"  - Failed: {item.get('error', 'Unknown error')}", flush=True)
+
+            summary['items'].append(item)
+        except Exception as exc:
+            summary['success'] = False
+            summary['failed'] += 1
+            item['error'] = str(exc)
+            summary['items'].append(item)
+            print(f"  - Failed with exception: {exc}", flush=True)
+            debug_log('BATCH SYNC ITEM FAILED', {'xml_path': xml_path, 'exception': str(exc)})
+
+    if summary['matched_month'] == 0:
+        summary['success'] = False
+        summary['error'] = f'No XML exports matched {year:04d}-{month:02d}'
+
+    return summary
+
+
+def _can_reach_ssh_host(ssh_host: str, timeout: int = 5) -> bool:
+    """Quick connectivity check to SSH host (no auth needed, just ICMP ping)."""
+    if not ssh_host:
+        return False
+    try:
+        # Use ping command; on Windows/Linux both support it.
+        # -n 1 (Windows) or -c 1 (Unix) = 1 packet
+        cmd = ['ping', '-n' if os.name == 'nt' else '-c', '1', '-w' if os.name == 'nt' else '-W', str(timeout * 1000), ssh_host]
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 2)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _run_supplier_sync(job_ref: str, ssh_host: str, remote_db_path: str) -> dict:
+    """Invoke supplier sync helper and return parsed result."""
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sync_supplier_status_to_ghl.py')
+    if not os.path.exists(script_path):
+        return {'success': False, 'error': f'sync_supplier_status_to_ghl.py not found at {script_path}'}
+
+    cmd = [
+        sys.executable,
+        script_path,
+        '--job-ref',
+        job_ref,
+        '--apply',
+        '--json',
+    ]
+
+    if ssh_host:
+        cmd.extend(['--ssh-host', ssh_host])
+    if remote_db_path:
+        cmd.extend(['--remote-db-path', remote_db_path])
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except Exception as exc:
+        return {'success': False, 'error': f'supplier sync launch failed: {exc}'}
+
+    stdout = (proc.stdout or '').strip()
+    stderr = (proc.stderr or '').strip()
+
+    if proc.returncode != 0:
+        return {
+            'success': False,
+            'error': f'supplier sync failed (exit {proc.returncode})',
+            'stderr': stderr,
+            'stdout': stdout[:2000],
+        }
+
+    payload: dict = {}
+    if stdout:
+        try:
+            payload = json.loads(stdout)
+        except Exception:
+            payload = {'raw_output': stdout[:2000]}
+
+    payload['success'] = True
+    return payload
 
 
 def _process_sync(
@@ -4718,7 +6588,10 @@ def _process_sync(
     collect_folder: str = '',
     rounding_in_deposit: bool = True,
     open_browser: bool = True,
-    skip_zero_extras: bool = False
+    skip_zero_extras: bool = False,
+    supplier_sync_enabled: bool = True,
+    supplier_ssh_host: str = 'toypi.tail009b36.ts.net',
+    supplier_remote_db_path: str = '/home/guy/.openclaw/data/supplier_status.db',
 ) -> dict:
     """Process the sync operation.
 
@@ -4746,6 +6619,8 @@ def _process_sync(
         total_steps += 1
     if create_invoice:
         total_steps += 1
+    if create_invoice and supplier_sync_enabled:
+        total_steps += 1
     current_step = 0
 
     # Step 1: Parse XML
@@ -4762,6 +6637,9 @@ def _process_sync(
     client_name = f"{ps_data.get('first_name')} {ps_data.get('last_name')}"
     album_name = ps_data.get('album_name', '')
     shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+    order_data = ps_data.get('order', {}) if isinstance(ps_data, dict) else {}
+    shoot_date = str(order_data.get('date') or '').strip() if isinstance(order_data, dict) else ''
+    service_type = _extract_service_type_from_ps_data(ps_data)
     print(f"Client: [redacted]")
     print(f"Email: [redacted]")
 
@@ -4773,7 +6651,7 @@ def _process_sync(
     print(f"Order Total: £{order_total:.2f}\n")
 
     if not contact_id:
-        print("✗ No GHL Contact ID in XML")
+        print("[FAIL] No GHL Contact ID in XML")
         write_progress(current_step, total_steps, "No GHL Contact ID in XML", 'error')
         error_log("NO GHL CONTACT ID IN XML", {
             "xml_path": xml_path,
@@ -4791,13 +6669,14 @@ def _process_sync(
         psa_path = ''
         album_path = ps_data.get('album_path', '')
         if album_path and os.path.isdir(album_path):
-            # Find most recent .psa file in album folder
-            psa_files = [f for f in os.listdir(album_path) if f.endswith('.psa')]
-            if psa_files:
-                # Sort by modification time, get most recent
-                psa_files_full = [os.path.join(album_path, f) for f in psa_files]
-                psa_path = max(psa_files_full, key=os.path.getmtime)
-                debug_log("CONTACT SHEET - Found PSA file", {"psa_path": psa_path})
+            # Only look in Unprocessed subfolder — ignore PSAs outside it.
+            unprocessed_dir = os.path.join(album_path, 'Unprocessed')
+            if os.path.isdir(unprocessed_dir):
+                psa_files = [f for f in os.listdir(unprocessed_dir) if f.endswith('.psa')]
+                if psa_files:
+                    psa_files_full = [os.path.join(unprocessed_dir, f) for f in psa_files]
+                    psa_path = max(psa_files_full, key=os.path.getmtime)
+                    debug_log("CONTACT SHEET - Found PSA file", {"psa_path": psa_path})
         _create_and_upload_contact_sheet(xml_path, contact_id, collect_folder, psa_path)
 
     # Step 3: Update contact
@@ -4811,15 +6690,27 @@ def _process_sync(
     if create_invoice and result.get('success'):
         current_step += 1
         write_progress(current_step, total_steps, f"Creating invoice & recording payments...")
-        print(f"\n📄 Creating GHL invoice...")
+        print(f"\n Creating GHL invoice...")
         invoice_result = create_ghl_invoice(contact_id, ps_data, financials_only, rounding_in_deposit, open_browser, skip_zero_extras)
         if invoice_result:
             result['invoice'] = invoice_result
     elif not create_invoice:
-        print("\n⏭ Skipping invoice creation (--no-invoice flag)")
+        print("\n[SKIP] Skipping invoice creation (--no-invoice flag)")
 
     # Step 5: Add tags to contact and opportunities on successful sync
     if result.get('success'):
+        move_result = move_contact_opportunity_to_production(contact_id, shoot_no, album_name, service_type, shoot_date, ps_data)
+        result['production_move'] = move_result
+        if move_result.get('success'):
+            moved = int(move_result.get('moved', 0) or 0)
+            if moved > 0:
+                moved_stage = str(move_result.get('stage') or PRODUCTION_ORDER_CONFIRMED_STAGE)
+                print(f"[OK] Opportunity moved to {PRODUCTION_PIPELINE_NAME} ({moved_stage})")
+        else:
+            result.setdefault('warnings', []).append(
+                f"Production move: {move_result.get('error', 'Unknown move error')}"
+            )
+
         # Add sync tag to contact (configurable via INI: Tags / legacy SyncTag)
         if CONFIG.get('AUTO_ADD_CONTACT_TAGS', True):
             sync_tag = CONFIG.get('SYNC_TAG', 'PS Invoice')
@@ -4839,6 +6730,73 @@ def _process_sync(
         else:
             debug_log("Skipping opportunity tags (AutoAddOppTags disabled)")
 
+        invoice_id = ''
+        opp_id = ''
+        try:
+            invoice_id = str(((result.get('invoice') or {}).get('invoice_id') or '')).strip()
+        except Exception:
+            invoice_id = ''
+        try:
+            opp_id = str(((result.get('production_move') or {}).get('opportunity_id') or '')).strip()
+        except Exception:
+            opp_id = ''
+
+        result['psa_meta'] = _persist_psa_sync_metadata(
+            xml_path,
+            ps_data,
+            contact_id,
+            shoot_no,
+            album_name,
+            invoice_id,
+            opp_id,
+        )
+        if not result['psa_meta'].get('success'):
+            if result['psa_meta'].get('reason'):
+                result.setdefault('warnings', []).append('PSA metadata skipped (no PSA path found)')
+            else:
+                result.setdefault('warnings', []).append('PSA metadata write failed')
+
+    # Step 6: Supplier sync (optional, post-invoice)
+    if create_invoice and supplier_sync_enabled and result.get('success'):
+        current_step += 1
+        write_progress(current_step, total_steps, "Syncing supplier status to GHL...")
+
+        supplier_job_ref = _build_supplier_job_ref(shoot_no, ps_data.get('last_name', ''))
+        if not supplier_job_ref:
+            supplier_result = {
+                'success': False,
+                'error': f'Could not build supplier job ref from shoot_no={shoot_no} and last_name={ps_data.get("last_name", "")}',
+            }
+            print("\n[WARN] Supplier sync skipped - unable to build job reference")
+        # Failsafe 1: Check if SSH host is reachable
+        elif not _can_reach_ssh_host(supplier_ssh_host):
+            supplier_result = {
+                'success': False,
+                'error': f'SSH host {supplier_ssh_host} is not reachable',
+            }
+            print(f"\n[WARN] Supplier sync skipped - SSH host {supplier_ssh_host} unreachable")
+        # Failsafe 2: Skip if RT folder is empty (no lab work to sync)
+        else:
+            rt_path = os.path.join(_find_shoot_folder(shoot_no) or '', 'Processed', 'RT')
+            rt_has_files = _folder_has_files(rt_path)
+            if not rt_has_files:
+                supplier_result = {
+                    'success': False,
+                    'error': f'RT folder is empty - no lab work to sync',
+                }
+                print("\n[WARN] Supplier sync skipped - RT folder is empty")
+            else:
+                print(f"\n Syncing supplier status for {supplier_job_ref}...")
+                supplier_result = _run_supplier_sync(supplier_job_ref, supplier_ssh_host, supplier_remote_db_path)
+                if supplier_result.get('success'):
+                    print("[OK] Supplier status synced")
+                else:
+                    print(f"[WARN] Supplier sync failed: {supplier_result.get('error', 'Unknown error')}")
+
+        result['supplier_sync'] = supplier_result
+        if not supplier_result.get('success'):
+            result.setdefault('warnings', []).append(f"Supplier sync: {supplier_result.get('error', 'Unknown error')}")
+
     # Final step: Done
     current_step = total_steps
     if result.get('success'):
@@ -4856,6 +6814,12 @@ def _process_sync(
 def main() -> None:
     """Main entry point - parse arguments and sync ProSelect invoice to GHL."""
     args = _parse_cli_args()
+
+    if args.read_psa_meta:
+        import json as _json
+        meta = psa_meta_get_all(args.read_psa_meta)
+        print(_json.dumps(meta))
+        sys.exit(0 if meta else 1)
 
     if args.list_folders:
         list_ghl_folders()
@@ -4897,6 +6861,46 @@ def main() -> None:
         debug_log("CLI MODE: --send-room-email", {"contact_id": cid, "image_path": img_path, "template_id": args.email_template})
         result = send_room_capture_email(cid, img_path, subject=args.email_subject, template_id=args.email_template)
         _save_and_log_result(result)
+        sys.exit(0 if result.get('success') else 1)
+
+    if args.batch_sync_month:
+        debug_log("CLI MODE: --batch-sync-month", {
+            "batch_sync_month": args.batch_sync_month,
+            "batch_xml_folder": args.batch_xml_folder,
+            "skip_existing_invoices": args.batch_skip_existing_invoices,
+            "skip_existing_opportunities": args.batch_skip_existing_opportunities,
+            "force_opp_stage_eval": args.batch_force_opp_stage,
+        })
+        result = run_batch_sync_month(
+            args.batch_sync_month,
+            args.batch_xml_folder,
+            financials_only=args.financials_only,
+            create_contact_sheet=not args.no_contact_sheet,
+            collect_folder=args.collect_folder if args.collect_folder else '',
+            rounding_in_deposit=args.rounding_in_deposit,
+            open_browser=not args.no_open_browser,
+            skip_zero_extras=args.skip_zero_extras,
+            supplier_sync_enabled=not args.no_supplier_sync,
+            supplier_ssh_host=args.supplier_ssh_host,
+            supplier_remote_db_path=args.supplier_remote_db_path,
+            skip_existing_invoices=args.batch_skip_existing_invoices,
+            skip_existing_opportunities=args.batch_skip_existing_opportunities,
+            force_opp_stage_eval=args.batch_force_opp_stage,
+        )
+        _save_and_log_result(result)
+        print(
+            "Batch sync summary\n"
+            f"Month: {result.get('batch_month', args.batch_sync_month)}\n"
+            f"XML files found: {result.get('xml_files_found', 0)}\n"
+            f"Matched month: {result.get('matched_month', 0)}\n"
+            f"Processed: {result.get('processed', 0)}\n"
+            f"Skipped already synced: {result.get('skipped_synced', 0)}\n"
+            f"Skipped existing invoices: {result.get('skipped_existing_invoices', 0)}\n"
+            f"Skipped existing opportunities: {result.get('skipped_existing_opportunities', 0)}\n"
+            f"Failed: {result.get('failed', 0)}"
+        )
+        if result.get('error'):
+            print(f"Error: {result['error']}")
         sys.exit(0 if result.get('success') else 1)
 
     if not args.xml_path:
@@ -4966,11 +6970,11 @@ def main() -> None:
 
         # Step 1: Delete existing invoices for this shoot
         write_progress(1, 6, f"Deleting old invoice(s) for {shoot_no}...")
-        print(f"\n🔄 Resync: Deleting existing invoices for shoot {shoot_no}...")
+        print(f"\n Resync: Deleting existing invoices for shoot {shoot_no}...")
         del_result = delete_shoot_invoices(contact_id, shoot_no)
 
         if not del_result.get('success') and del_result.get('needs_manual_refund'):
-            print(f"\n⚠ Cannot resync - payments must be refunded manually in GHL first")
+            print(f"\n[WARN] Cannot resync - payments must be refunded manually in GHL first")
             result = {
                 **_resync_base_info,
                 'success': False,
@@ -4981,10 +6985,10 @@ def main() -> None:
             sys.exit(1)
 
         if del_result.get('failed', 0) > 0:
-            print(f"\n⚠ Some invoices could not be deleted - proceeding with sync anyway")
+            print(f"\n[WARN] Some invoices could not be deleted - proceeding with sync anyway")
 
         # Step 2: Run normal sync to create new invoice
-        print(f"\n🔄 Resync: Creating new invoice...")
+        print(f"\n Resync: Creating new invoice...")
         financials_only = args.financials_only
         create_invoice = not args.no_invoice
         create_contact_sheet = not args.no_contact_sheet
@@ -4992,9 +6996,24 @@ def main() -> None:
         rounding_in_deposit = args.rounding_in_deposit
         open_browser = not args.no_open_browser
         skip_zero_extras = args.skip_zero_extras
+        supplier_sync_enabled = not args.no_supplier_sync
+        supplier_ssh_host = args.supplier_ssh_host
+        supplier_remote_db_path = args.supplier_remote_db_path
 
         _print_sync_header(args.xml_path, financials_only, create_invoice, create_contact_sheet)
-        result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit, open_browser, skip_zero_extras)
+        result = _process_sync(
+            args.xml_path,
+            financials_only,
+            create_invoice,
+            create_contact_sheet,
+            collect_folder,
+            rounding_in_deposit,
+            open_browser,
+            skip_zero_extras,
+            supplier_sync_enabled,
+            supplier_ssh_host,
+            supplier_remote_db_path,
+        )
         result['resync'] = True
         result['old_invoices_deleted'] = del_result.get('deleted', 0) + del_result.get('voided', 0)
         _save_and_log_result(result)
@@ -5003,7 +7022,15 @@ def main() -> None:
     # Update existing invoice mode: update items in-place
     if args.update_invoice:
         debug_log("CLI MODE: --update-invoice", {"invoice_id": args.update_invoice, "xml_path": args.xml_path})
-        write_progress(0, 3, "Parsing XML for update...")
+        supplier_sync_enabled = not args.no_supplier_sync
+        supplier_ssh_host = args.supplier_ssh_host
+        supplier_remote_db_path = args.supplier_remote_db_path
+
+        total_steps = 3
+        if supplier_sync_enabled:
+            total_steps += 1
+
+        write_progress(0, total_steps, "Parsing XML for update...")
         ps_data = parse_proselect_xml(args.xml_path)
         if not ps_data:
             result = {'success': False, 'error': 'Failed to parse XML'}
@@ -5015,13 +7042,16 @@ def main() -> None:
         rounding_in_deposit = args.rounding_in_deposit
         skip_zero_extras = args.skip_zero_extras
 
-        write_progress(1, 3, "Updating invoice items & payments...")
+        write_progress(1, total_steps, "Updating invoice items & payments...")
         result = update_existing_invoice(args.update_invoice, ps_data, financials_only, rounding_in_deposit, open_browser, skip_zero_extras)
 
         # Enrich result with client info for error display
         client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
         album_name = ps_data.get('album_name', '')
         shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+        order_data = ps_data.get('order', {}) if isinstance(ps_data, dict) else {}
+        shoot_date = str(order_data.get('date') or '').strip() if isinstance(order_data, dict) else ''
+        service_type = _extract_service_type_from_ps_data(ps_data)
         result.setdefault('client_name', client_name)
         result.setdefault('shoot_no', shoot_no)
         result.setdefault('contact_id', ps_data.get('ghl_contact_id', ''))
@@ -5034,10 +7064,39 @@ def main() -> None:
         if result.get('success'):
             contact_id = ps_data.get('ghl_contact_id', '')
             if contact_id:
-                write_progress(2, 3, "Updating contact fields...")
+                write_progress(2, total_steps, "Updating contact fields...")
                 update_ghl_contact(contact_id, ps_data)
 
-        write_progress(3, 3, "Update complete" if result.get('success') else f"Update failed: {result.get('error', '')}", 'success' if result.get('success') else 'error')
+                move_result = move_contact_opportunity_to_production(contact_id, shoot_no, album_name, service_type, shoot_date, ps_data)
+                result['production_move'] = move_result
+                if move_result.get('success'):
+                    moved = int(move_result.get('moved', 0) or 0)
+                    if moved > 0:
+                        moved_stage = str(move_result.get('stage') or PRODUCTION_ORDER_CONFIRMED_STAGE)
+                        print(f"[OK] Opportunity moved to {PRODUCTION_PIPELINE_NAME} ({moved_stage})")
+                else:
+                    result.setdefault('warnings', []).append(
+                        f"Production move: {move_result.get('error', 'Unknown move error')}"
+                    )
+
+        # Supplier sync should also run in update mode so pipeline/status automation
+        # still happens even when invoice update is blocked by paid-vs-total validation.
+        if supplier_sync_enabled:
+            supplier_job_ref = _build_supplier_job_ref(shoot_no, ps_data.get('last_name', ''))
+            if supplier_job_ref:
+                write_progress(total_steps - 1, total_steps, f"Syncing supplier status ({supplier_job_ref})...")
+                supplier_result = _run_supplier_sync(supplier_job_ref, supplier_ssh_host, supplier_remote_db_path)
+                result['supplier_sync'] = supplier_result
+                if supplier_result.get('success'):
+                    print(f"\n[OK] Supplier status synced ({supplier_job_ref})")
+                else:
+                    warn_msg = supplier_result.get('error', 'Unknown supplier sync error')
+                    print(f"\n[WARN] Supplier sync failed ({supplier_job_ref}): {warn_msg}")
+                    result.setdefault('warnings', []).append(f"Supplier sync: {warn_msg}")
+            else:
+                result.setdefault('warnings', []).append('Supplier sync skipped: could not build supplier job ref')
+
+        write_progress(total_steps, total_steps, "Update complete" if result.get('success') else f"Update failed: {result.get('error', '')}", 'success' if result.get('success') else 'error')
         _save_and_log_result(result)
         sys.exit(0 if result.get('success') else 1)
 
@@ -5048,14 +7107,33 @@ def main() -> None:
     rounding_in_deposit = args.rounding_in_deposit
     open_browser = not args.no_open_browser
     skip_zero_extras = args.skip_zero_extras
+    supplier_sync_enabled = not args.no_supplier_sync
+    supplier_ssh_host = args.supplier_ssh_host
+    supplier_remote_db_path = args.supplier_remote_db_path
 
     _print_sync_header(args.xml_path, financials_only, create_invoice, create_contact_sheet)
-    result = _process_sync(args.xml_path, financials_only, create_invoice, create_contact_sheet, collect_folder, rounding_in_deposit, open_browser, skip_zero_extras)
+    result = _process_sync(
+        args.xml_path,
+        financials_only,
+        create_invoice,
+        create_contact_sheet,
+        collect_folder,
+        rounding_in_deposit,
+        open_browser,
+        skip_zero_extras,
+        supplier_sync_enabled,
+        supplier_ssh_host,
+        supplier_remote_db_path,
+    )
     _save_and_log_result(result)
     sys.exit(0 if result.get('success') else 1)
 
 
 if __name__ == "__main__":
+    # Force stdout to CP1252 so AHK (which reads the pipe as CP1252) sees £ correctly.
+    # Without this, Python's UTF-8 £ (\xC2\xA3) is misread by AHK as Â£.
+    import io as _io
+    sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding='cp1252', errors='replace')
     try:
         main()
     except Exception as e:

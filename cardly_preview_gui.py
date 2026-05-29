@@ -265,7 +265,7 @@ try:
         _enrich_contact_address, save_to_album_folder, list_recent_orders,
         sanitize_recipient,
         CARDLY_API_KEY, CARDLY_MEDIA_ID, CARDLY_CONFIG, GHL_API_KEY,
-        CARDLY_WIDTH, CARDLY_HEIGHT, debug_print, DEBUG
+        CARDLY_WIDTH, CARDLY_HEIGHT, CARDLY_BASE_URL, debug_print, DEBUG
     )
 except ImportError as e:
     print(f"Error importing cardly module: {e}")
@@ -1436,12 +1436,15 @@ class CardPreviewGUI:
                 anchor='w', justify='left')
         self.recip_name_label.pack(fill='x')
 
-        # Address — compact: address1, city+postcode on one line, country
+        # Address — compact: address1, address2, city+postcode, country
         if self.recipient:
             addr_parts = []
             a1 = self.recipient.get('address1', '').strip()
             if a1:
                 addr_parts.append(a1)
+            a2 = self.recipient.get('address2', '').strip()
+            if a2:
+                addr_parts.append(a2)
             # City, postcode on one line
             city_pc = ', '.join(filter(None, [
                 self.recipient.get('city', '').strip(),
@@ -1796,6 +1799,34 @@ class CardPreviewGUI:
                     self.root.after(0, lambda: self._update_pending_btn(orders))
             except Exception as e:
                 debug_print(f"Pending card check failed: {e}")
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
+    def _check_cardly_health_bg(self):
+        """Check Cardly API availability in background thread, warn if unreachable."""
+        import threading
+        import requests
+
+        def _worker():
+            try:
+                headers = {"API-Key": CARDLY_API_KEY} if CARDLY_API_KEY else {}
+                url = f"{CARDLY_BASE_URL}/orders?limit=1"
+                resp = requests.get(url, headers=headers, timeout=10)
+                if resp.status_code in (502, 504):
+                    self.root.after(0, lambda: messagebox.showwarning(
+                        "Cardly Unavailable",
+                        "The Cardly printing service is currently unavailable.\n\n"
+                        "You can still design your card, but sending may fail.\n"
+                        "Try again in a few minutes."
+                    ))
+            except Exception:
+                self.root.after(0, lambda: messagebox.showwarning(
+                    "Cardly Unavailable",
+                    "Cannot reach the Cardly printing service.\n\n"
+                    "Check your internet connection or try again later.\n"
+                    "You can still design your card in the meantime."
+                ))
 
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
@@ -3091,6 +3122,9 @@ class CardPreviewGUI:
 
         # Check for pending cards on Cardly in background
         self._check_pending_cards_bg()
+
+        # Check Cardly API health in background (warn if unreachable)
+        self._check_cardly_health_bg()
 
         # Highlight first thumbnail
         if self.thumb_labels:

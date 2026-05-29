@@ -342,6 +342,35 @@ CreateGeneralPanel()
 	RegisterSettingsTooltip(HwndGenManual, "USER MANUAL`n`nOpen the online documentation and user guide.`nLearn about features, setup, and troubleshooting.")
 	Gui, Settings:Add, Button, x440 y290 w70 h30 gExportSettings vGenExportBtn, 📤 Export
 	Gui, Settings:Add, Button, x520 y290 w70 h30 gImportSettings vGenImportBtn, 📥 Import
+
+	; ═══════════════════════════════════════════════════════════════════════════
+	; BATCH ACTIONS GROUP BOX (lower half)
+	; ═══════════════════════════════════════════════════════════════════════════
+	Gui, Settings:Font, s10 Norm c%groupColor%, Segoe UI
+	Gui, Settings:Add, GroupBox, x195 y355 w480 h315 vGenBatchGroup, Batch Actions
+	batchMonthChoose := StrReplace(Settings_BatchMonthDate, "-", "")
+	if (StrLen(batchMonthChoose) != 8)
+		batchMonthChoose := SubStr(A_Now, 1, 8)
+	batchMonthToChoose := StrReplace(Settings_BatchMonthDateTo, "-", "")
+	if (StrLen(batchMonthToChoose) != 8)
+		batchMonthToChoose := batchMonthChoose
+
+	Gui, Settings:Font, s10 Norm c%labelColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y382 w420 BackgroundTrans vGenBatchIntro, Sync exported XMLs for a date range and write GHL production metadata back into the PSA.
+	Gui, Settings:Add, Text, x210 y420 w50 BackgroundTrans vGenBatchFromLabel, From:
+	Gui, Settings:Add, DateTime, x265 y417 w150 h25 vGenBatchMonthFrom Choose%batchMonthChoose%, yyyy-MM
+	Gui, Settings:Add, Text, x430 y420 w30 BackgroundTrans vGenBatchToLabel, To:
+	Gui, Settings:Add, DateTime, x465 y417 w150 h25 vGenBatchMonthTo Choose%batchMonthToChoose%, yyyy-MM
+
+	Gui, Settings:Add, CheckBox, x210 y455 w250 vGenBatchSkipInvoicesChk Checked%Settings_BatchSkipExistingInvoices%, Skip existing invoices
+	Gui, Settings:Add, CheckBox, x210 y480 w300 vGenBatchSkipOppsChk Checked%Settings_BatchSkipExistingOpportunities%, Skip opportunities already in Production
+	Gui, Settings:Add, CheckBox, x210 y505 w300 vGenBatchForceOppStageChk, Force re-evaluate opportunity stage
+
+	Gui, Settings:Font, s9 Norm c%mutedColor%, Segoe UI
+	Gui, Settings:Add, Text, x210 y535 w440 BackgroundTrans vGenBatchHint, Uses XMLs from the normal Invoice Watch Folder. Select a single month or a range of months to process.
+
+	Gui, Settings:Font, s10 Norm c%textColor%, Segoe UI
+	Gui, Settings:Add, Button, x210 y570 w180 h34 gLaunchBatchSync vGenBatchRunBtn, ▶ Start Batch Sync
 }
 
 CreateGHLPanel()

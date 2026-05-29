@@ -130,7 +130,35 @@ def format_amount(amount) -> str:
         return f"{amount:.2f}"
 
 
-def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_group=1, clear_method=None) -> str:
+def _ensure_psa_meta_table(conn: sqlite3.Connection) -> None:
+    """Ensure SideKick metadata table exists in PSA SQLite DB."""
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS sk_ps_meta (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            value TEXT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        '''
+    )
+
+
+def psa_meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
+    """Upsert one metadata key/value pair into sk_ps_meta."""
+    conn.execute(
+        '''
+        INSERT INTO sk_ps_meta (key, value, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET
+            value=excluded.value,
+            updated_at=datetime('now')
+        ''',
+        (str(key), str(value) if value is not None else '')
+    )
+
+
+def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_group=1, clear_method=None, meta=None) -> str:
     """
     Write payment lines into a .psa SQLite database file.
 
@@ -142,6 +170,7 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
         clear_method: If set, remove only payments whose methodName contains this
                       string (case-insensitive). Overrides clear_existing for
                       selective removal — e.g. "GoCardless" preserves deposits.
+        meta: Optional dict of key/value pairs to write to sk_ps_meta table
 
     Returns:
         "SUCCESS|count" or "ERROR|message"
@@ -366,6 +395,14 @@ def write_payments_to_psa(psa_path, payment_args, clear_existing=False, target_g
             'UPDATE BigStrings SET buffer=? WHERE buffCode=?',
             (order_data, 'OrderList')
         )
+
+        # Write metadata keys if provided
+        if meta:
+            _ensure_psa_meta_table(conn)
+            for key, value in meta.items():
+                if key:
+                    psa_meta_set(conn, key, value)
+
         conn.commit()
         conn.close()
 
@@ -390,6 +427,7 @@ def main() -> None:
     clear_existing = False
     clear_method = None
     target_group = 1
+    meta = {}
     payment_args = []
 
     i = 2
@@ -403,11 +441,17 @@ def main() -> None:
         elif arg == "--group" and i + 1 < len(sys.argv):
             i += 1
             target_group = int(sys.argv[i])
+        elif arg == "--meta" and i + 1 < len(sys.argv):
+            i += 1
+            meta_pair = sys.argv[i]
+            if ":" in meta_pair:
+                k, v = meta_pair.split(":", 1)
+                meta[k.strip()] = v.strip()
         else:
             payment_args.append(arg)
         i += 1
 
-    result = write_payments_to_psa(psa_path, payment_args, clear_existing, target_group, clear_method)
+    result = write_payments_to_psa(psa_path, payment_args, clear_existing, target_group, clear_method, meta)
     print(result)
 
 

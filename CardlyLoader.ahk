@@ -62,8 +62,23 @@ Gui, Add, Progress, x%contentX% y%clYBar% w%clBarW% h%clBarH% Background3C3C3C c
 Gui, Font, s9 c%clTxt%
 Gui, Add, Text, x%contentX% y%clYStatus% w%clBarW% vLoadStatus BackgroundTrans, Checking ProSelect...
 
-; Centre on ProSelect window if available, otherwise default placement
-WinGetPos, _psX, _psY, _psW, _psH, ahk_exe ProSelect.exe
+; Centre on the main ProSelect album window (not Mirror/Slide Show sub-windows)
+_psX := _psY := _psW := _psH := ""
+WinGet, psWinList, List, ahk_exe ProSelect.exe
+Loop, %psWinList%
+{
+	thisHwnd := psWinList%A_Index%
+	WinGetTitle, candidateTitle, ahk_id %thisHwnd%
+	if (candidateTitle = "" || candidateTitle = "ProSelect" || candidateTitle = "ProSelect - Untitled")
+		continue
+	if (InStr(candidateTitle, "_") || InStr(candidateTitle, ".psa"))
+	{
+		WinGetPos, _psX, _psY, _psW, _psH, ahk_id %thisHwnd%
+		break
+	}
+}
+if (_psW = "" || _psH = "")
+	WinGetPos, _psX, _psY, _psW, _psH, ahk_exe ProSelect.exe
 if (_psW != "" && _psH != "") {
 	clShowX := _psX + (_psW - clW) // 2
 	clShowY := _psY + (_psH - clH) // 2

@@ -1,9 +1,16 @@
 ﻿{
-  "version": "3.0.16",
-  "build_date": "2026-04-18",
+  "version": "3.0.21",
+  "build_date": "2026-05-29",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GHL tag refresh overwrites unsaved ComboBox selection with previously-saved tag",
+  "release_notes": "GC interval detection fix; stray one-off fix; stale date fix; PSA pay period metadata; Pay 1st ASAP option",
   "changelog": [
-    "FIX: GHL tag refresh (contact and opportunity) overwrote any unsaved ComboBox selection with the previously-saved INI value -- all four refresh handlers (RefreshGHLTags, RefreshGHLTagsSilent, RefreshGHLOppTags, RefreshGHLOppTagsSilent) now read the live ComboBox value via GuiControlGet before rebuilding the list, so the user's current selection is preserved"
+    "FIX: GC interval detection tolerance tightened — monthly 30-31 day gaps no longer falsely detected as 4-weekly",
+    "FIX: GC stray one-off payment — rounding-adjusted first payments no longer split into standalone + truncated schedule",
+    "FIX: GC stale date check — exactly-4-day-ahead dates no longer falsely flagged",
+    "FIX: Existing PayPlan detection now only counts GoCardless DD payments (ignores credit card deposits)",
+    "NEW: PSA pay period metadata — recurring and pay_day written to sk_ps_meta table for audit trail",
+    "NEW: Pay 1st ASAP option in stale-date dialog — splits first payment as one-off, rest as normal schedule",
+    "NEW: _GetEarliestGCDate() helper — returns today + 4 days for display",
+    "IMPROVED: Meta values space-sanitised to survive shell argument splitting"
   ]
 }

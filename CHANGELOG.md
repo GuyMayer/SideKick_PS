@@ -16,6 +16,70 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.21 (2026-05-29)
+
+### Bug Fixes
+- **GC interval detection**: `_infer_interval_days()` tolerance tightened from `<= 3` to `<= 1`. Monthly payment gaps of 30–31 days no longer falsely match as 28-day (4-weekly), preventing GoCardless schedules from drifting off the chosen day-of-month.
+- **GC stray one-off payment**: Removed amount check from `needs_split` logic. Rounding-adjusted first payments (e.g. £180.72 vs £180.58) no longer trigger a split into a standalone one-off + truncated schedule.
+- **GC stale date false positive**: `_paylines_need_bump()` changed `<=` to `<`. Payment dates exactly 4 calendar days away (the minimum GC allows) are no longer flagged as stale.
+- **Existing PayPlan detection**: Now only counts GoCardless DD payments when checking for an existing plan — credit card deposits and other methods no longer trigger the Replace/Add dialog.
+
+### New
+- **PSA pay period metadata**: `write_psa_payments.py` now writes the Payment Calculator's Recurring selection (`--meta recurring:Monthly`) and chosen day (`--meta pay_day:28th`) to `sk_ps_meta` table in the PSA. Enables forensic audit of intent vs actual dates.
+- **Pay 1st ASAP option**: When GC dates are stale, a new button splits the first payment as a one-off (GC picks earliest valid date) and creates an instalment schedule for the rest on their original dates. Added `--split-first-asap` CLI arg and `_GetEarliestGCDate()` helper.
+- **`_GetEarliestGCDate()`**: Returns today + 4 days in dd/MM/yyyy format for display in stale-date dialog.
+
+### Improved
+- Meta values space-sanitised (spaces → hyphens) to survive shell argument splitting during PSA writes.
+
+---
+
+## v3.0.20 (2026-04-25)
+
+### Bug Fixes
+- **Supplier status SSH query fix**: Remote DB query now passes the Python script via stdin (`python3 -`) instead of `python3 -c`, fixing a Windows SSH issue where multi-line scripts were broken into separate shell commands and failed silently.
+- **openclaw backfill pagination**: `backfill.js` `searchMessagesKQL()` was hard-capped at 25 results per folder due to `Math.min(top, 25)`. Now paginates using a `from` offset loop, fetching up to 200 emails per folder (300 total found vs 150 before).
+- **openclaw Loxley multi-shoot parsing**: `parser.js` now matches bare shoot numbers (`P26028P`) and name-only refs from multi-shoot order emails like `P26024p - P26025p - P26028P`. Previously only matched the `P26028P_LastName` format, causing multi-shoot orders to produce garbage job_refs.
+- **Supplier DB cleanup**: Removed garbage records with non-shoot job_refs (e.g. `"order value"`, `"Order Reference"`) left by the previous broken parser.
+
+---
+
+## v3.0.19 (2026-04-25)
+
+### New Features
+- **GHL Client Lookup — PSA file fallback**: When the open ProSelect album has no GHL client ID in its name, the lookup now reads the `.psa` file to extract the client's first name, last name, shoot number, and email. It searches GHL by email first, then shoot number, then full name before falling back to the Chrome scan dialog.
+- **GHL Client Lookup — title fallback**: If the PSA file cannot be read, the shoot number and last name are parsed directly from the ProSelect window title (e.g. `P25097P_Field`) and used for GHL search.
+- **Check Shoot Status — auto GHL lookup**: If the open album has no GHL client ID in its name, Check Shoot Status now automatically triggers the GHL Client Lookup flow first, then continues with the status check.
+- **Check Shoot Status — simplified job ref derivation**: Job ref is now derived purely from the (possibly just-updated) ProSelect window title, removing the redundant PSA filename parse.
+- **Check Shoot Status icon**: Updated to a clipboard-check icon across all three icon fonts (Phosphor / Font Awesome / Segoe) to better represent quality control.
+
+---
+
+## v3.0.18 (2026-04-24)
+
+### New Features
+- **Force re-evaluate opportunity stage** (Batch Actions): New checkbox passes `--batch-force-opp-stage` to the Python sync. When ticked, already-synced shoots (those with PSA sync metadata) are no longer skipped for the opportunity move — their stage is re-evaluated from the archive and updated in GHL. Invoice creation is still skipped for those shoots.
+- **No Sale pipeline stage routing**: Shoots where the ProSelect order total is £0 are now automatically routed to the `No Sale` stage in the Boudoir Production Pipeline instead of `New Order`. Applies to both new opportunity creation and moves of existing opportunities. Genuine no-sales (client attended, bought nothing) stay in No Sale on subsequent syncs.
+
+### Fixes
+- **Duplicate invoice dialog showed amount ÷ 100**: `check_existing_invoice` was dividing GHL invoice totals by 100 when `> 1000`, based on a stale assumption that the API returned pence. GHL invoice API returns pounds — division removed from `total`, `amount_due`, `amount_paid`, `amountPaid` (update path), and `amountDue` (final state re-fetch).
+- **DateTime pickers not hidden on tab switch**: `GenBatchMonthFrom`, `GenBatchMonthTo`, `GenBatchFromLabel`, and `GenBatchToLabel` were missing from `ShowSettingsTab`'s hide/show lists (replaced the old stale `GenBatchMonthLabel` / `GenBatchMonthPicker` references). Pickers now correctly hide when switching away from the General tab.
+- **Stage name Compleate → Complete**: Renamed `PRODUCTION_COMPLETE_STAGE` constant to `'Complete'`. Alias list updated to accept both `'compleate'` and `'complete'` so older PSA archive folders with the old spelling still resolve correctly.
+- **No Sale routing used wrong signal**: The initial implementation routed to No Sale when `payments_count == 0` (no payment transaction records), which incorrectly caught clients with a real order value but no payment entered yet. Changed to `order_total <= 0` — only genuine £0 orders go to No Sale.
+
+---
+
+## v3.0.17 (2026-04-22)
+
+### New Features
+- **Batch sync date range** (Settings → General → Batch Actions): The single "Month to process" picker has been replaced with a **From / To** pair. Selecting a range (e.g. January–March) chains one generate-XML + one Python sync call per month using `&&`, so any month failure halts the rest. Single-month behaviour is identical to before. The chosen range is persisted to `[Batch] MonthDateTo` in the INI file and validated on launch (From > To shows an error).
+
+### Fixes
+- **GHL invoice 400 when discount exceeds items total**: If a ProSelect order contains a discount or credit that is larger than the sum of all line items (e.g. a standalone £200 voucher with £0 product lines), GHL rejected the invoice payload with *"Invoice total amount must be greater than or equal to 0"*. The discount is now capped to the items total before being sent; a `[WARN]` line is written to the sync log when capping occurs. Applied to both the create and update invoice paths in `sync_ps_invoice.py`.
+- **GHL opportunity tags 422 — missing required fields**: The PUT `/opportunities/{id}` payload was built with only `tags` and `monetaryValue`, omitting `name` and `status` which the GHL v2 API treats as required. The call returned 422 with a response body that was not visible in logs. Fixed: `name` is now always included (fallback chain: `name` → `title` → `"Opportunity {id}"`), `status` defaults to `open` if absent, and the 422 response body is now written to the error log file.
+
+---
+
 ## v3.0.16 (2026-04-18)
 
 ### Fixes

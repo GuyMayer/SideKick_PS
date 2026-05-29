@@ -88,6 +88,7 @@ def get_album_info(psa_path: str) -> dict:
             first_name_match = re.search(r'<firstName>([^<]*)</firstName>', order_data)
             last_name_match = re.search(r'<lastName>([^<]*)</lastName>', order_data)
             client_code_match = re.search(r'<clientCode>([^<]*)</clientCode>', order_data)
+            email_match = re.search(r'<email>([^<]*)</email>', order_data)
 
             if first_name_match:
                 client_info['first_name'] = first_name_match.group(1)
@@ -95,6 +96,8 @@ def get_album_info(psa_path: str) -> dict:
                 client_info['last_name'] = last_name_match.group(1)
             if client_code_match:
                 client_info['client_id'] = client_code_match.group(1)
+            if email_match:
+                client_info['email'] = email_match.group(1)
 
         # Get album name from psa filename
         album_name = os.path.splitext(os.path.basename(psa_path))[0]
@@ -216,7 +219,7 @@ def main() -> None:
             info = result['album_info']
             print(f"ALBUM|{info.get('shoot_no', '')}|{info.get('album_name', '')}")
             client = info.get('client_info', {})
-            print(f"CLIENT|{client.get('first_name', '')}|{client.get('last_name', '')}|{client.get('client_id', '')}")
+            print(f"CLIENT|{client.get('first_name', '')}|{client.get('last_name', '')}|{client.get('client_id', '')}|{client.get('email', '')}")
     else:
         # Info mode - just return image info
         result = get_album_info(psa_path)
@@ -225,6 +228,10 @@ def main() -> None:
             print(f"ERROR|{result['error']}")
         else:
             print(f"IMAGES|{len(result['images'])}|{result['source_folder']}")
+            # Always output album/client info so AHK can parse it
+            print(f"ALBUM|{result.get('shoot_no', '')}|{result.get('album_name', '')}")
+            client = result.get('client_info', {})
+            print(f"CLIENT|{client.get('first_name', '')}|{client.get('last_name', '')}|{client.get('client_id', '')}|{client.get('email', '')}")
             if result['images']:
                 print("|".join(result['images']))
 

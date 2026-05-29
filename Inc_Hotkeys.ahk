@@ -1026,7 +1026,7 @@ if (TotalPaymentsToEnter < 1)
 ; Step 2: Save the album via PSConsole so .psa is up to date
 FileAppend, % A_Now . " - UpdatePS - Saving album via PSConsole`n", %DebugLogFile%
 saveResult := PsConsole("saveAlbum")
-Sleep, 1000  ; Give filesystem time to finish writing
+Sleep, 2000  ; Give filesystem time to finish writing (HDD-safe)
 
 ; Step 3: Get album path from PSConsole
 albumData := PsConsole("getAlbumData")
@@ -1134,23 +1134,30 @@ FileAppend, % A_Now . " - UpdatePS - Existing payments: " . readOutput . "`n", %
 useClear := false
 wasEmpty := (SubStr(readOutput, 1, 9) != "PAYMENTS|")
 if (SubStr(readOutput, 1, 9) = "PAYMENTS|") {
-	; Existing payments found — parse count and total
+	; Existing payments found — count only GoCardless DD payments
+	; (credit card deposits and other methods are not part of the DD payplan)
 	readParts := StrSplit(readOutput, "|")
-	existingCount := readParts[2]
 	
-	; Sum up existing payment amounts (each payment: day,month,year,amount,method,methodID)
+	; Sum up GoCardless DD payment amounts
+	existingCount := 0
 	existingTotal := 0
 	Loop {
 		idx := 3 + A_Index  ; Skip PAYMENTS|count|date
 		if (idx > readParts.Length())
 			break
 		eparts := StrSplit(readParts[idx], ",")
-		if (eparts.Length() >= 4) {
+		if (eparts.Length() >= 5 && InStr(eparts[5], "GoCardless")) {
+			existingCount++
 			existingTotal += eparts[4]
 		}
 	}
 	
-	msg := "This client already has a PayPlan with " . existingCount . " payment(s)"
+	if (existingCount = 0) {
+		; No existing DD payplan — just write new payments (no dialog needed)
+		FileAppend, % A_Now . " - UpdatePS - No existing DD plan, proceeding`n", %DebugLogFile%
+		useClear := false
+	} else {
+	msg := "This client already has a PayPlan with " . existingCount . " DD payment(s)"
 	if (existingTotal > 0)
 		msg .= " totalling £" . Format("{:.2f}", existingTotal)
 	msg .= ".`n`nReplace the existing PayPlan, or add these payments alongside it?"
@@ -1167,6 +1174,7 @@ if (SubStr(readOutput, 1, 9) = "PAYMENTS|") {
 	} else {
 		FileAppend, % A_Now . " - UpdatePS - User chose to add payments to existing PayPlan`n", %DebugLogFile%
 	}
+}
 }
 
 ; Step 4: Build command with all payment lines as arguments
@@ -1188,6 +1196,10 @@ if (!FileExist(pythonScript)) {
 writeArgs := """" . psaPath . """ --group " . TargetGroup
 if (useClear)
 	writeArgs .= " --clear"
+; Record pay period metadata so PSA self-documents the Recurring setting
+; Sanitise values: replace spaces so they survive shell argument splitting
+writeArgs .= " --meta recurring:" . StrReplace(Recurring, " ", "-")
+writeArgs .= " --meta pay_day:" . StrReplace(PayDay, " ", "-")
 
 Loop %TotalPaymentsToEnter%
 {
@@ -1197,28 +1209,74 @@ Loop %TotalPaymentsToEnter%
 		writeArgs .= " """ . payLine . """"
 }
 
+; Backup the PSA file before injecting payments (safety net against ProSelect auto-backup race)
+backupPath := psaPath . ".sk_backup"
+FileCopy, %psaPath%, %backupPath%, 1
+FileAppend, % A_Now . " - UpdatePS - Backup created: " . backupPath . "`n", %DebugLogFile%
+
 pyCmd := GetScriptCommand("write_psa_payments", writeArgs)
 FileAppend, % A_Now . " - UpdatePS - Running: " . pyCmd . "`n", %DebugLogFile%
 
-; Step 5: Run the script via RunCmdToFile (handles quoting properly)
-tempOut := A_Temp . "\sk_psa_write_" . A_TickCount . ".txt"
-RunCmdToFile(pyCmd, tempOut)
-FileRead, pyOutput, %tempOut%
-FileDelete, %tempOut%
-pyOutput := Trim(pyOutput)
+; Retry loop — ProSelect auto-backup can overwrite payments between write and reload.
+; Retry silently up to 2 times before alerting the user.
+writeSuccess := false
+errorMsg := ""
+retryMax := 3
+Loop, %retryMax%
+{
+	if (A_Index > 1) {
+		; Re-save to ensure PSA is current before retry write
+		FileAppend, % A_Now . " - UpdatePS - Retry " . (A_Index - 1) . "/2: re-saving album`n", %DebugLogFile%
+		PsConsole("saveAlbum")
+		Sleep, 1500
+	}
 
-FileAppend, % A_Now . " - UpdatePS - Python output: " . pyOutput . "`n", %DebugLogFile%
+	; Run the script via RunCmdToFile (handles quoting properly)
+	tempOut := A_Temp . "\sk_psa_write_" . A_TickCount . ".txt"
+	RunCmdToFile(pyCmd, tempOut)
+	FileRead, pyOutput, %tempOut%
+	FileDelete, %tempOut%
+	pyOutput := Trim(pyOutput)
 
-; Step 6: Check result
-if (InStr(pyOutput, "SUCCESS|")) {
+	FileAppend, % A_Now . " - UpdatePS - Python output: " . pyOutput . "`n", %DebugLogFile%
+
+	; Check result
+	if (!InStr(pyOutput, "SUCCESS|")) {
+		; Hard error — don't retry
+		errorMsg := StrReplace(pyOutput, "ERROR|", "")
+		FileAppend, % A_Now . " - UpdatePS - FAILED: " . errorMsg . "`n", %DebugLogFile%
+		break
+	}
+
 	countAdded := StrReplace(pyOutput, "SUCCESS|", "")
 	FileAppend, % A_Now . " - UpdatePS - SUCCESS: " . countAdded . " payments written to .psa`n", %DebugLogFile%
-	
-	; Step 8: Reload the album so the injected payments appear in ProSelect
+
+	; Reload the album so the injected payments appear in ProSelect
 	FileAppend, % A_Now . " - UpdatePS - Safety reload after injection`n", %DebugLogFile%
 	PsConsole("openAlbum", psaPath, "true")
-	Sleep, 1500
-	
+	Sleep, 3000
+
+	; Verify payments survived the reload (auto-backup race check)
+	verifyCmd := GetScriptCommand("read_psa_payments", """" . psaPath . """ --group " . TargetGroup)
+	tempVerify := A_Temp . "\sk_psa_verify_" . A_TickCount . ".txt"
+	RunCmdToFile(verifyCmd, tempVerify)
+	FileRead, verifyOutput, %tempVerify%
+	FileDelete, %tempVerify%
+	verifyOutput := Trim(verifyOutput)
+	FileAppend, % A_Now . " - UpdatePS - Verify output: " . verifyOutput . "`n", %DebugLogFile%
+
+	if (SubStr(verifyOutput, 1, 9) = "PAYMENTS|") {
+		writeSuccess := true
+		break
+	}
+
+	FileAppend, % A_Now . " - UpdatePS - Verification failed (auto-backup race?), retrying`n", %DebugLogFile%
+}
+
+if (writeSuccess) {
+	; Clean up backup
+	FileDelete, %backupPath%
+
 	; Show success and prompt user to use the GoCardless toolbar button
 	if (Settings_EnableSounds && IsMainPSActive())
 		SoundPlay, *48
@@ -1228,12 +1286,20 @@ if (InStr(pyOutput, "SUCCESS|")) {
 	successMsg .= countAdded . " payment(s) written to album successfully.`n`n"
 	successMsg .= "👉 Click the GoCardless button on the toolbar to set up the Direct Debit plan."
 	DarkMsgBox("PayPlan Updated", successMsg, "success")
-	
+
 } else {
-	; Failed
-	errorMsg := StrReplace(pyOutput, "ERROR|", "")
-	FileAppend, % A_Now . " - UpdatePS - FAILED: " . errorMsg . "`n", %DebugLogFile%
-	DarkMsgBox("Payment Write Failed", "Failed to write payments to album.`n`n" . errorMsg, "error")
+	; Restore from backup and alert user
+	if (FileExist(backupPath)) {
+		FileCopy, %backupPath%, %psaPath%, 1
+		FileAppend, % A_Now . " - UpdatePS - Restored album from backup`n", %DebugLogFile%
+		PsConsole("openAlbum", psaPath, "true")
+		Sleep, 2000
+		FileDelete, %backupPath%
+	}
+
+	if (errorMsg = "")
+		errorMsg := "Payments were written but could not be verified after reload. The album has been restored."
+	DarkMsgBox("Payment Write Failed", "Failed to write payments after " . retryMax . " attempts.`n`n" . errorMsg, "error")
 }
 
 EnteringPaylines := False

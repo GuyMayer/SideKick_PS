@@ -3216,9 +3216,8 @@ GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 		}
 		
 		; DATES_STALE: one or more payline dates fall within the GoCardless BACS
-		; lead-time window (< 4 days away) or are in the past. Offer the user the
-		; option to shift the whole schedule forward by one month — same day-of-month,
-		; same amounts, just one month later.  This preserves client affordability.
+		; lead-time window (< 4 days away) or are in the past. Offer the user three
+		; options: defer 1 month, pay 1st ASAP + continue normal dates, or cancel.
 		; Format: DATES_STALE|<bumped_paylines>|<first_new_date>|<last_new_date>
 		if (InStr(silentOutput, "DATES_STALE|")) {
 			staleParts := StrSplit(silentOutput, "|")
@@ -3233,44 +3232,77 @@ GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 			
 			bumpResult := DarkMsgBox("Payment Dates Need Adjusting"
 				, "⚠️ The payment dates are too close (or already past) for GoCardless to accept."
+				. "`n`nGoCardless requires at least 4 calendar days before a charge date (BACS lead time)."
 				. "`n`nThis can happen when sending to GoCardless was delayed after the plan was set up in ProSelect."
-				. "`n`nThe client's payment amounts stay the same — only the month shifts."
-				. "`n`nProposed new schedule:`n" . dateRangeMsg
-				. "`n`nShift all payments forward by one month?"
+				. "`n`n`n📅 Defer 1 Month — " . dateRangeMsg
+				. "`n   Same amounts, same day-of-month, one month later."
+				. "`n`n⚡ Pay 1st ASAP — Charge the first payment at the earliest"
+				. "`n   possible date (" . _GetEarliestGCDate() . "), then continue"
+				. "`n   with the remaining payments on their original dates."
 				, "warning"
-				, {buttons: "Shift Dates|Cancel"})
+				, {buttons: ["Defer 1 Month", "Pay 1st ASAP", "Cancel"], default: 1})
 			
-			if (bumpResult != "Shift Dates" || bumpedPaylines = "") {
-				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - User declined date bump`n", %DebugLogFile%
+			if (bumpResult = "Cancel" || bumpResult = "") {
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - User cancelled stale date handling`n", %DebugLogFile%
 				return
 			}
 			
-			; Re-run silently with the bumped paylines (and --bump-months 1 so the
-			; Python side skips the stale-check this time).
-			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Bumping dates, new paylines: " . bumpedPaylines . "`n", %DebugLogFile%
-			gcArgsBumped := gcArgs
-			; Replace old --paylines value with the bumped paylines
-			gcArgsBumped := RegExReplace(gcArgsBumped, "--paylines ""[^""]*""", "--paylines """ . bumpedPaylines . """")
-			gcArgsBumped .= " --bump-months 1"
-			gcCmdBumped := GetScriptCommand("gocardless_api", gcArgsBumped)
-			
-			ToolTip, Creating GoCardless payment plan (adjusted dates)...
-			tempStdout2 := A_Temp . "\gc_silent2_" . A_TickCount . ".txt"
-			RunCmdToFile(gcCmdBumped, tempStdout2)
-			FileRead, silentOutput, %tempStdout2%
-			FileDelete, %tempStdout2%
-			silentOutput := Trim(silentOutput, " `t`r`n")
-			ToolTip
-			FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Bumped result: " . silentOutput . "`n", %DebugLogFile%
-			
-			if (InStr(silentOutput, "ERROR|")) {
-				errorMsg := StrReplace(silentOutput, "ERROR|", "")
-				DarkMsgBox("GoCardless Error", "Failed to create payment plan (adjusted dates):`n`n" . errorMsg, "error")
-				return
+			if (bumpResult = "Defer 1 Month" && bumpedPaylines != "") {
+				; Re-run silently with the bumped paylines (and --bump-months 1 so the
+				; Python side skips the stale-check this time).
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Bumping dates, new paylines: " . bumpedPaylines . "`n", %DebugLogFile%
+				gcArgsBumped := gcArgs
+				; Replace old --paylines value with the bumped paylines
+				gcArgsBumped := RegExReplace(gcArgsBumped, "--paylines ""[^""]*""", "--paylines """ . bumpedPaylines . """")
+				gcArgsBumped .= " --bump-months 1"
+				gcCmdBumped := GetScriptCommand("gocardless_api", gcArgsBumped)
+				
+				ToolTip, Creating GoCardless payment plan (adjusted dates)...
+				tempStdout2 := A_Temp . "\gc_silent2_" . A_TickCount . ".txt"
+				RunCmdToFile(gcCmdBumped, tempStdout2)
+				FileRead, silentOutput, %tempStdout2%
+				FileDelete, %tempStdout2%
+				silentOutput := Trim(silentOutput, " `t`r`n")
+				ToolTip
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Bumped result: " . silentOutput . "`n", %DebugLogFile%
+				
+				if (InStr(silentOutput, "ERROR|")) {
+					errorMsg := StrReplace(silentOutput, "ERROR|", "")
+					DarkMsgBox("GoCardless Error", "Failed to create payment plan (adjusted dates):`n`n" . errorMsg, "error")
+					return
+				}
+				if (!InStr(silentOutput, "SUCCESS|")) {
+					DarkMsgBox("GoCardless Error", "Unexpected response after date adjustment:`n`n" . SubStr(silentOutput, 1, 300), "error")
+					return
+				}
 			}
-			if (!InStr(silentOutput, "SUCCESS|")) {
-				DarkMsgBox("GoCardless Error", "Unexpected response after date adjustment:`n`n" . SubStr(silentOutput, 1, 300), "error")
-				return
+			
+			if (bumpResult = "Pay 1st ASAP") {
+				; Re-run silently with --split-first-asap: create first payment as a
+				; one-off (GC picks earliest valid date), then instalment schedule
+				; for the remaining payments on their original dates.
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Split first ASAP`n", %DebugLogFile%
+				gcArgsSplit := gcArgs . " --split-first-asap"
+				gcCmdSplit := GetScriptCommand("gocardless_api", gcArgsSplit)
+				
+				ToolTip, Creating GoCardless payment plan (1st ASAP + schedule)...
+				tempStdout2 := A_Temp . "\gc_split_" . A_TickCount . ".txt"
+				RunCmdToFile(gcCmdSplit, tempStdout2)
+				FileRead, silentOutput, %tempStdout2%
+				FileDelete, %tempStdout2%
+				silentOutput := Trim(silentOutput, " `t`r`n")
+				ToolTip
+				FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Split result: " . silentOutput . "`n", %DebugLogFile%
+				
+				if (InStr(silentOutput, "ERROR|")) {
+					errorMsg := StrReplace(silentOutput, "ERROR|", "")
+					DarkMsgBox("GoCardless Error", "Failed to create payment plan (split first):`n`n" . errorMsg, "error")
+					return
+				}
+				if (!InStr(silentOutput, "SUCCESS|")) {
+					DarkMsgBox("GoCardless Error", "Unexpected response after split first:`n`n" . SubStr(silentOutput, 1, 300), "error")
+					return
+				}
 			}
 		}
 		
@@ -4108,6 +4140,17 @@ ShowSettingsTab(tabName)
 	GuiControl, Settings:Hide, GenManualBtn
 	GuiControl, Settings:Hide, GenExportBtn
 	GuiControl, Settings:Hide, GenImportBtn
+	GuiControl, Settings:Hide, GenBatchGroup
+	GuiControl, Settings:Hide, GenBatchIntro
+	GuiControl, Settings:Hide, GenBatchFromLabel
+	GuiControl, Settings:Hide, GenBatchMonthFrom
+	GuiControl, Settings:Hide, GenBatchToLabel
+	GuiControl, Settings:Hide, GenBatchMonthTo
+	GuiControl, Settings:Hide, GenBatchSkipInvoicesChk
+	GuiControl, Settings:Hide, GenBatchSkipOppsChk
+	GuiControl, Settings:Hide, GenBatchForceOppStageChk
+	GuiControl, Settings:Hide, GenBatchHint
+	GuiControl, Settings:Hide, GenBatchRunBtn
 	
 	; Hide all panels - GHL
 	GuiControl, Settings:Hide, PanelGHL
@@ -4585,6 +4628,17 @@ ShowSettingsTab(tabName)
 		GuiControl, Settings:Show, GenManualBtn
 		GuiControl, Settings:Show, GenExportBtn
 		GuiControl, Settings:Show, GenImportBtn
+		GuiControl, Settings:Show, GenBatchGroup
+		GuiControl, Settings:Show, GenBatchIntro
+		GuiControl, Settings:Show, GenBatchFromLabel
+		GuiControl, Settings:Show, GenBatchMonthFrom
+		GuiControl, Settings:Show, GenBatchToLabel
+		GuiControl, Settings:Show, GenBatchMonthTo
+		GuiControl, Settings:Show, GenBatchSkipInvoicesChk
+		GuiControl, Settings:Show, GenBatchSkipOppsChk
+		GuiControl, Settings:Show, GenBatchForceOppStageChk
+		GuiControl, Settings:Show, GenBatchHint
+		GuiControl, Settings:Show, GenBatchRunBtn
 	}
 	else if (tabName = "GHL")
 	{
@@ -6247,5 +6301,15 @@ UpdateLicenseDisplay() {
 	
 	locDisplay := GHL_LocationID ? GHL_LocationID : "(Configure in GHL tab first)"
 	GuiControl, Settings:, LicenseLocationInfo, Bound to Location: %locDisplay%
+}
+
+; ── GoCardless helpers ──────────────────────────────────────────────
+
+_GetEarliestGCDate() {
+	; Return the earliest possible GoCardless charge date (today + 4 days BACS lead).
+	earliest := A_Now
+	earliest += 4, Days
+	FormatTime, formatted, %earliest%, dd/MM/yyyy
+	return formatted
 }
 

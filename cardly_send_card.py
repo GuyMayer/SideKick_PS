@@ -759,7 +759,7 @@ def create_cardly_artwork(image_path: str, name: str = "Custom Card", media_id_o
 
     try:
         url = f"{CARDLY_BASE_URL}/art"
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
 
         debug_print(f"Response status: {response.status_code}")
         debug_print(f"Response body: {response.text[:500]}")
@@ -886,7 +886,7 @@ def place_cardly_order(artwork_id: str, recipient: dict, message: str = "",
 
     try:
         url = f"{CARDLY_BASE_URL}/orders/place"
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
 
         debug_print(f"Order response: {response.status_code} - {response.text[:500]}")
 

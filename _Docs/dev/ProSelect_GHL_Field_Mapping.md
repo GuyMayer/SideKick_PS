@@ -57,6 +57,47 @@ Result:    Invoice line item name = "Composite 1 - 43x13"
 
 ---
 
+## Discounts and Credits
+
+### ProSelect XML → GHL Invoice Discount
+
+ProSelect order XML can include order-level discounts, vouchers, and credit amounts. These are summed and sent to GHL as a single `discount` object of type `fixed`.
+
+| ProSelect XML Field | GHL Invoice Field | Notes |
+|---------------------|-------------------|-------|
+| `Discount` / `Voucher` / `Credit` (summed) | `discount.value` | GHL `discount.type` is always `"fixed"` |
+
+**Important constraint:** The GHL API rejects any invoice where the net total (items − discount) would be negative, returning HTTP 400 *"Invoice total amount must be greater than or equal to 0"*. SideKick PS caps the discount at the sum of all line items to prevent this. A `[WARN]` line is written to the sync log when capping occurs, e.g.:
+
+```
+[WARN] Discount £200.00 exceeds items total £0.00 — capped to £0.00
+```
+
+This typically happens when an order contains only a voucher redemption with no chargeable product lines.
+
+---
+
+## Opportunity Updates
+
+### GHL PUT /opportunities/{id} — Required Fields
+
+When updating a GHL opportunity (e.g. to apply tags after a batch sync), the v2 API requires the following fields in every PUT payload regardless of what is being changed:
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `name` | Yes | Falls back to `title`, then `"Opportunity {id}"` |
+| `status` | Yes | Defaults to `"open"` if absent in source data |
+| `monetaryValue` | Yes | Defaults to `0` if absent |
+| `tags` | — | The field being updated |
+| `contactId` | Recommended | Included when present |
+| `pipelineId` | Recommended | Included when present |
+| `pipelineStageId` | Recommended | Included when present |
+| `assignedTo` | Optional | Included when present |
+
+Omitting `name` or `status` returns HTTP 422 Unprocessable Entity. The full 422 response body is now captured in `%APPDATA%\SideKick_PS\Logs\sync_error_*.log` to aid debugging.
+
+---
+
 ## Client Information Mapping
 
 | ProSelect XML Field | GHL Contact Field | Notes |

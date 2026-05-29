@@ -2,8 +2,8 @@
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.16
-; Build Date:  2026-04-18
+; Version:     3.0.21
+; Build Date:  2026-05-29
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -118,13 +118,14 @@ global IconFont := DetectIconFont()
 FileAppend, % A_Now . " - Icon Font: " . IconFont . "`n", %DebugLogFile%
 
 ; Set icon codepoints based on detected font
-global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_IDCard, Icon_Camera, Icon_ReviewOrder, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_EmailPDF, Icon_QRCode, Icon_Download, Icon_Settings, Icon_FolderOpen
+global Icon_User, Icon_AddFriend, Icon_Invoice, Icon_Globe, Icon_Factory, Icon_IDCard, Icon_Camera, Icon_ReviewOrder, Icon_Refresh, Icon_Print, Icon_PDFDoc, Icon_EmailPDF, Icon_QRCode, Icon_Download, Icon_Settings, Icon_FolderOpen, Icon_StatusCheck
 if (InStr(IconFont, "Phosphor")) {
 	; Phosphor Icons codepoints (thin outline icons)
 	Icon_User := 0xEC28
 	Icon_AddFriend := 0xEC22  ; UserPlus
 	Icon_Invoice := 0xE66E
 	Icon_Globe := 0xE7B6
+	Icon_Factory := Icon_Invoice  ; Fallback where factory glyph may be unavailable
 	Icon_IDCard := 0xE844
 	Icon_Camera := 0xE21A
 	Icon_ReviewOrder := 0xEAD4  ; Receipt
@@ -136,12 +137,14 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Download := 0xE59A
 	Icon_Settings := 0xE79A
 	Icon_FolderOpen := 0xE6F2  ; FolderOpen
+	Icon_StatusCheck := 0xE344  ; Phosphor: ClipboardText (QC checklist)
 } else if (InStr(IconFont, "Font Awesome")) {
 	; Font Awesome 6 codepoints (solid icons)
 	Icon_User := 0xF007
 	Icon_AddFriend := 0xF234  ; user-plus
 	Icon_Invoice := 0xF570
 	Icon_Globe := 0xF0AC
+	Icon_Factory := 0xF275  ; industry / factory
 	Icon_IDCard := 0xF2C2
 	Icon_Camera := 0xF030
 	Icon_ReviewOrder := 0xF543  ; receipt
@@ -153,12 +156,14 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Download := 0xF019
 	Icon_Settings := 0xF013
 	Icon_FolderOpen := 0xF07C  ; folder-open
+	Icon_StatusCheck := 0xF46D  ; clipboard-check (quality control)
 } else {
 	; Segoe Fluent/MDL2 codepoints (thin outline icons)
 	Icon_User := 0xE77B
 	Icon_AddFriend := 0xE8FA  ; AddFriend (person + plus)
 	Icon_Invoice := 0xE8A5
 	Icon_Globe := 0xE774
+	Icon_Factory := Icon_Invoice  ; Fallback where factory glyph may be unavailable
 	Icon_IDCard := 0xE779
 	Icon_Camera := 0xE722
 	Icon_ReviewOrder := 0xE762  ; Receipt
@@ -170,6 +175,7 @@ if (InStr(IconFont, "Phosphor")) {
 	Icon_Download := 0xE896
 	Icon_Settings := 0xE713
 	Icon_FolderOpen := 0xE838  ; FolderOpen
+	Icon_StatusCheck := 0xF0E3  ; Segoe: ClipboardList (QC)
 }
 
 ; Log monitor information
@@ -226,6 +232,9 @@ global GHL_ContactID := ""
 global GHL_API_Key := ""        ; V2 Private Integration Token
 global GHL_LocationID := ""     ; GHL Location ID
 global GHL_AgencyDomain := ""   ; GHL Agency domain (e.g. app.yourcompany.com)
+global GHL_ProductionOpportunityURL := ""  ; Last synced production opportunity URL
+global GHL_ProductionOpportunityPSAPath := ""  ; PSA path that current factory URL belongs to
+global GHL_LastAlbumPathForFactoryState := ""  ; Last open album path used for PSA state refresh
 global Client_Notes := "ZoomPhotography2026"  ; Encryption key for Notes_Plus/Minus
 
 ; Settings variables
@@ -265,6 +274,10 @@ global Settings_GHLOppTags := ""  ; Tags to add to GHL opportunities on sync
 global Settings_AutoAddContactTags := 1  ; Automatically add contact tags on sync
 global Settings_AutoAddOppTags := 1  ; Automatically add opportunity tags on sync
 global Settings_RoundingInDeposit := 1  ; Add rounding errors to deposit (1) or 1st payment (0)
+global Settings_BatchMonthDate := SubStr(A_Now, 1, 4) . "-" . SubStr(A_Now, 5, 2) . "-01"
+global Settings_BatchMonthDateTo := SubStr(A_Now, 1, 4) . "-" . SubStr(A_Now, 5, 2) . "-01"
+global Settings_BatchSkipExistingInvoices := 1
+global Settings_BatchSkipExistingOpportunities := 1
 global GHL_CachedTags := ""  ; Cached list of contact tags from GHL
 global GHL_CachedOppTags := ""  ; Cached list of opportunity tags from GHL
 global GHL_CachedEmailTemplates := ""  ; Cached list of email templates from GHL (id|name format)
@@ -317,6 +330,7 @@ global GC_ButtonHBitmap := 0         ; HBITMAP handle for GC button image
 ; Toolbar button visibility settings
 global Settings_ShowBtn_Client := true
 global Settings_ShowBtn_Invoice := true
+global Settings_ShowBtn_ProductionOpp := true
 global Settings_ShowBtn_OpenGHL := true
 global Settings_ShowBtn_Camera := true
 global Settings_ShowBtn_ReviewOrder := true
@@ -504,6 +518,10 @@ FileAppend, % A_Now . " - Loading settings from INI...`n", %DebugLogFile%
 CheckINIHealth()
 ; Load settings from INI
 LoadSettings()
+IniRead, Settings_BatchMonthDate, %IniFilename%, Batch, MonthDate, % SubStr(A_Now, 1, 4) . "-" . SubStr(A_Now, 5, 2) . "-01"
+IniRead, Settings_BatchMonthDateTo, %IniFilename%, Batch, MonthDateTo, % SubStr(A_Now, 1, 4) . "-" . SubStr(A_Now, 5, 2) . "-01"
+IniRead, Settings_BatchSkipExistingInvoices, %IniFilename%, Batch, SkipExistingInvoices, 1
+IniRead, Settings_BatchSkipExistingOpportunities, %IniFilename%, Batch, SkipExistingOpportunities, 1
 FileAppend, % A_Now . " - Settings loaded`n", %DebugLogFile%
 ; Save a rolling "last known good" backup if INI looks healthy
 BackupINIIfHealthy()
@@ -578,6 +596,17 @@ FileAppend, % A_Now . " - Checking first-run GHL setup...`n", %DebugLogFile%
 ; Check for first-run GHL setup
 CheckFirstRunGHLSetup()
 FileAppend, % A_Now . " - First-run check complete`n", %DebugLogFile%
+
+; Restore last synced production opportunity URL from result file (if present)
+resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+if (FileExist(resultFile)) {
+	FileRead, startupResultJson, %resultFile%
+	if (RegExMatch(startupResultJson, """production_opportunity_url""\s*:\s*""([^""]+)""", m))
+		GHL_ProductionOpportunityURL := m1
+}
+; If URL not restored from result file, try reading PSA meta from open album (delayed to allow PS to be ready)
+if (GHL_ProductionOpportunityURL = "")
+	SetTimer, RestorePSAMetaOnStartup, -1500
 
 ; Initialize tooltip data for settings controls (hwnd => tooltip text)
 global SettingsTooltips := {}
@@ -1857,6 +1886,38 @@ RunCmdToFileAsync(command, outputFile) {
 	return tempCmd
 }
 
+; Asynchronous with exit code capture: writes stdout+stderr to outputFile and
+; writes final process exit code to exitCodeFile.
+; Returns temp .cmd file path and sets outPid to the launched cmd process ID.
+RunCmdToFileAsyncWithExit(command, outputFile, exitCodeFile, ByRef outPid) {
+	global DebugLogFile, BatchProgress_TempFiles
+	tempCmd := A_Temp . "\sk_runx_" . A_TickCount . ".cmd"
+	FileDelete, %tempCmd%
+	FileDelete, %outputFile%
+	FileDelete, %exitCodeFile%
+	cmdContent := "@echo off`r`n@chcp 65001 >nul`r`n" . command . " > """ . outputFile . """ 2>&1`r`n"
+	cmdContent .= "echo %ERRORLEVEL% > """ . exitCodeFile . """`r`n"
+	FileAppend, %cmdContent%, %tempCmd%
+	BatchProgress_TempFiles := tempCmd . "|" . outputFile . "|" . exitCodeFile
+	FileAppend, % A_Now . " - RunCmdToFileAsyncWithExit: " . command . "`n", %DebugLogFile%
+	Run, %ComSpec% /c "%tempCmd%", , Hide, outPid
+	return tempCmd
+}
+
+NormalizeBatchMonth(monthValue) {
+	raw := Trim(monthValue)
+	if (raw = "")
+		return SubStr(A_Now, 1, 4) . "-" . SubStr(A_Now, 5, 2)
+
+	if RegExMatch(raw, "^(\d{4})-(\d{2})", m)
+		return m1 . "-" . m2
+
+	if RegExMatch(raw, "^(\d{4})(\d{2})", m)
+		return m1 . "-" . m2
+
+	return SubStr(A_Now, 1, 4) . "-" . SubStr(A_Now, 5, 2)
+}
+
 ShowAbout:
 ; Open settings to About tab
 Settings_CurrentTab := "About"
@@ -1893,6 +1954,9 @@ CreateFloatingToolbar()
 	; Destroy any existing toolbar first to prevent ghost/duplicate windows
 	Gui, Toolbar:Destroy
 	Sleep, 200  ; Allow screen to repaint so PixelGetColor samples the actual background, not a stale toolbar
+
+	; Refresh Factory state from currently open album on each toolbar rebuild
+	RefreshFactoryOpportunityFromPSA(false)
 	
 	; Calculate toolbar width dynamically based on enabled buttons
 	; Each button = 44px wide + 7px spacing (51px per slot), plus 2px left margin
@@ -1934,12 +1998,14 @@ CreateFloatingToolbar()
 		btnCount++
 	if (Settings_ShowBtn_Cardly)
 		btnCount++
+	if (IsDeveloperMode())
+		btnCount++  ; Status Check button (dev-only)
 	btnCount++  ; Settings button (always visible)
 	
 	; Determine which sections have visible buttons (for separator logic)
-	hasGHLButtons := (Settings_ShowBtn_Client || Settings_ShowBtn_Invoice || Settings_ShowBtn_OpenGHL)
+	hasGHLButtons := (Settings_ShowBtn_Client || Settings_ShowBtn_Invoice || (Settings_ShowBtn_ProductionOpp && GHL_ProductionOpportunityURL != "") || Settings_ShowBtn_OpenGHL)
 	hasShortcutButtons := (Settings_ShowBtn_Camera || Settings_ShowBtn_ReviewOrder || Settings_ShowBtn_OpenFolder || Settings_ShowBtn_Photoshop || Settings_ShowBtn_LightBlue || Settings_ShowBtn_Refresh || Settings_ShowBtn_Sort || Settings_ShowBtn_Print || Settings_EnablePDF || Settings_ShowBtn_EmailPDF || Settings_ShowBtn_QRCode || Settings_SDCardEnabled)
-	hasServiceButtons := (Settings_GoCardlessEnabled || Settings_ShowBtn_Cardly)
+	hasServiceButtons := (Settings_GoCardlessEnabled || Settings_ShowBtn_Cardly || IsDeveloperMode())
 	separatorCount := 0
 	if (hasGHLButtons && (hasShortcutButtons || hasServiceButtons))
 		separatorCount++
@@ -2043,6 +2109,14 @@ CreateFloatingToolbar()
 		Gui, Toolbar:Font, s%fontSize%, %IconFont%
 		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundGreen c%iconColor% gToolbar_GetInvoice vTB_Invoice +HwndTB_Invoice_Hwnd, % Chr(Icon_Invoice)
 		ToolbarTooltips[TB_Invoice_Hwnd] := "Sync Invoice to GHL"
+		nextX += btnSpacing
+	}
+
+	; GHL Production button (only shown when a synced production opportunity exists)
+	if (Settings_ShowBtn_ProductionOpp && GHL_ProductionOpportunityURL != "") {
+		Gui, Toolbar:Font, s%fontSize%, Segoe UI Emoji
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundNavy c%iconColor% gToolbar_OpenProductionOpp vTB_ProductionOpp +HwndTB_ProductionOpp_Hwnd, % Chr(0x1F3ED)
+		ToolbarTooltips[TB_ProductionOpp_Hwnd] := "GHL Production"
 		nextX += btnSpacing
 	}
 	
@@ -2267,6 +2341,14 @@ CreateFloatingToolbar()
 		nextX += btnSpacing
 	}
 	
+	; Status Check button (dev-only: rosette/QC icon)
+	if (IsDeveloperMode()) {
+		Gui, Toolbar:Font, s%fontSize%, %IconFont%
+		Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 Background%initialBgColor% c%iconColor% gToolbar_CheckShootStatus vTB_StatusCheck +HwndTB_StatusCheck_Hwnd, % Chr(Icon_StatusCheck)
+		ToolbarTooltips[TB_StatusCheck_Hwnd] := "Check Shoot Status (Loxleys / nphoto / GoCardless)"
+		nextX += btnSpacing
+	}
+
 	; Settings button (gear icon)
 	Gui, Toolbar:Font, s%fontSize%, %IconFont%
 	Gui, Toolbar:Add, Text, x%nextX% y%btnY% w%btnW% h%btnH% Center 0x200 BackgroundPurple c%iconColor% gToolbar_Settings vTB_Settings +HwndTB_Settings_Hwnd, % Chr(Icon_Settings)
@@ -2906,6 +2988,21 @@ Return
 
 Toolbar_OpenGHL:
 Gosub, OpenGHLClientURL
+Return
+
+Toolbar_OpenProductionOpp:
+if (RefreshFactoryOpportunityFromPSA(true))
+	SetTimer, RebuildToolbarAfterSync, -100
+if (GHL_ProductionOpportunityURL = "") {
+	DarkMsgBox("No Production Opportunity", "No synced production opportunity found yet.`n`nSync an invoice first.", "info", {timeout: 4})
+	Return
+}
+currentAlbumPath := GetAlbumPath()
+if (currentAlbumPath != "" && GHL_ProductionOpportunityPSAPath != "" && currentAlbumPath != GHL_ProductionOpportunityPSAPath) {
+	DarkMsgBox("Album Changed", "Open album changed since last sync state load.`n`nPlease click again after refresh, or sync this album first.", "info", {timeout: 5})
+	Return
+}
+Run, %GHL_ProductionOpportunityURL%
 Return
 
 Toolbar_GrabHandle:
@@ -4255,6 +4352,93 @@ GetAlbumPath() {
 	return ""
 }
 
+RefreshFactoryOpportunityFromPSA(force := false) {
+	global GHL_ProductionOpportunityURL, GHL_ProductionOpportunityPSAPath, GHL_LastAlbumPathForFactoryState
+	global GHL_AgencyDomain, GHL_LocationID, DebugLogFile
+
+	psaPath := GetAlbumPath()
+	if (psaPath != "")
+		StringReplace, psaPath, psaPath, \\, \, All
+
+	if (psaPath = "" || !FileExist(psaPath)) {
+		if (!force && GHL_LastAlbumPathForFactoryState = "" && GHL_ProductionOpportunityURL = "")
+			return false
+		GHL_LastAlbumPathForFactoryState := ""
+		GHL_ProductionOpportunityPSAPath := ""
+		GHL_ProductionOpportunityURL := ""
+		WriteOpenAlbumFactoryState("", "", "", "")
+		FileAppend, % A_Now . " - FactoryState: cleared (no open PSA)" . "`n", %DebugLogFile%
+		return true
+	}
+
+	if (!force && psaPath = GHL_LastAlbumPathForFactoryState)
+		return false
+
+	GHL_LastAlbumPathForFactoryState := psaPath
+	metaCmd := GetScriptCommand("sync_ps_invoice", "--read-psa-meta """ . psaPath . """")
+	metaOutFile := A_Temp . "\sk_psa_meta_" . A_TickCount . ".json"
+	RunCmdToFile(metaCmd, metaOutFile)
+	if (!FileExist(metaOutFile)) {
+		GHL_ProductionOpportunityPSAPath := ""
+		GHL_ProductionOpportunityURL := ""
+		WriteOpenAlbumFactoryState(psaPath, "", "", "")
+		FileAppend, % A_Now . " - FactoryState: meta read failed for " . psaPath . "`n", %DebugLogFile%
+		return true
+	}
+
+	FileRead, metaJson, %metaOutFile%
+	FileDelete, %metaOutFile%
+
+	oppId := ""
+	locId := ""
+	if (RegExMatch(metaJson, """ghl_last_opportunity_id""\s*:\s*""([^""]+)""", oM))
+		oppId := oM1
+	if (RegExMatch(metaJson, """ghl_location_id""\s*:\s*""([^""]+)""", lM))
+		locId := lM1
+	if (locId = "")
+		locId := GHL_LocationID
+
+	if (oppId = "" || locId = "") {
+		GHL_ProductionOpportunityPSAPath := ""
+		GHL_ProductionOpportunityURL := ""
+		WriteOpenAlbumFactoryState(psaPath, "", oppId, locId)
+		FileAppend, % A_Now . " - FactoryState: no opportunity in PSA meta for " . psaPath . "`n", %DebugLogFile%
+		return true
+	}
+
+	ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+	GHL_ProductionOpportunityPSAPath := psaPath
+	GHL_ProductionOpportunityURL := "https://" . ghlDomain . "/v2/location/" . locId . "/opportunities/" . oppId . "?tab=Opportunity+Details"
+	WriteOpenAlbumFactoryState(psaPath, GHL_ProductionOpportunityURL, oppId, locId)
+	FileAppend, % A_Now . " - FactoryState: loaded URL for " . psaPath . "`n", %DebugLogFile%
+	return true
+}
+
+WriteOpenAlbumFactoryState(psaPath, oppUrl, oppId, locId) {
+	stateFile := A_AppData . "\SideKick_PS\ghl_open_album_state.json"
+	jsonPsa := psaPath
+	jsonUrl := oppUrl
+	jsonOpp := oppId
+	jsonLoc := locId
+	StringReplace, jsonPsa, jsonPsa, \, \\, All
+	StringReplace, jsonUrl, jsonUrl, \, \\, All
+	StringReplace, jsonOpp, jsonOpp, \, \\, All
+	StringReplace, jsonLoc, jsonLoc, \, \\, All
+	StringReplace, jsonPsa, jsonPsa, ", \"", All
+	StringReplace, jsonUrl, jsonUrl, ", \"", All
+	StringReplace, jsonOpp, jsonOpp, ", \"", All
+	StringReplace, jsonLoc, jsonLoc, ", \"", All
+
+	jsonBody := "{`n"
+	jsonBody .= "  ""psa_path"": """ . jsonPsa . """,`n"
+	jsonBody .= "  ""production_opportunity_url"": """ . jsonUrl . """,`n"
+	jsonBody .= "  ""ghl_last_opportunity_id"": """ . jsonOpp . """,`n"
+	jsonBody .= "  ""ghl_location_id"": """ . jsonLoc . """`n"
+	jsonBody .= "}"
+	FileDelete, %stateFile%
+	FileAppend, %jsonBody%, %stateFile%
+}
+
 ; ═══════════════════════════════════════════════════════════════════════════════
 ; GetAlbumSourceFolder() - Gets the image source folder via PSConsole getImageData
 ; Extracts the shellpath attribute from the first image element, which contains
@@ -5116,7 +5300,27 @@ Toolbar_GoCardless:
 	; Check if ProSelect has an album loaded
 	if WinExist("ProSelect ahk_exe ProSelect.exe")
 	{
-		WinGetTitle, psTitle, ahk_exe ProSelect.exe
+		; Enumerate all ProSelect windows to find the main album title.
+		; WinGetTitle returns whichever window has focus — could be Mirror,
+		; Slide Show, or another sub-window that has no album name.
+		psTitle := ""
+		WinGet, psWinList, List, ahk_exe ProSelect.exe
+		Loop, %psWinList%
+		{
+			thisHwnd := psWinList%A_Index%
+			WinGetTitle, candidateTitle, ahk_id %thisHwnd%
+			if (candidateTitle = "" || candidateTitle = "ProSelect" || candidateTitle = "ProSelect - Untitled")
+				continue
+			if (InStr(candidateTitle, "_") || InStr(candidateTitle, ".psa"))
+			{
+				psTitle := candidateTitle
+				break
+			}
+			if (psTitle = "")
+				psTitle := candidateTitle
+		}
+		if (psTitle = "")
+			WinGetTitle, psTitle, ahk_exe ProSelect.exe
 		if (psTitle = "ProSelect - Untitled" || psTitle = "ProSelect") {
 			DarkMsgBox("No Album Loaded", "Please open an album in ProSelect first before checking GoCardless mandate.", "warning")
 			return
@@ -6193,18 +6397,19 @@ if (dupCheckExit = 2) {
 	FileAppend, % A_Now . " - Duplicate found (paid=" . dupAmountPaid . "), prompting user`n", %DebugLogFile%
 
 	; Show options dialog - buttons depend on payment status
-	dupBtns := ["Replace", "Update", "New", "Cancel"]
+	dupBtns := ["Replace", "Update", "New", "View", "Cancel"]
 	dupTips := {}
 	dupTips["Replace"] := "Delete old invoice and create new one"
 	dupTips["Update"] := "Update line items on existing invoice"
 	dupTips["New"] := "Create another invoice alongside existing"
+	dupTips["View"] := "Open existing invoice in browser"
 	dupTips["Cancel"] := "Do nothing"
 	if (hasPaid)
 		dupDefaultBtn := 2  ; Default to Update when payments exist
 	else
 		dupDefaultBtn := 1  ; Default to Replace when no payments
 
-	DarkMsgBox("Duplicate Invoice", dupMsg, "question", {buttons: dupBtns, default: dupDefaultBtn, tooltips: dupTips, width: 420})
+	DarkMsgBox("Duplicate Invoice", dupMsg, "question", {buttons: dupBtns, default: dupDefaultBtn, tooltips: dupTips, width: 525})
 
 	if (DarkMsgBox_Result = "Cancel" || DarkMsgBox_Result = "") {
 		FileAppend, % A_Now . " - User cancelled (duplicate)`n", %DebugLogFile%
@@ -6215,6 +6420,17 @@ if (dupCheckExit = 2) {
 
 	dupAction := DarkMsgBox_Result
 	FileAppend, % A_Now . " - User chose: " . dupAction . "`n", %DebugLogFile%
+
+	if (dupAction = "View") {
+		; Open existing invoice in browser then cancel sync
+		if (dupInvId != "" && GHL_LocationID != "") {
+			viewUrl := "https://app.thefullybookedphotographer.com/v2/location/" . GHL_LocationID . "/payments/invoices/" . dupInvId
+			Run, %viewUrl%
+		}
+		Hotkey, Escape, ExportCancelCheck, Off
+		ExportInProgress := false
+		Return
+	}
 
 	if (dupAction = "Replace") {
 		; Delete old invoice(s) for this shoot then sync new - use --resync flag
@@ -6557,7 +6773,28 @@ Toolbar_Cardly:
 	FileAppend, % A_Now . " - Cardly: button clicked`n", %DebugLogFile%
 	if WinExist("ProSelect ahk_exe ProSelect.exe")
 	{
-		WinGetTitle, psTitle, ahk_exe ProSelect.exe
+		; Enumerate all ProSelect windows to find the main album title.
+		; WinGetTitle returns whichever window has focus — could be Mirror,
+		; Slide Show, or another sub-window that has no album name.
+		psTitle := ""
+		WinGet, psWinList, List, ahk_exe ProSelect.exe
+		Loop, %psWinList%
+		{
+			thisHwnd := psWinList%A_Index%
+			WinGetTitle, candidateTitle, ahk_id %thisHwnd%
+			if (candidateTitle = "" || candidateTitle = "ProSelect" || candidateTitle = "ProSelect - Untitled")
+				continue
+			if (InStr(candidateTitle, "_") || InStr(candidateTitle, ".psa"))
+			{
+				psTitle := candidateTitle
+				cardlyMainPsHwnd := thisHwnd
+				break
+			}
+			if (psTitle = "")
+				psTitle := candidateTitle
+		}
+		if (psTitle = "")
+			WinGetTitle, psTitle, ahk_exe ProSelect.exe
 		FileAppend, % A_Now . " - Cardly: PS title = " . psTitle . "`n", %DebugLogFile%
 		if (psTitle = "ProSelect - Untitled" || psTitle = "ProSelect") {
 			noAlbumMode := true
@@ -6946,8 +7183,14 @@ Toolbar_Cardly:
 		cmdArgs .= " --save-to-album --album-folder """ . albumDir . """"
 	}
 	
-	; Pass ProSelect window geometry so the preview centres on it
-	WinGetPos, _psX, _psY, _psW, _psH, ahk_exe ProSelect.exe
+	; Pass ProSelect window geometry so the preview centres on the main album window.
+	; Must use the main window HWND (cardlyMainPsHwnd) — WinGetPos on ahk_exe can
+	; return the Mirror sub-window position when it has focus, centering on wrong screen.
+	_psX := _psY := _psW := _psH := ""
+	if (cardlyMainPsHwnd != "")
+		WinGetPos, _psX, _psY, _psW, _psH, ahk_id %cardlyMainPsHwnd%
+	if (_psW = "" || _psH = "")
+		WinGetPos, _psX, _psY, _psW, _psH, ahk_exe ProSelect.exe
 	if (_psW != "" && _psH != "")
 		cmdArgs .= " --ps-geometry """ . _psX . "," . _psY . "," . _psW . "," . _psH . """"
 	
@@ -6977,6 +7220,92 @@ Toolbar_Cardly:
 	if (Trim(cardlyResult) = "SUCCESS") {
 		TrayTip, SideKick_PS, Greeting card sent to %firstName%, 3, 1
 	}
+}
+Return
+
+Toolbar_CheckShootStatus:
+; Check Loxleys / nphoto / GoCardless status for the current shoot (dev-only)
+{
+	global DebugLogFile
+
+	if !WinExist("ProSelect ahk_exe ProSelect.exe") {
+		DarkMsgBox("ProSelect Not Running", "Please open ProSelect with an album first.", "warning")
+		return
+	}
+	WinGetTitle, csTitle, ahk_exe ProSelect.exe
+	if (csTitle = "ProSelect - Untitled" || csTitle = "ProSelect") {
+		DarkMsgBox("No Album Loaded", "Please open an album in ProSelect first.", "warning")
+		return
+	}
+
+	; If no GHL client ID in album name, run GHL lookup first
+	if (!RegExMatch(csTitle, "_([A-Za-z0-9]{20,})"))
+	{
+		csTitleBeforeLookup := csTitle
+		Gosub, GHLClientLookup
+
+		; Allow ProSelect Save As / rename operations to complete before status check.
+		; We wait for title/path to settle to avoid empty job refs from stale state.
+		Sleep, 2500
+		stableReads := 0
+		lastSeenTitle := ""
+		settleStart := A_TickCount
+		Loop, 60
+		{
+			WinGetTitle, csTitle, ahk_exe ProSelect.exe
+			currentAlbumPath := GetAlbumPath()
+			pathReady := (currentAlbumPath != "" && currentAlbumPath != "NO ALBUM OPEN" && FileExist(currentAlbumPath))
+			titleChanged := (csTitle != "" && csTitle != csTitleBeforeLookup)
+			settleElapsed := A_TickCount - settleStart
+
+			if (titleChanged && pathReady && csTitle = lastSeenTitle)
+				stableReads++
+			else
+				stableReads := 0
+
+			lastSeenTitle := csTitle
+			if (stableReads >= 4 && settleElapsed >= 5000)
+				break
+
+			Sleep, 750
+		}
+		Sleep, 1500
+		; Final re-read title — album may have been renamed after linking
+		WinGetTitle, csTitle, ahk_exe ProSelect.exe
+	}
+
+	; Derive job ref from title — strip "ProSelect - " prefix and GHL contact ID suffix (15+ alphanum)
+	jobRef := ""
+	csAlbum := RegExReplace(csTitle, "^ProSelect\s*-\s*", "")
+	csAlbum := RegExReplace(csAlbum, "\s*-\s*ProSelect.*$", "")
+	csParts := StrSplit(csAlbum, "_")
+	csJobParts := []
+	for csIdx, csPart in csParts {
+		if (StrLen(csPart) < 15 || !RegExMatch(csPart, "^[A-Za-z0-9]+$"))
+			csJobParts.Push(csPart)
+	}
+	for csIdx, csPart in csJobParts
+		jobRef .= (csIdx > 1 ? "_" : "") . csPart
+
+	if (jobRef = "") {
+		DarkMsgBox("No Job Ref", "Could not determine the shoot job reference from the open album.", "warning")
+		return
+	}
+
+	scriptPath := A_ScriptDir . "\check_shoot_status.py"
+	if (!FileExist(scriptPath)) {
+		DarkMsgBox("Script Not Found", "check_shoot_status.py not found in:`n" . A_ScriptDir, "error")
+		return
+	}
+
+	pythonPath := GetPythonPath()
+	if (InStr(pythonPath, " "))
+		csCmd := """" . pythonPath . """ """ . scriptPath . """ """ . jobRef . """"
+	else
+		csCmd := pythonPath . " """ . scriptPath . """ """ . jobRef . """"
+
+	FileAppend, % A_Now . " - CheckShootStatus: " . csCmd . "`n", %DebugLogFile%
+	Run, %ComSpec% /K "title Shoot Status: %jobRef% && %csCmd%", %A_ScriptDir%
 }
 Return
 
@@ -8077,6 +8406,270 @@ global SyncProgress_LastContent := ""
 global SyncProgress_NoUpdateCount := 0
 global SyncProgress_ErrorMessage := ""
 
+; Global variables for verbose batch progress
+global BatchProgress_Stage := ""
+global BatchProgress_GenCmd := ""
+global BatchProgress_SyncCmd := ""
+global BatchProgress_GhlCmd := ""
+global BatchProgress_GenOutFile := ""
+global BatchProgress_SyncOutFile := ""
+global BatchProgress_GenExitFile := ""
+global BatchProgress_SyncExitFile := ""
+global BatchProgress_GenPid := 0
+global BatchProgress_SyncPid := 0
+global BatchProgress_Pulse := 0
+global BatchProgress_LastLog := ""
+global BatchProgress_Month := ""
+global BatchProgress_ArchivePath := ""
+global BatchProgress_XmlFolder := ""
+
+StartBatchProgress(genCmd, batchCmd, ghlCmd, batchMonthDate, archivePath, xmlFolder) {
+	global BatchProgress_Stage, BatchProgress_GenCmd, BatchProgress_SyncCmd, BatchProgress_GhlCmd
+	global BatchProgress_GenOutFile, BatchProgress_SyncOutFile, BatchProgress_GhlOutFile
+	global BatchProgress_GenExitFile, BatchProgress_SyncExitFile, BatchProgress_GhlExitFile
+	global BatchProgress_GenPid, BatchProgress_SyncPid, BatchProgress_GhlPid
+	global BatchProgress_Pulse, BatchProgress_LastLog
+	global BatchProgress_Month, BatchProgress_ArchivePath, BatchProgress_XmlFolder
+
+	BatchProgress_Stage := "generate"
+	BatchProgress_GenCmd := genCmd
+	BatchProgress_SyncCmd := batchCmd
+	BatchProgress_GhlCmd := ghlCmd
+	BatchProgress_Month := batchMonthDate
+	BatchProgress_ArchivePath := archivePath
+	BatchProgress_XmlFolder := xmlFolder
+	BatchProgress_Pulse := 0
+	BatchProgress_LastLog := ""
+
+	uid := A_TickCount
+	BatchProgress_GenOutFile := A_Temp . "\sk_batch_generate_" . uid . ".txt"
+	BatchProgress_SyncOutFile := A_Temp . "\sk_batch_sync_" . uid . ".txt"
+	BatchProgress_GhlOutFile := A_Temp . "\sk_batch_ghl_" . uid . ".txt"
+	BatchProgress_GenExitFile := A_Temp . "\sk_batch_generate_" . uid . ".exit"
+	BatchProgress_SyncExitFile := A_Temp . "\sk_batch_sync_" . uid . ".exit"
+	BatchProgress_GhlExitFile := A_Temp . "\sk_batch_ghl_" . uid . ".exit"
+
+	ShowBatchProgressGUI()
+	RunCmdToFileAsyncWithExit(BatchProgress_GenCmd, BatchProgress_GenOutFile, BatchProgress_GenExitFile, BatchProgress_GenPid)
+	SetTimer, BatchProgress_UpdateTimer, 500
+}
+
+ShowBatchProgressGUI() {
+	global Settings_DarkMode, DPI_Scale
+	global BatchProgress_Month, BatchProgress_ArchivePath, BatchProgress_XmlFolder
+	global BatchProgress_Title, BatchProgress_Context, BatchProgress_Phase
+	global BatchProgress_Bar, BatchProgress_Status, BatchProgress_Log, BatchProgress_CloseBtn
+	global BatchProgressHwnd
+
+	if (Settings_DarkMode) {
+		bgColor := "2D2D30"
+		textColor := "E0E0E0"
+		mutedColor := "A0A0A0"
+		progressBg := "3C3C3C"
+		progressFg := "4FC3F7"
+		editBg := "1F1F22"
+	} else {
+		bgColor := "F5F5F5"
+		textColor := "333333"
+		mutedColor := "666666"
+		progressBg := "E0E0E0"
+		progressFg := "0078D4"
+		editBg := "FFFFFF"
+	}
+
+	dpi := DPI_Scale ? DPI_Scale : 1.0
+	guiW := Round(760 * dpi)
+	guiH := Round(520 * dpi)
+	margin := Round(18 * dpi)
+	contentW := guiW - (margin * 2)
+	progressH := Round(12 * dpi)
+
+	Gui, BatchProgress:Destroy
+	Gui, BatchProgress:New, +AlwaysOnTop +ToolWindow +MinSize500x360 +HwndBatchProgressHwnd
+	Gui, BatchProgress:Color, %bgColor%
+	Gui, BatchProgress:Font, s11 c%textColor%, Segoe UI
+
+	Gui, BatchProgress:Add, Text, x%margin% y%margin% w%contentW% vBatchProgress_Title, Batch Sync Running
+	lineY := margin + Round(28 * dpi)
+	Gui, BatchProgress:Font, s9 c%mutedColor%, Segoe UI
+	Gui, BatchProgress:Add, Text, x%margin% y%lineY% w%contentW% vBatchProgress_Context, Month: %BatchProgress_Month% | Archive: %BatchProgress_ArchivePath% | XML: %BatchProgress_XmlFolder%
+
+	lineY += Round(24 * dpi)
+	Gui, BatchProgress:Font, s10 c%textColor%, Segoe UI
+	Gui, BatchProgress:Add, Text, x%margin% y%lineY% w%contentW% vBatchProgress_Phase, Phase 1/2: Generating XMLs from archive PSA files...
+
+	lineY += Round(24 * dpi)
+	Gui, BatchProgress:Add, Progress, x%margin% y%lineY% w%contentW% h%progressH% Background%progressBg% c%progressFg% vBatchProgress_Bar Range0-100, 5
+
+	lineY += Round(22 * dpi)
+	Gui, BatchProgress:Font, s9 c%textColor%, Segoe UI
+	Gui, BatchProgress:Add, Text, x%margin% y%lineY% w%contentW% vBatchProgress_Status, Starting batch pipeline...
+
+	lineY += Round(24 * dpi)
+	logH := guiH - lineY - Round(68 * dpi)
+	if (logH < Round(180 * dpi))
+		logH := Round(180 * dpi)
+	Gui, BatchProgress:Add, Edit, x%margin% y%lineY% w%contentW% h%logH% vBatchProgress_Log ReadOnly -Wrap -WantReturn HScroll
+	GuiControl, BatchProgress:+Background%editBg%, BatchProgress_Log
+
+	btnY := guiH - Round(40 * dpi)
+	btnW := Round(110 * dpi)
+	btnH := Round(28 * dpi)
+	btnX := guiW - margin - btnW
+	Gui, BatchProgress:Add, Button, x%btnX% y%btnY% w%btnW% h%btnH% gBatchProgressClose vBatchProgress_CloseBtn Disabled, Close
+
+	Gui, BatchProgress:Show, w%guiW% h%guiH%, Batch Sync Progress
+	DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", BatchProgressHwnd, "Int", 20, "Int*", 1, "Int", 4)
+}
+
+BatchProgress_UpdateTimer:
+	global BatchProgress_Stage, BatchProgress_GenOutFile, BatchProgress_SyncOutFile, BatchProgress_GhlOutFile
+	global BatchProgress_GenExitFile, BatchProgress_SyncExitFile, BatchProgress_GhlExitFile
+	global BatchProgress_GenPid, BatchProgress_SyncPid, BatchProgress_GhlPid, BatchProgress_GhlCmd
+	global BatchProgress_Pulse
+	global DebugLogFile
+
+	if (BatchProgress_Stage = "generate") {
+		BatchProgress_UpdateLog(BatchProgress_GenOutFile)
+		BatchProgress_Pulse++
+		pulseVal := 5 + Mod(BatchProgress_Pulse, 45)
+		GuiControl, BatchProgress:, BatchProgress_Bar, %pulseVal%
+		if (!FileExist(BatchProgress_GenExitFile)) {
+			; Exit file not written yet - still waiting for generator to finish
+			return
+		}
+		FileRead, genExitCode, %BatchProgress_GenExitFile%
+		genExitCode := Trim(genExitCode)
+		; Extract just the numeric portion (handle trailing whitespace from batch echo)
+		if RegExMatch(genExitCode, "^(-?\d+)", genMatch) {
+			genExitCode := genMatch1
+		} else {
+			; Exit code not yet valid, keep waiting
+			return
+		}
+		if (genExitCode = "0") {
+			FileAppend, % A_Now . " - BatchProgress Gen: SUCCESS (0) transitioning to Phase 2`n", %DebugLogFile%
+			GuiControl, BatchProgress:, BatchProgress_Status, XML generation complete. Starting Python batch sync...
+			GuiControl, BatchProgress:, BatchProgress_Phase, Phase 2/3: Syncing invoices/opportunities to GHL...
+			GuiControl, BatchProgress:, BatchProgress_Bar, 40
+			BatchProgress_Stage := "sync"
+			BatchProgress_Pulse := 0
+			RunCmdToFileAsyncWithExit(BatchProgress_SyncCmd, BatchProgress_SyncOutFile, BatchProgress_SyncExitFile, BatchProgress_SyncPid)
+		} else {
+			SetTimer, BatchProgress_UpdateTimer, Off
+			BatchProgress_UpdateLog(BatchProgress_GenOutFile)
+			GuiControl, BatchProgress:, BatchProgress_Title, Batch Sync Failed (XML Generation)
+			GuiControl, BatchProgress:, BatchProgress_Status, XML generation failed (exit code %genExitCode%). See log output for details.
+			GuiControl, BatchProgress:, BatchProgress_Bar, 100
+			GuiControl, BatchProgress:Enable, BatchProgress_CloseBtn
+		}
+		return
+	}
+
+	if (BatchProgress_Stage = "sync") {
+		BatchProgress_UpdateLog(BatchProgress_SyncOutFile)
+		BatchProgress_Pulse++
+		pulseVal := 40 + Mod(BatchProgress_Pulse, 30)
+		GuiControl, BatchProgress:, BatchProgress_Bar, %pulseVal%
+		if (FileExist(BatchProgress_SyncExitFile)) {
+			FileRead, syncExitCode, %BatchProgress_SyncExitFile%
+			syncExitCode := Trim(syncExitCode)
+			; Extract just the numeric portion (handle trailing whitespace from batch echo)
+			if RegExMatch(syncExitCode, "^(-?\d+)", syncMatch) {
+				syncExitCode := syncMatch1
+			} else {
+				; Exit code not yet valid, keep waiting
+				return
+			}
+			BatchProgress_UpdateLog(BatchProgress_SyncOutFile)
+			if (syncExitCode != "0") {
+				SetTimer, BatchProgress_UpdateTimer, Off
+				GuiControl, BatchProgress:, BatchProgress_Bar, 100
+				GuiControl, BatchProgress:, BatchProgress_Title, Batch Sync Failed (Sync Phase)
+				GuiControl, BatchProgress:, BatchProgress_Status, Sync phase failed (exit code %syncExitCode%). See log output for details.
+				GuiControl, BatchProgress:Enable, BatchProgress_CloseBtn
+			} else if (BatchProgress_GhlCmd = "") {
+				; No GHL lookup script available — finish here
+				SetTimer, BatchProgress_UpdateTimer, Off
+				GuiControl, BatchProgress:, BatchProgress_Bar, 100
+				GuiControl, BatchProgress:, BatchProgress_Title, Batch Sync Complete
+				GuiControl, BatchProgress:, BatchProgress_Status, Batch run finished successfully (no GHL lookup step).
+				GuiControl, BatchProgress:Enable, BatchProgress_CloseBtn
+			} else {
+				GuiControl, BatchProgress:, BatchProgress_Status, Invoice sync complete. Running GHL contact lookup...
+				GuiControl, BatchProgress:, BatchProgress_Phase, Phase 3/3: GHL contact lookup / supplier sync...
+				GuiControl, BatchProgress:, BatchProgress_Bar, 72
+				BatchProgress_Stage := "ghl"
+				BatchProgress_Pulse := 0
+				BatchProgress_LastLog := ""
+				RunCmdToFileAsyncWithExit(BatchProgress_GhlCmd, BatchProgress_GhlOutFile, BatchProgress_GhlExitFile, BatchProgress_GhlPid)
+			}
+		}
+	}
+
+	if (BatchProgress_Stage = "ghl") {
+		BatchProgress_UpdateLog(BatchProgress_GhlOutFile)
+		BatchProgress_Pulse++
+		pulseVal := 72 + Mod(BatchProgress_Pulse, 24)
+		GuiControl, BatchProgress:, BatchProgress_Bar, %pulseVal%
+		if (FileExist(BatchProgress_GhlExitFile)) {
+			FileRead, ghlExitCode, %BatchProgress_GhlExitFile%
+			ghlExitCode := Trim(ghlExitCode)
+			if RegExMatch(ghlExitCode, "^(-?\d+)", ghlMatch) {
+				ghlExitCode := ghlMatch1
+			} else {
+				return
+			}
+			SetTimer, BatchProgress_UpdateTimer, Off
+			BatchProgress_UpdateLog(BatchProgress_GhlOutFile)
+			GuiControl, BatchProgress:, BatchProgress_Bar, 100
+			; GHL lookup failures are non-fatal — log warning but mark complete
+			if (ghlExitCode = "0") {
+				GuiControl, BatchProgress:, BatchProgress_Title, Batch Sync Complete
+				GuiControl, BatchProgress:, BatchProgress_Status, Batch run finished successfully.
+			} else {
+				GuiControl, BatchProgress:, BatchProgress_Title, Batch Sync Complete (GHL lookup warnings)
+				GuiControl, BatchProgress:, BatchProgress_Status, GHL lookup step finished with warnings (exit %ghlExitCode%). Invoices synced OK.
+			}
+			GuiControl, BatchProgress:Enable, BatchProgress_CloseBtn
+		}
+	}
+return
+
+BatchProgress_UpdateLog(logFile) {
+	global BatchProgress_LastLog
+	if (!FileExist(logFile))
+		return
+	FileRead, logContent, %logFile%
+	if (logContent = BatchProgress_LastLog)
+		return
+	BatchProgress_LastLog := logContent
+	if (StrLen(logContent) > 32000)
+		logContent := SubStr(logContent, StrLen(logContent) - 31999)
+	GuiControl, BatchProgress:, BatchProgress_Log, %logContent%
+	ControlSend, Edit1, ^{End}, Batch Sync Progress
+}
+
+BatchProgressClose:
+BatchProgressGuiClose:
+BatchProgressGuiEscape:
+	SetTimer, BatchProgress_UpdateTimer, Off
+	Gui, BatchProgress:Destroy
+	; Cleanup temp artifacts
+	if (BatchProgress_GenOutFile != "")
+		FileDelete, %BatchProgress_GenOutFile%
+	if (BatchProgress_SyncOutFile != "")
+		FileDelete, %BatchProgress_SyncOutFile%
+	if (BatchProgress_GhlOutFile != "")
+		FileDelete, %BatchProgress_GhlOutFile%
+	if (BatchProgress_GenExitFile != "")
+		FileDelete, %BatchProgress_GenExitFile%
+	if (BatchProgress_SyncExitFile != "")
+		FileDelete, %BatchProgress_SyncExitFile%
+	if (BatchProgress_GhlExitFile != "")
+		FileDelete, %BatchProgress_GhlExitFile%
+return
+
 ShowSyncProgressGUI(xmlPath) {
 	global Settings_DarkMode, DPI_Scale, SyncProgress_ProcessId, SyncProgress_XmlPath
 	global SyncProgress_Title, SyncProgress_Bar, SyncProgress_Status
@@ -8164,6 +8757,23 @@ SyncProgress_UpdateTimer:
 					if (status = "success") {
 						GuiControl, SyncProgress:, SyncProgress_Title, ✓ Sync Complete
 						GuiControl, SyncProgress:, SyncProgress_Bar, 100
+						; Capture production opportunity URL (if this sync created/moved one)
+						resultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
+						if (FileExist(resultFile)) {
+							FileRead, syncResultJson, %resultFile%
+							prodOppId := ""
+							if (RegExMatch(syncResultJson, """opportunity_id""\s*:\s*""([^""]+)""", m))
+								prodOppId := m1
+							if (prodOppId != "" && GHL_LocationID != "") {
+								ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+								GHL_ProductionOpportunityURL := "https://" . ghlDomain . "/v2/location/" . GHL_LocationID . "/opportunities/" . prodOppId . "?tab=Opportunity+Details"
+								GHL_ProductionOpportunityPSAPath := GetAlbumPath()
+								GHL_LastAlbumPathForFactoryState := GHL_ProductionOpportunityPSAPath
+								WriteOpenAlbumFactoryState(GHL_ProductionOpportunityPSAPath, GHL_ProductionOpportunityURL, prodOppId, GHL_LocationID)
+								; URL is set in memory for this session and toolbar is rebuilt immediately.
+								SetTimer, RebuildToolbarAfterSync, -100
+							}
+						}
 						; Check for GoCardless prompt after sync success
 						SetTimer, CheckGoCardlessAfterSync, -2500
 					} else {
@@ -8207,6 +8817,15 @@ SyncProgress_UpdateTimer:
 	}
 Return
 
+RebuildToolbarAfterSync:
+CreateFloatingToolbar()
+Return
+
+RestorePSAMetaOnStartup:
+	if (RefreshFactoryOpportunityFromPSA(true))
+		SetTimer, RebuildToolbarAfterSync, -100
+Return
+
 SyncProgress_Close:
 	global SyncProgress_ErrorMessage, ScriptVersion, HelperVersion, HelperModified
 	Gui, SyncProgress:Destroy
@@ -8227,6 +8846,8 @@ SyncProgress_Close:
 			shootNo := ""
 			contactId := ""
 			errorMsg := SyncProgress_ErrorMessage
+			supplierSyncSuccess := false
+			supplierSyncError := ""
 			
 			; Extract fields from JSON
 			if (RegExMatch(resultJson, """client_name""\s*:\s*""([^""]*)""", m))
@@ -8243,6 +8864,10 @@ SyncProgress_Close:
 				orderTotal := m1
 			if (RegExMatch(resultJson, """error""\s*:\s*""([^""]*)""", m))
 				errorMsg := m1
+			if (RegExMatch(resultJson, "s)""supplier_sync""\s*:\s*\{[^\}]*""success""\s*:\s*true", m))
+				supplierSyncSuccess := true
+			if (RegExMatch(resultJson, "s)""supplier_sync""\s*:\s*\{[^\}]*""error""\s*:\s*""([^""]*)""", m))
+				supplierSyncError := m1
 			
 			; Build detailed error message
 			msg := "Invoice sync failed:`n`n"
@@ -8280,6 +8905,10 @@ SyncProgress_Close:
 				msg .= "`nTO FIX: Update API key in SideKick Settings"
 			} else if (InStr(errorMsg, "total may be less than amount paid") || InStr(errorMsg, "validation failed")) {
 				msg .= "  ✗ " . errorMsg . "`n"
+				if (supplierSyncSuccess)
+					msg .= "  ✓ Production pipeline/supplier sync completed`n"
+				else if (supplierSyncError != "")
+					msg .= "  ⚠ Supplier sync issue: " . supplierSyncError . "`n"
 				msg .= "`nTO FIX:`n"
 				msg .= "  The new order total is less than what has`n"
 				msg .= "  already been paid on this invoice.`n`n"
@@ -9246,6 +9875,10 @@ Settings_GHL_Enabled := Toggle_GHL_Enabled_State
 Settings_GHL_AutoLoad := Toggle_GHL_AutoLoad_State
 ; Get dropdown values
 Settings_DefaultRecurring := Settings_DefaultRecurring_DDL
+Settings_BatchMonthDate := NormalizeBatchMonth(GenBatchMonthFrom)
+Settings_BatchMonthDateTo := NormalizeBatchMonth(GenBatchMonthTo)
+GuiControlGet, Settings_BatchSkipExistingInvoices, Settings:, GenBatchSkipInvoicesChk
+GuiControlGet, Settings_BatchSkipExistingOpportunities, Settings:, GenBatchSkipOppsChk
 ; File Management settings from edit controls
 Settings_CardDrive := FilesCardDriveEdit
 Settings_CameraDownloadPath := FilesDownloadEdit
@@ -9374,6 +10007,10 @@ GuiControlGet, Settings_Cardly_TestMode, Settings:, CrdTestModeChk
 GuiControlGet, Settings_Cardly_SaveToAlbum, Settings:, CrdSaveToAlbumChk
 ; Save Cardly credentials to JSON
 SaveGHLCredentials()
+IniWrite, %Settings_BatchMonthDate%, %IniFilename%, Batch, MonthDate
+IniWrite, %Settings_BatchMonthDateTo%, %IniFilename%, Batch, MonthDateTo
+IniWrite, %Settings_BatchSkipExistingInvoices%, %IniFilename%, Batch, SkipExistingInvoices
+IniWrite, %Settings_BatchSkipExistingOpportunities%, %IniFilename%, Batch, SkipExistingOpportunities
 ; Save settings
 SaveSettings()
 ; Rebuild toolbar to reflect button visibility changes
@@ -9555,6 +10192,104 @@ Settings_ToolbarAutoBG := false
 CreateFloatingToolbar()
 Settings_ToolbarAutoBG := Settings_ToolbarAutoBG_Temp
 Settings_CurrentTab := "General"  ; Reset to General for next open
+Return
+
+LaunchBatchSync:
+Gui, Settings:Submit, NoHide
+
+batchMonthDate := NormalizeBatchMonth(GenBatchMonthFrom)
+batchMonthDateTo := NormalizeBatchMonth(GenBatchMonthTo)
+skipExistingInvoices := GenBatchSkipInvoicesChk
+skipExistingOpps := GenBatchSkipOppsChk
+forceOppStage := GenBatchForceOppStageChk
+
+; Validate date range
+if (batchMonthDate > batchMonthDateTo) {
+	DarkMsgBox("Batch Sync", "From month (" . batchMonthDate . ") is after To month (" . batchMonthDateTo . ").`n`nPlease set a valid date range.", "warning")
+	Return
+}
+
+if (Settings_InvoiceWatchFolder = "" || !FileExist(Settings_InvoiceWatchFolder)) {
+	DarkMsgBox("Batch Sync", "Invoice Watch Folder is not configured or does not exist.`n`nSet the XML export folder in GHL settings first.", "warning")
+	Return
+}
+
+if (Settings_ShootArchivePath = "" || !FileExist(Settings_ShootArchivePath)) {
+	DarkMsgBox("Batch Sync", "Shoot Archive Path is not configured or does not exist.`n`nSet the archive path in File Management settings first.", "warning")
+	Return
+}
+
+; Build display label for range (e.g. "2025-01" or "2025-01 to 2025-03")
+rangeLabel := batchMonthDate = batchMonthDateTo ? batchMonthDate : batchMonthDate . " to " . batchMonthDateTo
+
+confirmMsg := "Start batch sync for " . rangeLabel . "?`n`n"
+	. "Step 1: Generate XMLs from archive PSA files`n"
+	. "Step 2: Sync invoices/opportunities to GHL`n"
+	. "Step 3: GHL contact lookup / supplier status sync`n`n"
+	. "Archive path:`n" . Settings_ShootArchivePath . "`n`n"
+	. "XML folder:`n" . Settings_InvoiceWatchFolder . "`n`n"
+	. "Skip existing invoices: " . (skipExistingInvoices ? "Yes" : "No") . "`n"
+	. "Skip existing opportunities: " . (skipExistingOpps ? "Yes" : "No") . "`n"
+	. "Force re-evaluate opportunity stage: " . (forceOppStage ? "Yes" : "No") . "`n`n"
+	. "This will generate XMLs for the selected month(s), then update PSA metadata when production opportunities are published."
+
+	result := DarkMsgBox("Confirm Batch Sync", confirmMsg, "warning", {buttons: ["Start Batch Sync", "Cancel"]})
+	if (result != "Start Batch Sync")
+		Return
+
+	genScriptPath := A_ScriptDir . "\..\_Scripts\generate_psa_xml_exports.py"
+	if (!FileExist(genScriptPath)) {
+		DarkMsgBox("Batch Sync", "XML generator script not found.`n`nExpected:`n" . genScriptPath, "error")
+		Return
+	}
+
+	pythonPath := GetPythonPath()
+	genCmd := ""
+	batchCmd := ""
+	currentMonth := batchMonthDate
+	while (currentMonth <= batchMonthDateTo) {
+		; Build gen command for this month
+		genArgs := "--archive-root """ . Settings_ShootArchivePath . """ --export-dir """ . Settings_InvoiceWatchFolder . """ --month """ . currentMonth . """ --ignore-xero --no-toypi"
+		if (InStr(pythonPath, " "))
+			oneGenCmd := """" . pythonPath . """ """ . genScriptPath . """ " . genArgs
+		else
+			oneGenCmd := pythonPath . " """ . genScriptPath . """ " . genArgs
+		genCmd := genCmd = "" ? oneGenCmd : genCmd . " && " . oneGenCmd
+
+		; Build sync command for this month
+		syncArgs := "--batch-sync-month """ . currentMonth . """ --batch-xml-folder """ . Settings_InvoiceWatchFolder . """ --no-open-browser --no-contact-sheet --no-supplier-sync"
+		if (skipExistingInvoices)
+			syncArgs .= " --batch-skip-existing-invoices"
+		if (skipExistingOpps)
+			syncArgs .= " --batch-skip-existing-opportunities"
+		if (forceOppStage)
+			syncArgs .= " --batch-force-opp-stage"
+		oneBatchCmd := GetScriptCommand("sync_ps_invoice", syncArgs)
+		batchCmd := batchCmd = "" ? oneBatchCmd : batchCmd . " && " . oneBatchCmd
+
+		; Advance to next month
+		yr := SubStr(currentMonth, 1, 4) + 0
+		mo := SubStr(currentMonth, 6, 2) + 1
+		if (mo > 12) {
+			mo := 1
+			yr += 1
+		}
+		moStr := mo < 10 ? "0" . mo : "" . mo
+		currentMonth := yr . "-" . moStr
+	}
+
+	; Build supplier/GHL lookup command (runs once after all months are processed)
+	supplierSyncPath := A_ScriptDir . "\sync_supplier_status_to_ghl.py"
+	if (FileExist(supplierSyncPath)) {
+		if (InStr(pythonPath, " "))
+			ghlCmd := """" . pythonPath . """ """ . supplierSyncPath . """ --apply --json"
+		else
+			ghlCmd := pythonPath . " """ . supplierSyncPath . """ --apply --json"
+	} else {
+		ghlCmd := ""
+	}
+
+	StartBatchProgress(genCmd, batchCmd, ghlCmd, rangeLabel, Settings_ShootArchivePath, Settings_InvoiceWatchFolder)
 Return
 
 EditGHLApiKey:
@@ -11836,7 +12571,6 @@ albumOpenNoId := false
 if WinExist("ProSelect ahk_exe ProSelect.exe")
 {
 	WinGetTitle, psTitle, ahk_exe ProSelect.exe
-	
 	; Check for Client ID pattern in album name (20+ alphanumeric chars)
 	if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch))
 	{
@@ -11867,18 +12601,143 @@ if WinExist("ProSelect ahk_exe ProSelect.exe")
 		}
 		Return
 	}
-	else if (!InStr(psTitle, "Untitled"))
+	else
 	{
-		; Album is open but has no Client ID - offer to update it from Chrome
-		albumOpenNoId := true
-		result := DarkMsgBox("Update Open Album?", "Album is open without a Client ID:`n`n" . psTitle . "`n`nScan Chrome and link this album to a GHL client?", "question", {buttons: ["Update Album", "Import New"]})
-		
-		if (result = "Import New")
+		; --- PSA File Fallback: search GHL by shoot number then name ---
+		psaFirst := ""
+		psaLast := ""
+		psaClientCode := ""
+		psaEmail := ""
+		psaOutput := ""
+
+		psaPath := GetAlbumPath()
+		if (psaPath != "")
 		{
-			albumOpenNoId := false  ; Treat as new import
+			cmd := GetScriptCommand("read_psa_images", """" . psaPath . """")
+			psaTempOut := A_Temp . "\sk_psa_info_" . A_TickCount . ".txt"
+			RunCmdToFile(cmd, psaTempOut)
+			FileRead, psaOutput, %psaTempOut%
+			FileDelete, %psaTempOut%
+
+			Loop, Parse, psaOutput, `n, `r
+			{
+				if (SubStr(A_LoopField, 1, 7) = "CLIENT|")
+				{
+					parts := StrSplit(A_LoopField, "|")
+					if (parts.MaxIndex() >= 4)
+					{
+						psaFirst := parts[2]
+						psaLast := parts[3]
+						psaClientCode := parts[4]
+						psaEmail := (parts.MaxIndex() >= 5) ? parts[5] : ""
+					}
+					break
+				}
+			}
+
 		}
+
+		; Fallback: parse shoot number and last name directly from the album title
+		; Title format: "ProSelect - P25097P_Field" → shoot=P25097P, last=Field
+		if (psaClientCode = "" && psaLast = "")
+		{
+			albumPart := RegExReplace(psTitle, "^ProSelect\s*-\s*", "")
+			if (RegExMatch(albumPart, "^([^_]+)_(.+)$", titleMatch))
+			{
+				psaClientCode := titleMatch1
+				psaLast       := titleMatch2
+			}
+		}
+
+		if (psaEmail != "" || psaClientCode != "" || psaFirst != "" || psaLast != "")
+		{
+			; Step 2a: Search GHL by email (most reliable)
+			if (psaEmail != "")
+			{
+				psaGHLResult := SearchGHLByEmail(psaEmail)
+				if (psaGHLResult.success)
+					existingClientId := psaGHLResult.id
+			}
+
+			; Step 2b: Search GHL by shoot number (clientCode)
+			if (existingClientId = "" && psaClientCode != "")
+			{
+				psaGHLResult := SearchGHLByQuery(psaClientCode)
+				if (psaGHLResult.success)
+					existingClientId := psaGHLResult.id
+			}
+
+			; Step 2c: If still not found, search by name
+			if (existingClientId = "" && (psaFirst != "" || psaLast != ""))
+			{
+				nameQuery := Trim(psaFirst . " " . psaLast)
+				psaGHLResult := SearchGHLByQuery(nameQuery, psaLast)
+				if (psaGHLResult.success)
+					existingClientId := psaGHLResult.id
+			}
+
+			; Step 2d: Found a match - fetch full data and show/autoload
+			if (existingClientId != "")
+			{
+				GHL_Data := FetchGHLData(existingClientId)
+				if (GHL_Data.success)
+				{
+					global GHL_CurrentData := GHL_Data
+					if (Settings_GHL_AutoLoad)
+					{
+						UpdateProSelectClient(GHL_Data)
+					}
+					else
+					{
+						ghlDomain := (GHL_AgencyDomain != "") ? GHL_AgencyDomain : "app.gohighlevel.com"
+						ShowGHLClientDialog(GHL_Data, existingClientId, "https://" . ghlDomain . "/v2/location/" . GHL_LocationID . "/contacts/detail/" . existingClientId)
+					}
+					Return
+				}
+			}
+		}
+
+		if (!InStr(psTitle, "Untitled"))
+		{
+			; Album is open but has no Client ID - offer to update it from Chrome
+			albumOpenNoId := true
+			psaInfo := ""
+			if (psaFirst != "" || psaLast != "")
+				psaInfo := "`n`nPSA Client: " . Trim(psaFirst . " " . psaLast)
+			if (psaClientCode != "")
+				psaInfo .= "  (" . psaClientCode . ")"
+			if (psaEmail != "")
+				psaInfo .= "`nEmail: " . psaEmail
+			if (psaInfo != "")
+				psaInfo .= "`n(No GHL match found)"
+
+			; Debug info
+			debugInfo := "`n`n--- DEBUG ---"
+			debugInfo .= "`npsaPath: " . (psaPath != "" ? psaPath : "(empty)")
+			if (psaPath != "")
+			{
+				firstLines := ""
+				lineCount := 0
+				Loop, Parse, psaOutput, `n, `r
+				{
+					firstLines .= A_LoopField . "|"
+					lineCount++
+					if (lineCount >= 4)
+						break
+				}
+				debugInfo .= "`nOutput: " . SubStr(firstLines, 1, 120)
+			}
+			debugInfo .= "`nCode=" . psaClientCode . " Last=" . psaLast . " First=" . psaFirst
+
+			result := DarkMsgBox("Update Open Album?", "Album is open without a Client ID:`n`n" . psTitle . psaInfo . debugInfo . "`n`nScan Chrome and link this album to a GHL client?", "question", {buttons: ["Update Album", "Import New"]})
+
+			if (result = "Import New")
+			{
+				albumOpenNoId := false  ; Treat as new import
+			}
+		}
+		; else: Untitled album - treat as new import
 	}
-	; else: Untitled album - treat as new import
 }
 
 ; Scan all Chrome windows for FBPE URL
@@ -12168,25 +13027,58 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 				albumPath := pathMatch1
 			}
 			
+			; Capture current full .psa path once (used for naming + save location)
+			oldPsaPath := GetAlbumPath()
+			
 			; Build new album name with client ID appended
 			newAlbumName := ""
+			preferredBaseName := ""
+			
+			; Prefer ShootNo_LastName from archive folder name:
+			; D:\Shoot_Archive\P26050P_Windsor_28042026_1714\Unprocessed\*.psa -> P26050P_Windsor
+			if (oldPsaPath != "")
+			{
+				SplitPath, oldPsaPath, psaFileName, psaDir, psaExt, psaNameNoExt
+				SplitPath, psaDir, psaDirName, psaParentDir
+				SplitPath, psaParentDir, shootFolderName
+				if (RegExMatch(shootFolderName, "^(P\d+P)_([^_\\]+)", shootMatch))
+					preferredBaseName := shootMatch1 . "_" . shootMatch2
+			}
+			
+			if (preferredBaseName = "")
+			{
+				cleanLastName := RegExReplace(LastName, "[^A-Za-z0-9_-]+", "_")
+				cleanLastName := RegExReplace(cleanLastName, "_+", "_")
+				cleanLastName := Trim(cleanLastName, "_")
+				if (cleanLastName != "")
+					preferredBaseName := cleanLastName
+			}
 			
 			if (albumPath = "Untitled" || albumPath = "")
 			{
-				; New album - create name from client info: LastName_ClientID.psa
-				newAlbumName := LastName . "_" . Account . ".psa"
+				; New album - use ShootNo_LastName when available, otherwise LastName
+				baseName := preferredBaseName != "" ? preferredBaseName : "Album"
+				newAlbumName := baseName . "_" . Account . ".psa"
 			}
-			else if (!InStr(albumPath, Account))
+			else
 			{
-				; Existing album without client ID - need to append it
-				; Check if it's a full path or just a name
+				; Existing album - append/repair naming if needed
 				SplitPath, albumPath, fileName, dirPath, ext, nameNoExt
 				
 				; Remove " copy" suffix if present (from ProSelect duplicate albums)
 				nameNoExt := RegExReplace(nameNoExt, "\s+copy$", "")
+				nameNoExtNoId := RegExReplace(nameNoExt, "_" . Account . "$")
+				isGenericAlbumName := RegExMatch(nameNoExtNoId, "i)^(Unprocessed Album|Processed Album|Working Album|Archive Album|Untitled|New Album|Album\d*)$")
 				
-				; Just need the new filename with .psa extension
-				newAlbumName := nameNoExt . "_" . Account . ".psa"
+				if (!InStr(nameNoExt, Account) || (isGenericAlbumName && preferredBaseName != ""))
+				{
+					finalBaseName := nameNoExtNoId
+					if (isGenericAlbumName && preferredBaseName != "")
+						finalBaseName := preferredBaseName
+					if (finalBaseName = "")
+						finalBaseName := preferredBaseName != "" ? preferredBaseName : "Album"
+					newAlbumName := finalBaseName . "_" . Account . ".psa"
+				}
 			}
 			; else: Album already has client ID - skip renaming
 			
@@ -12194,7 +13086,7 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 			{
 				ToolTip, 💾 Saving album with client ID...
 				Sleep, 300
-				
+
 				; Activate ProSelect and use menu to open Save As (avoids triggering other hotkeys)
 				WinActivate, ahk_exe ProSelect.exe
 				Sleep, 500
@@ -12202,59 +13094,148 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 				
 				; Use File menu > Save Album as... to open Save Album As dialog
 				WinMenuSelectItem, ahk_exe ProSelect.exe, , File, Save Album as...
-				Sleep, 1500
+				Sleep, 800
 				
-				; Wait for Save As dialog
-				saveAsDialogHwnd := WinExist("Save Album As")
+				; Wait for Save As dialog (title varies across ProSelect/Windows versions)
+				saveAsDialogHwnd := ""
+				Loop, 20
+				{
+					saveAsDialogHwnd := WinExist("Save Album As")
+					if (!saveAsDialogHwnd)
+						saveAsDialogHwnd := WinExist("Save As")
+					if (!saveAsDialogHwnd)
+					{
+						if WinExist("ahk_class #32770")
+						{
+							ControlGet, hasEdit, Enabled,, Edit1, ahk_class #32770
+							if (hasEdit)
+								saveAsDialogHwnd := WinExist("ahk_class #32770")
+						}
+					}
+					if (saveAsDialogHwnd)
+						break
+					Sleep, 250
+				}
+				
+				; Fallback: keyboard menu path if menu selection failed to open dialog
 				if (!saveAsDialogHwnd)
-					saveAsDialogHwnd := WinExist("Save As")
+				{
+					SendInput, !f
+					Sleep, 150
+					SendInput, a
+					Sleep, 600
+					Loop, 12
+					{
+						saveAsDialogHwnd := WinExist("Save Album As")
+						if (!saveAsDialogHwnd)
+							saveAsDialogHwnd := WinExist("Save As")
+						if (!saveAsDialogHwnd)
+						{
+							if WinExist("ahk_class #32770")
+							{
+								ControlGet, hasEdit, Enabled,, Edit1, ahk_class #32770
+								if (hasEdit)
+									saveAsDialogHwnd := WinExist("ahk_class #32770")
+							}
+						}
+						if (saveAsDialogHwnd)
+							break
+						Sleep, 250
+					}
+				}
 				
 				if (saveAsDialogHwnd)
 				{
 					WinActivate, ahk_id %saveAsDialogHwnd%
 					Sleep, 500
-					
-					; Read original filename from edit control before changing it
-					ControlGetText, originalFileName, Edit1, ahk_id %saveAsDialogHwnd%
-					
-					; Focus filename edit, select all, type new name
+
+					; Build full target path so save always lands beside the current album
+					targetAlbumPath := newAlbumName
+					if (oldPsaPath != "")
+					{
+						SplitPath, oldPsaPath, oldFileName, oldDir
+						targetAlbumPath := oldDir . "\" . newAlbumName
+					}
+
+					; Focus filename edit, select all, paste target path
 					ControlFocus, Edit1, ahk_id %saveAsDialogHwnd%
 					Sleep, 200
-					SendInput, ^a
-					Sleep, 200
-					SendInput, %newAlbumName%
-					Sleep, 2000
+					savedClip := ClipboardAll
+					Clipboard := targetAlbumPath
+					ClipWait, 2
+					Send, ^a
+					Send, ^v
+					Sleep, 300
+					Clipboard := savedClip
+					Sleep, 300
 					
 					; Click Save button (Button2)
 					ControlClick, Button2, ahk_id %saveAsDialogHwnd%
-					Sleep, 1000
+					Sleep, 400
 					
-					; Handle any confirmation dialogs
-					if WinExist("Confirm Save As")
+					; Fallback: press Enter if Save dialog is still open
+					if WinExist("ahk_id " . saveAsDialogHwnd)
 					{
+						WinActivate, ahk_id %saveAsDialogHwnd%
+						Sleep, 100
 						Send, {Enter}
-						Sleep, 500
+						Sleep, 400
 					}
 					
-					; Delete original .psa file if it differs from new name
-					if (originalFileName != "" && originalFileName != newAlbumName)
+					; Handle overwrite confirmation dialogs
+					Loop, 5
 					{
-						; Get album folder from original albumPath
-						SplitPath, albumPath, , albumDir
-						if (albumDir != "")
+						Sleep, 250
+						if WinExist("Confirm Save As")
 						{
-							originalFullPath := albumDir . "\" . originalFileName
-							if FileExist(originalFullPath)
+							ControlClick, Button1, Confirm Save As
+							continue
+						}
+						if WinExist("ahk_class #32770")
+						{
+							ControlGet, hasYes, Visible,, Button1, ahk_class #32770
+							if (hasYes)
 							{
-								FileDelete, %originalFullPath%
+								ControlClick, Button1, ahk_class #32770
+								continue
+							}
+						}
+						break
+					}
+					
+					; Delete original .psa file only after confirming new file exists and is viable
+					if (oldPsaPath != "")
+					{
+						SplitPath, oldPsaPath, oldFileName, oldDir
+						newFullPath := oldDir . "\" . newAlbumName
+						if (oldPsaPath != newFullPath && FileExist(oldPsaPath))
+						{
+							; Wait for new file to appear and finish writing (up to 15 seconds)
+							newFileSize := 0
+							Loop, 15
+							{
+								if FileExist(newFullPath)
+								{
+									FileGetSize, newFileSize, %newFullPath%, K
+									if (newFileSize > 10)
+										break
+								}
+								ToolTip, ⏳ Waiting for album save to complete... (%A_Index%s)
+								Sleep, 1000
+							}
+							ToolTip
+
+							if (newFileSize > 10)
+							{
+								FileDelete, %oldPsaPath%
 								if !ErrorLevel
 									ToolTip, ✅ Album saved and old file removed!
 								else
-									ToolTip, ✅ Album saved (old file still exists)
+									ToolTip, ✅ Album saved (old file removal failed)
 							}
 							else
 							{
-								ToolTip, ✅ Album saved with client ID!
+								ToolTip, ✅ Album saved (old file kept — new file not verified)
 							}
 						}
 						else
@@ -12691,6 +13672,123 @@ SearchGHLByEmail(email)
 		if (!objEnd)
 			return {success: false, error: "Could not parse contact data from GHL"}
 		
+		contactJson := SubStr(jsonText, objStart, objEnd - objStart + 1)
+		return ParseGHLJSON(contactJson)
+	}
+	catch e
+	{
+		errMsg := IsObject(e) ? e.Message : e
+		return {success: false, error: "HTTP Request failed: " . errMsg}
+	}
+}
+
+SearchGHLByQuery(query, lastName := "")
+{
+	global GHL_API_Key, GHL_LocationID, GHL_Address2FieldID, GHL_Address3FieldID
+
+	if (!query || query = "")
+		return {success: false, error: "No query provided"}
+	if (!GHL_API_Key || GHL_API_Key = "")
+		return {success: false, error: "GHL API Key not configured. Go to Settings > GHL Integration"}
+	if (!GHL_LocationID || GHL_LocationID = "")
+		return {success: false, error: "GHL Location ID not configured. Go to Settings > GHL Integration"}
+
+	; Ensure custom field IDs are loaded
+	if (!GHL_Address2FieldID)
+		LoadGHLAddressFieldIDs()
+
+	try {
+		http := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+		http.SetTimeouts(10000, 10000, 10000, 10000)
+
+		; URL-encode spaces in query
+		urlQuery := query
+		urlEncSpace := "%20"
+		StringReplace, urlQuery, urlQuery, %A_Space%, %urlEncSpace%, All
+
+		apiUrl := "https://services.leadconnectorhq.com/contacts/?locationId=" . GHL_LocationID . "&query=" . urlQuery . "&limit=20"
+
+		http.open("GET", apiUrl, false)
+		http.SetRequestHeader("Authorization", "Bearer " . GHL_API_Key)
+		http.SetRequestHeader("Version", "2021-07-28")
+		http.send()
+
+		if (http.status != 200)
+			return {success: false, error: "GHL Search Error - HTTP " . http.status}
+
+		jsonText := http.responseText
+
+		; Locate the "contacts":[...] array
+		contactsPos := InStr(jsonText, """contacts""")
+		if (!contactsPos)
+			return {success: false, error: "No contacts found in GHL (no contacts key)"}
+
+		arrOpen := InStr(jsonText, "[", contactsPos)
+		if (!arrOpen)
+			return {success: false, error: "No contacts found in GHL"}
+
+		arrClose := InStr(jsonText, "]", arrOpen)
+		objStart := InStr(jsonText, "{", arrOpen)
+		if (!objStart || objStart > arrClose)
+			return {success: false, error: "No contacts found in GHL (empty list)"}
+
+		; If lastName filter provided, scan all contacts for exact last name match
+		if (lastName != "")
+		{
+			scanPos := objStart
+			while (scanPos && scanPos < arrClose)
+			{
+				depth := 0
+				objEnd := 0
+				Loop, % StrLen(jsonText) - scanPos + 1
+				{
+					ch := SubStr(jsonText, scanPos + A_Index - 1, 1)
+					if (ch = "{")
+						depth++
+					else if (ch = "}")
+					{
+						depth--
+						if (depth = 0) {
+							objEnd := scanPos + A_Index - 1
+							break
+						}
+					}
+				}
+				if (!objEnd)
+					break
+				contactJson := SubStr(jsonText, scanPos, objEnd - scanPos + 1)
+				candidate := ParseGHLJSON(contactJson)
+				if (candidate.success && candidate.lastName = lastName)
+					return candidate
+				; Advance to next contact object
+				scanPos := InStr(jsonText, "{", objEnd + 1)
+				if (!scanPos || scanPos > arrClose)
+					break
+			}
+			return {success: false, error: "No contact found matching name"}
+		}
+
+		; No lastName filter - return first result
+		depth := 0
+		objEnd := 0
+		Loop, % StrLen(jsonText) - objStart + 1
+		{
+			ch := SubStr(jsonText, objStart + A_Index - 1, 1)
+			if (ch = "{")
+				depth++
+			else if (ch = "}")
+			{
+				depth--
+				if (depth = 0) {
+					objEnd := objStart + A_Index - 1
+					break
+				}
+			}
+		}
+
+		if (!objEnd)
+			return {success: false, error: "Could not parse contact data from GHL"}
+
 		contactJson := SubStr(jsonText, objStart, objEnd - objStart + 1)
 		return ParseGHLJSON(contactJson)
 	}
