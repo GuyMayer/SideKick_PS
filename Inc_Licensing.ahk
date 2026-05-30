@@ -5239,7 +5239,7 @@ SettingsLogoClick:
 Return
 
 SettingsAIHelpClick:
-	Run, https://guymayer.github.io/GHL_SideKick_Website/help.html
+	Run, https://ps.ghl-sidekick.com/help.html
 Return
 
 SettingsWebLinkClick:

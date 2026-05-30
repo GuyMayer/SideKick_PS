@@ -11679,15 +11679,15 @@ Run, mailto:guy@zoom-photo.co.uk
 Return
 
 OpenUserManual:
-Run, https://guymayer.github.io/GHL_SideKick_Website/help.html
+Run, https://ps.ghl-sidekick.com/help.html
 Return
 
 OpenDocsPage:
-Run, https://guymayer.github.io/GHL_SideKick_Website/help.html
+Run, https://ps.ghl-sidekick.com/help.html
 Return
 
 OpenAIHelp:
-Run, https://guymayer.github.io/GHL_SideKick_Website/help.html
+Run, https://ps.ghl-sidekick.com/help.html
 Return
 
 ShowWhatsNew:
