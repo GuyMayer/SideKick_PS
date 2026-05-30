@@ -1,4 +1,4 @@
-﻿#Requires AutoHotkey v1.1+
+#Requires AutoHotkey v1.1+
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
@@ -11679,15 +11679,15 @@ Run, mailto:guy@zoom-photo.co.uk
 Return
 
 OpenUserManual:
-Run, https://ps.ghl-sidekick.com/help.html
+Run, https://guymayer.github.io/GHL_SideKick_Website/help.html
 Return
 
 OpenDocsPage:
-Run, https://ps.ghl-sidekick.com/help.html
+Run, https://guymayer.github.io/GHL_SideKick_Website/help.html
 Return
 
 OpenAIHelp:
-Run, https://ps.ghl-sidekick.com/help.html
+Run, https://guymayer.github.io/GHL_SideKick_Website/help.html
 Return
 
 ShowWhatsNew:

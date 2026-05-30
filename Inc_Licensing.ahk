@@ -1,4 +1,4 @@
-﻿; ============================================================
+; ============================================================
 ; Monthly Validation and Auto-Update Check
 ; ============================================================
 
@@ -5239,7 +5239,7 @@ SettingsLogoClick:
 Return
 
 SettingsAIHelpClick:
-	Run, https://ps.ghl-sidekick.com/help.html
+	Run, https://guymayer.github.io/GHL_SideKick_Website/help.html
 Return
 
 SettingsWebLinkClick:
