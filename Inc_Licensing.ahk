@@ -692,6 +692,10 @@ CreateAboutPanel()
 	Gui, Settings:Add, Text, x560 y380 w100 BackgroundTrans gOpenDocsPage vAboutDocsLink Hidden HwndHwndAboutDocs, 📚 Docs
 	RegisterSettingsTooltip(HwndAboutDocs, "DOCUMENTATION`n`nOpen the ProSelect to GHL field mapping guide.`n`nIncludes:`n• Invoice line item mapping`n• SKU/Product Code sync`n• Xero integration fields`n• QuickBooks integration fields`n• Tax configuration checklist")
 	
+	Gui, Settings:Font, s9 Norm c%linkColor%, Segoe UI
+	Gui, Settings:Add, Text, x195 y380 w170 BackgroundTrans gOpenAIHelp vAboutAIHelpLink Hidden HwndHwndAboutAIHelp, 🤖 AI Help (ChatGPT)
+	RegisterSettingsTooltip(HwndAboutAIHelp, "AI HELP FOR CHATGPT / CLAUDE / GEMINI`n`nOpens the SideKick PS knowledge base page.`nClick the orange button to copy the full help text,`nthen paste it into any AI chat and ask questions.`n`nWorks with free ChatGPT, Claude, and Gemini accounts.`nBookmark ps.ghl-sidekick.com/help.html")
+	
 	; ═══════════════════════════════════════════════════════════════════════════
 	; DIAGNOSTICS GROUP BOX
 	; ═══════════════════════════════════════════════════════════════════════════
@@ -5231,6 +5235,13 @@ ShowSettingsTab("Developer")
 Return
 
 SettingsLogoClick:
+	Run, https://ps.ghl-sidekick.com
+Return
+
+SettingsAIHelpClick:
+	Run, https://ps.ghl-sidekick.com/help.html
+Return
+
 SettingsWebLinkClick:
 	Run, https://ps.ghl-sidekick.com
 Return

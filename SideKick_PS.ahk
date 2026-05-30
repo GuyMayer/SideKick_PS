@@ -11679,11 +11679,15 @@ Run, mailto:guy@zoom-photo.co.uk
 Return
 
 OpenUserManual:
-Run, https://sidekick.zoom-photo.uk/docs.html
+Run, https://ps.ghl-sidekick.com/docs.html
 Return
 
 OpenDocsPage:
-Run, https://sidekick.zoom-photo.uk/docs.html
+Run, https://ps.ghl-sidekick.com/docs.html
+Return
+
+OpenAIHelp:
+Run, https://ps.ghl-sidekick.com/help.html
 Return
 
 ShowWhatsNew:
