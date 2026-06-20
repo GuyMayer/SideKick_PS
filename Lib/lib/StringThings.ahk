@@ -1,4 +1,4 @@
-#Requires AutoHotkey v1.1+
+﻿#Requires AutoHotkey v1.1+
 /*
 Name: String Things - Common String & Array Functions
 Version 2.6 (Fri May 30, 2014)

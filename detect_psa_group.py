@@ -164,7 +164,8 @@ def detect_group(psa_path: str, target_balance: float) -> str:
         if len(matches) > 1:
             parts = [f"AMBIGUOUS|{group_count}"]
             for g in matches:
-                parts.append(f"{g['id']}|{g['firstName']} {g['lastName']}")
+                total = round(group_order_totals.get(g['id'], 0.0), 2)
+                parts.append(f"{g['id']}|{g['firstName']} {g['lastName']}|{total:.2f}")
             return "|".join(parts)
 
         # No balance match: check if any group has zero payments
@@ -177,7 +178,8 @@ def detect_group(psa_path: str, target_balance: float) -> str:
         # Still ambiguous — return all groups for user selection
         parts = [f"AMBIGUOUS|{group_count}"]
         for g in groups:
-            parts.append(f"{g['id']}|{g['firstName']} {g['lastName']}")
+            total = round(group_order_totals.get(g['id'], 0.0), 2)
+            parts.append(f"{g['id']}|{g['firstName']} {g['lastName']}|{total:.2f}")
         return "|".join(parts)
 
     except sqlite3.Error as e:

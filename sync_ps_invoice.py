@@ -4498,7 +4498,7 @@ def _handle_invoice_success(
 
             # Extract shoot number from album name for invoice naming
             album_name = ps_data.get('album_name', '')
-            shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+            shoot_no = ps_data.get('_shoot_no_override') or (album_name.split('_')[0] if album_name and '_' in album_name else '')
             payment_plan_name = f"{client_name} - {shoot_no} Payment Plan" if shoot_no else f"{client_name} Payment Plan"
             payment_1_name = f"{client_name} - {shoot_no} Payment 1" if shoot_no else f"{client_name} Payment 1"
 
@@ -4735,7 +4735,7 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
     # Build invoice name
     client_name = f"{ps_data.get('first_name', '')} {ps_data.get('last_name', '')}".strip()
     album_name = ps_data.get('album_name', '')
-    shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+    shoot_no = ps_data.get('_shoot_no_override') or (album_name.split('_')[0] if album_name and '_' in album_name else '')
     invoice_name = f"{client_name} - {shoot_no}" if shoot_no else client_name
 
     issue_date = _normalize_date(order.get('date', ''))
@@ -4901,8 +4901,6 @@ def update_existing_invoice(invoice_id: str, ps_data: dict, financials_only: boo
 
             email = ps_data.get('email', '')
             payment_plan_name = f"{client_name} - {shoot_no} Payment Plan" if shoot_no else f"{client_name} Payment Plan"
-
-            print(f"  Creating schedule: {num_payments} x £{base_amount:.2f}/month from {first_date}")
 
             if rounding_diff != 0 and num_payments > 1 and not rounding_in_deposit:
                 # First payment with rounding adjustment
@@ -5107,6 +5105,8 @@ def create_ghl_invoice(contact_id: str, ps_data: dict, financials_only: bool = F
     if album_name and '_' in album_name:
         # Album format: ShootNo_Name_GHLContactID - extract first part
         shoot_no = album_name.split('_')[0]
+    # Reorder suffix override: injected by _process_sync for Order N disambiguator
+    shoot_no = ps_data.get('_shoot_no_override') or shoot_no
 
     if shoot_no:
         invoice_name = f"{client_name} - {shoot_no}"
@@ -5768,7 +5768,7 @@ def _parse_cli_args():
         parser.add_argument('--batch-xml-folder', type=str, default='')
         parser.add_argument('--batch-skip-existing-invoices', action='store_true')
         parser.add_argument('--batch-skip-existing-opportunities', action='store_true')
-    else:
+        parser.add_argument('--order-suffix', type=int, default=0)
         parser = argparse.ArgumentParser(description='Sync ProSelect invoice to GHL')
         parser.add_argument('xml_path', nargs='?', help='Path to ProSelect XML export file')
         parser.add_argument('--financials-only', action='store_true',
@@ -5833,6 +5833,8 @@ def _parse_cli_args():
                     help='Skip moving opportunities already in the Production pipeline')
         parser.add_argument('--batch-force-opp-stage', action='store_true',
                     help='Re-evaluate and update opportunity stage even for already-synced shoots')
+        parser.add_argument('--order-suffix', type=int, default=0,
+                    help='Order group suffix (>1 for reorders) — scopes dedup token and invoice name')
     return parser.parse_args()
 
 
@@ -6592,6 +6594,7 @@ def _process_sync(
     supplier_sync_enabled: bool = True,
     supplier_ssh_host: str = 'toypi.tail009b36.ts.net',
     supplier_remote_db_path: str = '/home/guy/.openclaw/data/supplier_status.db',
+    order_suffix: int = 0,
 ) -> dict:
     """Process the sync operation.
 
@@ -6637,6 +6640,11 @@ def _process_sync(
     client_name = f"{ps_data.get('first_name')} {ps_data.get('last_name')}"
     album_name = ps_data.get('album_name', '')
     shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+    # For reorders, use a suffixed shoot token so dedup and invoice names are distinct
+    if order_suffix and order_suffix > 1:
+        shoot_no = f"{shoot_no}-{order_suffix}"
+        ps_data = dict(ps_data)
+        ps_data['_shoot_no_override'] = shoot_no
     order_data = ps_data.get('order', {}) if isinstance(ps_data, dict) else {}
     shoot_date = str(order_data.get('date') or '').strip() if isinstance(order_data, dict) else ''
     service_type = _extract_service_type_from_ps_data(ps_data)
@@ -6921,6 +6929,9 @@ def main() -> None:
         contact_id = ps_data.get('ghl_contact_id', '')
         album_name = ps_data.get('album_name', '')
         shoot_no = album_name.split('_')[0] if album_name and '_' in album_name else ''
+        order_suffix = getattr(args, 'order_suffix', 0) or 0
+        if order_suffix > 1:
+            shoot_no = f"{shoot_no}-{order_suffix}"
         order_total = ps_data.get('order', {}).get('total_amount', 0)
         if not contact_id:
             result = {'duplicate': False, 'error': 'No GHL Contact ID in XML'}
@@ -7013,6 +7024,7 @@ def main() -> None:
             supplier_sync_enabled,
             supplier_ssh_host,
             supplier_remote_db_path,
+            order_suffix=getattr(args, 'order_suffix', 0) or 0,
         )
         result['resync'] = True
         result['old_invoices_deleted'] = del_result.get('deleted', 0) + del_result.get('voided', 0)
@@ -7043,6 +7055,12 @@ def main() -> None:
         skip_zero_extras = args.skip_zero_extras
 
         write_progress(1, total_steps, "Updating invoice items & payments...")
+        order_suffix = getattr(args, 'order_suffix', 0) or 0
+        if order_suffix > 1:
+            ps_data = dict(ps_data)
+            _album = ps_data.get('album_name', '')
+            _sn = _album.split('_')[0] if _album and '_' in _album else ''
+            ps_data['_shoot_no_override'] = f"{_sn}-{order_suffix}" if _sn else ''
         result = update_existing_invoice(args.update_invoice, ps_data, financials_only, rounding_in_deposit, open_browser, skip_zero_extras)
 
         # Enrich result with client info for error display
@@ -7124,6 +7142,7 @@ def main() -> None:
         supplier_sync_enabled,
         supplier_ssh_host,
         supplier_remote_db_path,
+        order_suffix=getattr(args, 'order_suffix', 0) or 0,
     )
     _save_and_log_result(result)
     sys.exit(0 if result.get('success') else 1)

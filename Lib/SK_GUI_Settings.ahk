@@ -1,4 +1,4 @@
-#Requires AutoHotkey v1.1+
+﻿#Requires AutoHotkey v1.1+
 ; ==================================================================================
 ; SK_GUI_Settings.ahk - SideKick Settings GUI Module
 ; Extracted from SideKick_LB_PubAI.ahk for modularization

@@ -155,15 +155,26 @@ Write-Host "`n[3/8] Compiling SideKick_PS.ahk to EXE..." -ForegroundColor Yellow
 if (Test-Path $Ahk2Exe) {
     $ahkSource = "$SourceDir\SideKick_PS.ahk"
     $exeOutput = "$ReleaseDir\SideKick_PS.exe"
-    
+
+    # Strip garbled double-BOM (ï»¿ = C3 AF C2 BB C2 BF) if present after real BOM
+    # This can be introduced by editors re-saving a UTF-8-BOM file
+    $ahkBytes = [System.IO.File]::ReadAllBytes($ahkSource)
+    if ($ahkBytes.Length -gt 9 -and $ahkBytes[3] -eq 0xC3 -and $ahkBytes[4] -eq 0xAF -and $ahkBytes[5] -eq 0xC2) {
+        Write-Host "  [INFO] Stripping garbled BOM prefix from SideKick_PS.ahk..." -ForegroundColor Yellow
+        $clean = [byte[]]::new($ahkBytes.Length - 6)
+        [System.Array]::Copy($ahkBytes, 0, $clean, 0, 3)
+        [System.Array]::Copy($ahkBytes, 9, $clean, 3, $clean.Length - 3)
+        [System.IO.File]::WriteAllBytes($ahkSource, $clean)
+    }
+
     # Compile with icon if available
     $iconPath = "$ScriptDir\media\SideKick_PS.ico"
     if (!(Test-Path $iconPath)) { $iconPath = "$SourceDir\SideKick_PS.ico" }
-    
+
     if (Test-Path $iconPath) {
-        & $Ahk2Exe /in $ahkSource /out $exeOutput /icon $iconPath 2>&1 | Out-Null
+        & $Ahk2Exe /in $ahkSource /out $exeOutput /icon $iconPath /silent
     } else {
-        & $Ahk2Exe /in $ahkSource /out $exeOutput 2>&1 | Out-Null
+        & $Ahk2Exe /in $ahkSource /out $exeOutput /silent
     }
     
     # Check if EXE was created (more reliable than exit code)
@@ -240,8 +251,10 @@ $unifiedCliBuilt = $false
 
 if (!$SkipPythonCompile) {
     # Check if PyInstaller is installed
-    $pyinstallerCheck = & pip show pyinstaller 2>$null
-    if (!$pyinstallerCheck) {
+    $ErrorActionPreference = "Continue"
+    $pyinstallerCheck = & pip show pyinstaller 2>&1
+    $ErrorActionPreference = "Stop"
+    if ($pyinstallerCheck -notmatch 'Name: pyinstaller') {
         Write-Host "  PyInstaller not found. Installing..." -ForegroundColor Yellow
         & pip install pyinstaller
         if ($LASTEXITCODE -ne 0) {

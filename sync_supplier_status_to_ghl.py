@@ -87,21 +87,44 @@ def _normalise_key(raw_key: str) -> str:
 
 
 def _fetch_custom_field_ids(api_key: str, location_id: str) -> dict[str, str]:
-    body = _request("GET", api_key, f"/locations/{location_id}/customFields")
-    fields = body.get("customFields", [])
-    if not isinstance(fields, list):
-        fields = []
+    """Build key→id map from both contact and opportunity custom fields."""
+
+    def _normalise(raw_key: str) -> str:
+        k = (raw_key or "").strip()
+        # Strip entity prefix: contact.xxx → xxx, opportunity.xxx → xxx
+        if "." in k:
+            k = k.split(".")[-1]
+        # Some opportunity fields are double-prefixed: opportunitywall_art_status → wall_art_status
+        if k.startswith("opportunity"):
+            k = k[len("opportunity"):]
+        return k
 
     mapping: dict[str, str] = {}
-    for f in fields:
+
+    # Contact-level fields
+    body = _request("GET", api_key, f"/locations/{location_id}/customFields")
+    for f in body.get("customFields", []):
         if not isinstance(f, dict):
             continue
         field_id = str(f.get("id") or f.get("_id") or "").strip()
-        field_key = _normalise_key(str(f.get("fieldKey") or f.get("key") or ""))
+        field_key = _normalise(str(f.get("fieldKey") or f.get("key") or ""))
         if field_id and field_key:
             mapping[field_key] = field_id
 
-    # Ensure legacy known field is always available.
+    # Opportunity-level fields (supplier status fields live here)
+    try:
+        opp_body = _request("GET", api_key, f"/locations/{location_id}/customFields",
+                            params={"model": "opportunity"})
+        for f in opp_body.get("customFields", []):
+            if not isinstance(f, dict):
+                continue
+            field_id = str(f.get("id") or f.get("_id") or "").strip()
+            field_key = _normalise(str(f.get("fieldKey") or f.get("key") or ""))
+            if field_id and field_key:
+                mapping[field_key] = field_id
+    except Exception:
+        pass
+
     mapping.setdefault("session_job_no", SESSION_JOB_NO_FIELD_ID)
     return mapping
 
@@ -109,6 +132,7 @@ def _fetch_custom_field_ids(api_key: str, location_id: str) -> dict[str, str]:
 def _find_contact_id_by_job_no(api_key: str, location_id: str, job_no: str) -> str | None:
     payload = {
         "locationId": location_id,
+        "pageLimit": 20,
         "filters": [
             {
                 "field": f"customFields.{SESSION_JOB_NO_FIELD_ID}",
@@ -128,8 +152,9 @@ def _find_contact_id_by_job_no(api_key: str, location_id: str, job_no: str) -> s
 
 
 def _get_contact_opportunities(api_key: str, location_id: str, contact_id: str) -> list[dict[str, Any]]:
-    payload = {"locationId": location_id, "contactId": contact_id}
-    body = _request("POST", api_key, "/opportunities/search", payload=payload)
+    body = _request("GET", api_key, "/opportunities/search", params={
+        "location_id": location_id, "contact_id": contact_id, "limit": 100,
+    })
     opportunities = body.get("opportunities", [])
     if not isinstance(opportunities, list):
         return []

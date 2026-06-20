@@ -16,6 +16,24 @@ SideKick_GC changes are tracked here alongside SideKick_PS from v2.5.53 onward.
 SideKick_GC can also run independently — its own CHANGELOG.md covers standalone releases.
 -->
 
+## v3.0.22 (2026-06-20)
+
+### New
+
+- **Multi-order support — Order Picker dialog**: Albums with more than one order group now show a `DarkOrderPicker` dropdown listing all orders (e.g. `Order 1 — Sonia Field (£540.00)`) and defaulting to the latest order. Replaces the previous multi-button `DarkMsgBox` pattern. Applies to both the GoCardless and Invoice toolbar flows.
+- **Order totals in picker**: `detect_psa_group.py` AMBIGUOUS output now includes the order balance as a third field per group (`id|name|total`). The picker label and the PayPlan Calculator hotkey button both display `(£XXX.XX)` alongside the order name.
+
+### Bug Fixes
+
+- **GoCardless mandate lookup pagination**: `_find_customer_by_email()` and `_find_customers_by_name()` now cursor-paginate through all customers. Previously only the first 50 results were searched, causing "mandate not found" for customers beyond page 1. The `email=` and `per_page=` query params are both rejected by this GoCardless account and have been removed.
+- **Replace PayPlan guard**: When the user selects any order beyond Order 1 in the GoCardless flow, `Replace PayPlan` is automatically overridden to `Add PayPlan` to prevent cancelling the shared mandate's existing plan.
+
+### Improved
+
+- **Mandate Active dialog — payment progress**: Plan info now shows `6/6 complete` or `3/6 paid` instead of just the plan name and amount, giving a clearer picture of payment status without opening the GoCardless dashboard.
+
+---
+
 ## v3.0.21 (2026-05-29)
 
 ### Bug Fixes

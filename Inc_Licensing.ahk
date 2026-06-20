@@ -1,4 +1,4 @@
-; ============================================================
+﻿; ============================================================
 ; Monthly Validation and Auto-Update Check
 ; ============================================================
 
@@ -2796,7 +2796,8 @@ GC_CheckCustomerMandate(customerEmail) {
 ; Shared function to trigger ProSelect XML export
 ; Returns the full path to the exported XML file on success, empty string on failure
 ; showErrors: if true, shows DarkMsgBox on errors; if false, fails silently
-PS_TriggerXMLExport(showErrors := false) {
+; targetGroup: 0 = all groups (default / single-order), N = export only that order group
+PS_TriggerXMLExport(showErrors := false, targetGroup := 0) {
 	global DebugLogFile, PsConsolePath, Settings_InvoiceWatchFolder
 	
 	FileAppend, % A_Now . " - PS_TriggerXMLExport - Starting PSConsole export`n", %DebugLogFile%
@@ -2865,11 +2866,11 @@ PS_TriggerXMLExport(showErrors := false) {
 	
 	; Call PSConsole exportOrderData
 	; format: 1 = PhotoOne XML (Standard XML)
-	; group: 0 = all groups
+	; group: 0 = all groups, N = specific order group
 	; includeSampleImages: false
 	; sampleimagesfolder: temp folder (required parameter even if not used)
 	tempFolder := A_Temp
-	result := PsConsole("exportOrderData", xmlPath, "1", "0", "false", tempFolder)
+	result := PsConsole("exportOrderData", xmlPath, "1", targetGroup, "false", tempFolder)
 	
 	if (!result || result = "false" || result = "true") {
 		FileAppend, % A_Now . " - PS_TriggerXMLExport - FAILED: PSConsole exportOrderData failed`n", %DebugLogFile%
@@ -3069,8 +3070,11 @@ try {
 ; v3.0: Payment plan creation, date bumping, duplicate checks, and instalment/single
 ; modes are all handled by SideKick_GC. PS passes balance + raw album name as plan name,
 ; then reads back a result file to inject payments into the .psa album.
-GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
+GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false, targetGroup := 0) {
 	global DebugLogFile, PayPlanLine, PayNo, DownpaymentLineAdded
+	; Normalise group — 0 means single-order album (use group 1)
+	if (targetGroup < 1)
+		targetGroup := 1
 	
 	; Build client info
 	clientEmail := contactData.email
@@ -3105,8 +3109,8 @@ GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 	ddPaylines := ""
 	; psaPath already resolved above for album name extraction
 	if (psaPath != "" && FileExist(psaPath)) {
-		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Reading payments from .psa: " . psaPath . "`n", %DebugLogFile%
-		readCmd := GetScriptCommand("read_psa_payments", """" . psaPath . """")
+		FileAppend, % A_Now . " - GC_ShowPayPlanDialog - Reading payments from .psa: " . psaPath . " (group " . targetGroup . ")`n", %DebugLogFile%
+		readCmd := GetScriptCommand("read_psa_payments", """" . psaPath . """ --group " . targetGroup)
 		tempPsaRead := A_Temp . "\gc_psa_read_" . A_TickCount . ".txt"
 		RunCmdToFile(readCmd, tempPsaRead)
 		FileRead, psaOutput, %tempPsaRead%
@@ -3162,7 +3166,9 @@ GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 		gcArgs := "--gui payment-plans"
 	gcArgs .= " --client-email """ . clientEmail . """"
 	gcArgs .= " --client-name """ . clientName . """"
-	gcArgs .= " --plan-name """ . albumName . """"
+	; Append order number for reorders so two plans on one mandate are distinguishable
+	planDisplayName := (targetGroup > 1) ? (albumName . " Order " . targetGroup) : albumName
+	gcArgs .= " --plan-name """ . planDisplayName . """"
 	if (ghlId != "")
 		gcArgs .= " --ghl-id """ . ghlId . """"
 	if (ddBalance > 0)
@@ -3394,7 +3400,8 @@ GC_ShowPayPlanDialog(contactData, mandateResult, skipInjection := false) {
 	
 	; Parse payment dates from result JSON and build write_psa_payments args
 	; Result format: {"status":"SUCCESS","method":"GoCardless DD","payments":[{"date":"YYYY-MM-DD","amount_pounds":250.00},...],...}
-	writeArgs := """" . psaFile . """ --clear-method """ . resultMethod . """"
+	; --group scopes the clear+write to only this order's group (proven safe in Chunk 0 self-test)
+	writeArgs := """" . psaFile . """ --group " . targetGroup . " --clear-method """ . resultMethod . """"
 	foundPayments := false
 	
 	; Extract each payment from the payments array
@@ -5910,6 +5917,7 @@ DevQuickPush:
 	FormatTime, todayDate, , yyyy-MM-dd
 	scriptContent := RegExReplace(scriptContent, "; Version:\s+\d+\.\d+\.\d+", "; Version:     " . newVersion)
 	scriptContent := RegExReplace(scriptContent, "; Build Date:\s+\d{4}-\d{2}-\d{2}", "; Build Date:  " . todayDate)
+	scriptContent := Chr(0xEF) . Chr(0xBB) . Chr(0xBF) . scriptContent  ; Restore UTF-8 BOM (FileAppend UTF-8 writes without BOM)
 	FileDelete, %mainScript%
 	FileAppend, %scriptContent%, %mainScript%, UTF-8
 	

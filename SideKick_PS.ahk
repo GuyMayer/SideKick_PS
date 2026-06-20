@@ -1,9 +1,9 @@
-#Requires AutoHotkey v1.1+
+﻿#Requires AutoHotkey v1.1+
 ; ============================================================================
 ; Script:      SideKick_PS.ahk
 ; Description: Payment Plan Calculator for ProSelect Photography Software
-; Version:     3.0.21
-; Build Date:  2026-05-29
+; Version:     3.0.23
+; Build Date:  2026-06-21
 ; Author:      GuyMayer
 ; Repository:  https://github.com/GuyMayer/SideKick_PS
 ; ============================================================================
@@ -988,7 +988,7 @@ Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 Gui, PP:Add, Text, x40 y230 w100 h25 BackgroundTrans, No. Payments:
 Gui, PP:Font, s10 Norm cBlack, Segoe UI
 Gui, PP:Add, Edit, x150 y227 w70 h28 vPayNo gRecalcFromNo, %PayNo%
-Gui, PP:Add, UpDown, vMyUpDown gRecalcFromNo Range1-24, 3
+Gui, PP:Add, UpDown, vMyUpDown gRecalcFromNo Range1-156, 3
 Gui, PP:Font, s10 Norm c%ppLabelColor%, Segoe UI
 Gui, PP:Add, Text, x280 y230 w80 h25 BackgroundTrans, Pay Type:
 Gui, PP:Font, s10 Norm cBlack, Segoe UI
@@ -1098,6 +1098,18 @@ GetDayNumber(dayStr) {
 		return 29
 	RegExMatch(dayStr, "(\d+)", match)
 	return match1 ? match1 : 0
+}
+
+; Helper function to get maximum payments for recurring type
+GetMaxPayments(recurringType) {
+	if (recurringType = "Weekly")
+		return 156
+	else if (recurringType = "Bi-Weekly")
+		return 78
+	else if (recurringType = "4-Weekly")
+		return 39
+	else
+		return 36  ; Monthly (default)
 }
 
 ; Handle rounding option radio button change
@@ -1278,8 +1290,9 @@ Gui, PP:Submit, NoHide
 Gui, PP: +OwnDialogs
 if (PayNo < 1)
 	PayNo := 1
-if (PayNo > 24)
-	PayNo := 24
+MaxPay := GetMaxPayments(Recurring)
+if (PayNo > MaxPay)
+	PayNo := MaxPay
 
 ; Calculate remaining balance after downpayment
 DownpaymentVal := (DownpaymentAmount != "" && DownpaymentAmount > 0) ? DownpaymentAmount : 0
@@ -1323,11 +1336,12 @@ if (RemainingBalance < 0)
 CalcPayNo := RemainingBalance / EnteredAmount
 CalcPayNo := Round(CalcPayNo)
 
-; Clamp to valid range 1-24
+; Clamp to valid range
 if (CalcPayNo < 1)
 	CalcPayNo := 1
-if (CalcPayNo > 24)
-	CalcPayNo := 24
+MaxPay := GetMaxPayments(Recurring)
+if (CalcPayNo > MaxPay)
+	CalcPayNo := MaxPay
 
 ; Update number of payments
 PayNo := CalcPayNo
@@ -5387,6 +5401,11 @@ Toolbar_GoCardless:
 	gcNeedsFetch := (GHL_ContactData = "" || !GHL_ContactData.HasKey("id"))
 	if (!gcNeedsFetch && albumContactId != "" && GHL_ContactData.id != albumContactId)
 		gcNeedsFetch := true   ; cached data is for a different client
+	; No GHL ID found in this album — cannot verify cache belongs to this client, discard it
+	if (albumContactId = "" && GHL_ContactData != "" && GHL_ContactData.HasKey("id")) {
+		GHL_ContactData := ""
+		gcNeedsFetch := false  ; nothing to fetch without an ID — fall through to PSA email
+	}
 
 	if (gcNeedsFetch && albumContactId != "") {
 		; Try to fetch GHL contact by ID
@@ -5481,6 +5500,62 @@ Toolbar_GoCardless:
 			result := DarkMsgBox("Mandate Active", msg, "success", {buttons: ["Add PayPlan", "Go to Client", "Cancel"], tooltips: gcTips})
 		}
 		
+		; ── Order group selection (reorders) ─────────────────────────────────
+		; If the album has more than one order group, ask which order this
+		; GoCardless plan is for. Single-order albums skip the prompt.
+		TargetGCGroup := 1
+		gcPsaPath := GetAlbumPath()
+		if (gcPsaPath != "" && FileExist(gcPsaPath)) {
+			gcAlbumData := PsConsole("getAlbumData")
+			if (RegExMatch(gcAlbumData, "orderGroupCount=""(\d+)""", gcGrpCountM) && gcGrpCountM1 > 1) {
+				; Detect all groups for the picker
+				detectGcArgs := """" . gcPsaPath . """ 0"
+				detectGcCmd := GetScriptCommand("detect_psa_group", detectGcArgs)
+				tempGcDetect := A_Temp . "\sk_gc_grp_" . A_TickCount . ".txt"
+				RunCmdToFile(detectGcCmd, tempGcDetect)
+				FileRead, gcDetectOut, %tempGcDetect%
+				FileDelete, %tempGcDetect%
+				gcDetectOut := Trim(gcDetectOut)
+				; Build picker list from AMBIGUOUS|N|id1|name1|id2|name2|... response
+						gcOrderBtns := []
+				gcOrderIds := []
+				if (InStr(gcDetectOut, "AMBIGUOUS|") || InStr(gcDetectOut, "GROUP|")) {
+					gcDP := StrSplit(gcDetectOut, "|")
+					if (InStr(gcDetectOut, "AMBIGUOUS|")) {
+						idx := 3
+						gcN := 1
+						while (idx < gcDP.Length()) {
+							gcOrderIds.Push(gcDP[idx])
+							gcTotal := (gcDP.Length() >= idx + 2) ? gcDP[idx + 2] : ""
+							gcLabel := "Order " . gcN . " — " . gcDP[idx + 1]
+							if (gcTotal != "")
+								gcLabel .= " (£" . gcTotal . ")"
+							gcOrderBtns.Push(gcLabel)
+							gcN++
+							idx += 3
+						}
+					} else {
+						gcOrderIds.Push(gcDP[2])
+						gcOrderBtns.Push("Order 1 — " . gcDP[3] . " " . gcDP[4])
+					}
+				}
+				if (gcOrderBtns.Length() > 0) {
+					; Go to Client doesn't need an order — skip picker
+					if (result != "Go to Client") {
+						gcPickIdx := DarkOrderPicker("Which Order?", "This album has " . gcGrpCountM1 . " orders. Select the order for this GoCardless plan:", gcOrderBtns)
+						if (gcPickIdx = 0)
+							return
+						TargetGCGroup := gcOrderIds[gcPickIdx]
+					}
+				}
+			}
+		}
+		FileAppend, % A_Now . " - Toolbar_GoCardless - Target group: " . TargetGCGroup . "`n", %DebugLogFile%
+		; For reorders, Replace would cancel Order 1's active plan — force Add
+		if (TargetGCGroup > 1 && result = "Replace PayPlan")
+			result := "Add PayPlan"
+		; ────────────────────────────────────────────────────────────────────
+
 		if (result = "Replace PayPlan") {
 			; Cancel existing plans before creating new one
 			if (hasExistingPlans) {
@@ -5513,13 +5588,13 @@ Toolbar_GoCardless:
 			; Save album so .psa has the latest payments before reading
 			PsConsole("saveAlbum")
 			Sleep, 500
-			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult, false, TargetGCGroup)
 		}
 		else if (result = "Add PayPlan") {
 			; Create new plan without cancelling existing ones
 			PsConsole("saveAlbum")
 			Sleep, 500
-			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+			GC_ShowPayPlanDialog(GHL_ContactData, mandateResult, false, TargetGCGroup)
 		}
 		else if (result = "Go to Client") {
 			; Open GoCardless customer page
@@ -5617,7 +5692,7 @@ Toolbar_GoCardless:
 				if (result = "Replace PayPlan") {
 					if (hasExistingPlans) {
 						ToolTip, Cancelling old GoCardless plans...
-						FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback - Cancelling old plans for mandate " . mandateResult.mandateId . "`n", %DebugLogFile%
+						FileAppend, % A_Now . " - Toolbar_GoCardless - Name fallback - Cancelling old plans for mandate " . mandateResult.mandateId . " (group " . TargetGCGroup . ")`n", %DebugLogFile%
 						cancelCmd := GetScriptCommand("gocardless_api", "--cancel-plans """ . mandateResult.mandateId . """" . envFlag)
 						if (cancelCmd != "") {
 							tempCancel := A_Temp . "\sk_gc_cancel_" . A_TickCount . ".txt"
@@ -5642,13 +5717,13 @@ Toolbar_GoCardless:
 					}
 					PsConsole("saveAlbum")
 					Sleep, 500
-					GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+					GC_ShowPayPlanDialog(GHL_ContactData, mandateResult, false, TargetGCGroup)
 				}
 				else if (result = "Add PayPlan") {
 					; Create new plan without cancelling existing ones
 					PsConsole("saveAlbum")
 					Sleep, 500
-					GC_ShowPayPlanDialog(GHL_ContactData, mandateResult)
+					GC_ShowPayPlanDialog(GHL_ContactData, mandateResult, false, TargetGCGroup)
 				}
 				else if (result = "Go to Client") {
 					gcUrl := "https://manage.gocardless.com/customers/" . nfCustomerId
@@ -6261,7 +6336,61 @@ if (ExportFolder = "" || !FileExist(ExportFolder))
 }
 
 ; Trigger ProSelect XML export using shared function
-latestXml := PS_TriggerXMLExport(true)
+; ── Order group selection (reorders) ───────────────────────────────────────
+; If the album has more than one order group, ask which order to invoice.
+; Single-order albums skip the prompt entirely.
+TargetInvGroup := 0
+InvOrderSuffix := ""
+invPsaPath := GetAlbumPath()
+if (invPsaPath != "" && FileExist(invPsaPath)) {
+	invAlbumData := PsConsole("getAlbumData")
+	if (RegExMatch(invAlbumData, "orderGroupCount=""(\d+)""", invGrpCntM) && invGrpCntM1 > 1) {
+		detectInvArgs := """" . invPsaPath . """ 0"
+		detectInvCmd := GetScriptCommand("detect_psa_group", detectInvArgs)
+		tempInvDetect := A_Temp . "\sk_inv_grp_" . A_TickCount . ".txt"
+		RunCmdToFile(detectInvCmd, tempInvDetect)
+		FileRead, invDetectOut, %tempInvDetect%
+		FileDelete, %tempInvDetect%
+		invDetectOut := Trim(invDetectOut)
+		invOrderBtns := []
+		invOrderIds := []
+		if (InStr(invDetectOut, "AMBIGUOUS|") || InStr(invDetectOut, "GROUP|")) {
+			invDP := StrSplit(invDetectOut, "|")
+			if (InStr(invDetectOut, "AMBIGUOUS|")) {
+				idx := 3
+				invN := 1
+				while (idx < invDP.Length()) {
+					invOrderIds.Push(invDP[idx])
+					invTotal := (invDP.Length() >= idx + 2) ? invDP[idx + 2] : ""
+					invLabel := "Order " . invN . " — " . invDP[idx + 1]
+					if (invTotal != "")
+						invLabel .= " (£" . invTotal . ")"
+					invOrderBtns.Push(invLabel)
+					invN++
+					idx += 3
+				}
+			} else {
+				invOrderIds.Push(invDP[2])
+				invOrderBtns.Push("Order 1 — " . invDP[3] . " " . invDP[4])
+			}
+		}
+		if (invOrderBtns.Length() > 0) {
+			invPickIdx := DarkOrderPicker("Which Order?", "This album has " . invGrpCntM1 . " orders. Select the order to invoice:", invOrderBtns)
+			if (invPickIdx = 0) {
+				Hotkey, Escape, ExportCancelCheck, Off
+				Gui, InvoiceHandsOff:Destroy
+				ExportInProgress := false
+				Return
+			}
+			TargetInvGroup := invOrderIds[invPickIdx]
+			if (invPickIdx > 1)
+				InvOrderSuffix := " --order-suffix " . invPickIdx
+		}
+	}
+}
+FileAppend, % A_Now . " - Invoice target group: " . (TargetInvGroup > 0 ? TargetInvGroup : "all") . "`n", %DebugLogFile%
+; ────────────────────────────────────────────────────────────────────────────
+latestXml := PS_TriggerXMLExport(true, TargetInvGroup)
 if (latestXml = "") {
 	; Export failed - function already showed error message
 	ExportInProgress := false
@@ -6325,6 +6454,8 @@ if (!FileExist(scriptPath) && !FileExist(unifiedCliPath))
 
 ; Build arguments with optional financials-only flag
 syncArgs := """" . latestXml . """"
+if (InvOrderSuffix != "")
+	syncArgs .= InvOrderSuffix
 if (Settings_FinancialsOnly)
 	syncArgs .= " --financials-only"
 if (Settings_SkipZeroExtras)
@@ -6343,7 +6474,7 @@ FileAppend, % A_Now . " - Sync command: " . syncCmd . "`n", %DebugLogFile%
 ; ── Duplicate invoice check ──────────────────────────────
 ; Quick pre-check: does this client already have an invoice for this shoot?
 FileAppend, % A_Now . " - Running duplicate check...`n", %DebugLogFile%
-dupCheckArgs := """" . latestXml . """ --check-duplicate"
+dupCheckArgs := """" . latestXml . """ --check-duplicate" . InvOrderSuffix
 dupCheckCmd := GetScriptCommand("sync_ps_invoice", dupCheckArgs)
 dupResultFile := A_AppData . "\SideKick_PS\ghl_invoice_sync_result.json"
 
@@ -6435,6 +6566,8 @@ if (dupCheckExit = 2) {
 	if (dupAction = "Replace") {
 		; Delete old invoice(s) for this shoot then sync new - use --resync flag
 		syncArgs := """" . latestXml . """ --resync"
+		if (InvOrderSuffix != "")
+			syncArgs .= InvOrderSuffix
 		if (Settings_FinancialsOnly)
 			syncArgs .= " --financials-only"
 		if (Settings_SkipZeroExtras)
@@ -6453,6 +6586,8 @@ if (dupCheckExit = 2) {
 	else if (dupAction = "Update") {
 		; Update existing invoice items and record new payments in place
 		syncArgs := """" . latestXml . """ --update-invoice """ . dupInvId . """"
+		if (InvOrderSuffix != "")
+			syncArgs .= InvOrderSuffix
 		if (Settings_FinancialsOnly)
 			syncArgs .= " --financials-only"
 		if (Settings_SkipZeroExtras)
@@ -6868,7 +7003,12 @@ Toolbar_Cardly:
 	needsFetch := (GHL_ContactData = "" || !GHL_ContactData.HasKey("id"))
 	if (!needsFetch && albumContactId != "" && GHL_ContactData.id != albumContactId)
 		needsFetch := true
-	
+	; No GHL ID found in this album — cannot verify cache belongs to this client, discard it
+	if (!noAlbumMode && albumContactId = "" && GHL_ContactData != "" && GHL_ContactData.HasKey("id")) {
+		GHL_ContactData := ""
+		needsFetch := true  ; will fall into "No Client Found" path below — correct for Cardly
+	}
+
 	if (needsFetch) {
 		if (!noAlbumMode) {
 			if (albumContactId != "") {
@@ -7239,7 +7379,7 @@ Toolbar_CheckShootStatus:
 	}
 
 	; If no GHL client ID in album name, run GHL lookup first
-	if (!RegExMatch(csTitle, "_([A-Za-z0-9]{20,})"))
+	if (!RegExMatch(csTitle, "_([A-Za-z0-9]{15,})"))
 	{
 		csTitleBeforeLookup := csTitle
 		Gosub, GHLClientLookup
@@ -8388,6 +8528,96 @@ DarkMsgBox_AddTooltip(hwnd, tipText) {
 	DllCall("SendMessage", "Ptr", hToolTip, "UInt", TT_ADDTOOL, "Ptr", 0, "Ptr", &ti)
 }
 Return
+
+; ─── DarkOrderPicker ─────────────────────────────────────────────────────────
+; Shows a dark-themed listbox picker dialog. Returns 1-based index of selected
+; item, or 0 if cancelled / closed. Defaults to last item (latest order).
+DarkOrderPicker(title, message, items, defaultIdx := 0) {
+	global Settings_DarkMode, DPI_Scale, DarkOrderPicker_SelectedIdx, DarkOrderPicker_ListHwnd
+	global OrderPickerSelection
+	DarkOrderPicker_SelectedIdx := 0
+
+	itemCount := items.Length()
+	if (itemCount = 0)
+		return 0
+	if (defaultIdx <= 0 || defaultIdx > itemCount)
+		defaultIdx := itemCount
+
+	dpi := DPI_Scale ? DPI_Scale : 1.0
+	bgColor  := Settings_DarkMode ? "2D2D2D" : "F0F0F0"
+	fgColor  := Settings_DarkMode ? "E8E8E8" : "111111"
+	listBg   := Settings_DarkMode ? "3A3A3A" : "FFFFFF"
+	titleClr := "4FC3F7"
+
+	maxVis := (itemCount < 6) ? itemCount : 6
+	itemH  := Round(38 * dpi)
+	listH  := maxVis * itemH + Round(8 * dpi)
+	btnH   := Round(32 * dpi)
+	btnW   := Round(120 * dpi)
+	padX   := Round(20 * dpi)
+	wW     := Round(500 * dpi)
+	innerW := wW - 2 * padX
+	titleY := Round(16 * dpi)
+	msgY   := Round(44 * dpi)
+	listY  := Round(76 * dpi)
+	btnY   := listY + listH + Round(16 * dpi)
+	wH     := btnY + btnH + Round(20 * dpi)
+
+	listContent := ""
+	for i, item in items {
+		if (i > 1)
+			listContent .= "|"
+		listContent .= item
+	}
+
+	Gui, OrderPicker:Destroy
+	Gui, OrderPicker:New, +AlwaysOnTop +ToolWindow -MaximizeBox -MinimizeBox +LabelOrderPickerEvent, %title%
+	Gui, OrderPicker:Color, %bgColor%
+
+	Gui, OrderPicker:Font, s11 Bold c%titleClr%, Segoe UI
+	Gui, OrderPicker:Add, Text, x%padX% y%titleY% w%innerW% BackgroundTrans, %title%
+
+	Gui, OrderPicker:Font, s9 Normal c%fgColor%, Segoe UI
+	Gui, OrderPicker:Add, Text, x%padX% y%msgY% w%innerW% BackgroundTrans, %message%
+
+	Gui, OrderPicker:Font, s10 Normal c000000, Segoe UI
+	Gui, OrderPicker:Add, ListBox, x%padX% y%listY% w%innerW% h%listH% vOrderPickerSelection Choose%defaultIdx% Background%listBg% hwndDarkOrderPicker_ListHwnd, %listContent%
+
+	btnGap   := Round(10 * dpi)
+	selectX  := (wW - 2 * btnW - btnGap) // 2
+	cancelX  := selectX + btnW + btnGap
+	Gui, OrderPicker:Font, s10 Bold c%fgColor%, Segoe UI
+	Gui, OrderPicker:Add, Button, x%selectX% y%btnY% w%btnW% h%btnH% Default gDarkOrderPicker_Select, Select
+	Gui, OrderPicker:Add, Button, x%cancelX% y%btnY% w%btnW% h%btnH% gDarkOrderPicker_Cancel, Cancel
+
+	Gui, OrderPicker:Show, w%wW% h%wH%, %title%
+	Gui, OrderPicker:+LastFound
+	WinGet, _opHwnd, ID
+	if (Settings_DarkMode)
+		DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", _opHwnd, "Int", 20, "Int*", 1, "Int", 4)
+	WinWaitClose, ahk_id %_opHwnd%
+	return DarkOrderPicker_SelectedIdx
+}
+
+DarkOrderPicker_Select:
+	global DarkOrderPicker_SelectedIdx, DarkOrderPicker_ListHwnd
+	SendMessage, 0x0188, 0, 0,, ahk_id %DarkOrderPicker_ListHwnd%  ; LB_GETCURSEL (0-based)
+	DarkOrderPicker_SelectedIdx := (ErrorLevel = 4294967295 || ErrorLevel = "") ? 0 : (ErrorLevel + 1)
+	Gui, OrderPicker:Destroy
+Return
+
+DarkOrderPicker_Cancel:
+	DarkOrderPicker_SelectedIdx := 0
+	Gui, OrderPicker:Destroy
+Return
+
+OrderPickerEventGuiClose:
+OrderPickerEventGuiEscape:
+	DarkOrderPicker_SelectedIdx := 0
+	Gui, OrderPicker:Destroy
+Return
+
+; ─────────────────────────────────────────────────────────────────────────────
 
 DarkMsgGuiClose:
 DarkMsgGuiEscape:
@@ -12499,15 +12729,31 @@ contactId := ""
 if WinExist("ahk_exe ProSelect.exe")
 {
 	WinGetTitle, psTitle, ahk_exe ProSelect.exe
-	; Look for GHL contact ID pattern in title (20+ alphanumeric chars)
+	; Look for GHL contact ID pattern in title (15+ alphanumeric chars, not a shoot ref like P25001P)
 	; Album names with client ID look like: "P26001_Smith_qatlAMlMrQQmZvLb71pj - ProSelect"
-	if (RegExMatch(psTitle, "([A-Za-z0-9]{20,})", titleMatch))
+	if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", titleMatch))
 	{
-		contactId := titleMatch1
+		if (!RegExMatch(titleMatch1, "^P\d+P$"))
+			contactId := titleMatch1
 	}
 }
 
-; If not found in title, try the most recent XML export
+; If not found in title, try PSA filename (handles albums where folder name has no GHL ID)
+if (contactId = "" && PsConsolePath != "")
+{
+	psaPathForId := GetAlbumPath()
+	if (psaPathForId != "")
+	{
+		SplitPath, psaPathForId, psaFileNameForId
+		if (RegExMatch(psaFileNameForId, "_([A-Za-z0-9]{15,})", psaIdMatch))
+		{
+			if (!RegExMatch(psaIdMatch1, "^P\d+P$"))
+				contactId := psaIdMatch1
+		}
+	}
+}
+
+; If not found in title or PSA filename, try the most recent XML export
 if (contactId = "")
 {
 	ExportFolder := Settings_InvoiceWatchFolder
@@ -12575,8 +12821,8 @@ albumOpenNoId := false
 if WinExist("ProSelect ahk_exe ProSelect.exe")
 {
 	WinGetTitle, psTitle, ahk_exe ProSelect.exe
-	; Check for Client ID pattern in album name (20+ alphanumeric chars)
-	if (RegExMatch(psTitle, "_([A-Za-z0-9]{20,})", idMatch))
+	; Check for Client ID pattern in album name (15+ alphanumeric chars, not a shoot ref)
+	if (RegExMatch(psTitle, "_([A-Za-z0-9]{15,})", idMatch) && !RegExMatch(idMatch1, "^P\d+P$"))
 	{
 		; Album has Client ID - automatically use it (no need to ask)
 		existingClientId := idMatch1
@@ -13276,7 +13522,7 @@ UpdateProSelectClient(GHL_Data, updateExisting := false)
 ; PSConsole Function - Execute ProSelect Console commands
 ; ============================================================================
 PsConsole(command, param1:="", param2:="", param3:="", param4:="", param5:="", param6:="", param7:="", param8:="", param9:="", param10:="", param11:="", param12:="", param13:="", param14:="", param15:="") {
-	global PsConsolePath
+	global PsConsolePath, DebugLogFile
 	
 	if (PsConsolePath = "")
 		return false
@@ -13323,7 +13569,7 @@ PsConsole(command, param1:="", param2:="", param3:="", param4:="", param5:="", p
 	fullCommand .= paramString
 	
 	tempFile := A_Temp . "\psconsole_output.txt"
-	RunWait, *RunAs %ComSpec% /c chcp 65001 >nul && %fullCommand% > "%tempFile%" 2>&1, , Hide
+	RunWait, %ComSpec% /c chcp 65001 >nul && %fullCommand% > "%tempFile%" 2>&1, , Hide
 	
 	; Read the output with UTF-8 encoding
 	FileRead, output, *P65001 %tempFile%
@@ -13337,8 +13583,8 @@ PsConsole(command, param1:="", param2:="", param3:="", param4:="", param5:="", p
 	if (InStr(output, "<result status=""0""></result>")) {
 		return true
 	} else {
-		; Error - show the output for debugging
-		; MsgBox, 16, PSConsole Error, Error executing command:`n`n%fullCommand%`n`nOutput:`n%output%
+		; Log the error to debug log for diagnosis
+		FileAppend, % A_Now . " - PsConsole ERROR: command=[" . command . "]`n" . A_Now . " - PsConsole output=[" . output . "]`n", %DebugLogFile%
 		return false
 	}
 }

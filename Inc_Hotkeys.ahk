@@ -600,6 +600,13 @@ If InStr(PayMonth, "Select")
 	return
 }
 
+; "Last Day" is only valid for Monthly recurring
+if (Recurring != "Monthly" && PayDay = "Last Day")
+{
+	DarkMsgBox("ATTENTION", "'Last Day' is not valid for " . Recurring . " payments.`nPlease select a specific date (1st–28th).", "warning")
+	return
+}
+
 ; Check if downpayment is being used (amount > 0)
 HasDownpayment := (DownpaymentAmount != "" && DownpaymentAmount > 0)
 
@@ -674,6 +681,7 @@ Return
 
 CheckPastPaymentDates:
 ; Check if first payment date is in the past and offer to bump to next available month
+global UserCancelledDateCheck := false
 if (PayNo < 1)
 	return
 
@@ -699,6 +707,105 @@ FormatTime, Today, , yyyyMMdd
 ; Check if first payment is in the past
 if (FirstPayDate < Today)
 {
+	; Determine if we're using weekly-based recurring
+	WeeklyBump := false
+	BumpDays := 0
+	BumpLabel := "months"
+	if (Recurring = "Weekly")
+	{
+		WeeklyBump := true
+		BumpDays := 7
+		BumpLabel := "weeks"
+	}
+	else if (Recurring = "Bi-Weekly")
+	{
+		WeeklyBump := true
+		BumpDays := 14
+		BumpLabel := "bi-weeks"
+	}
+	else if (Recurring = "4-Weekly")
+	{
+		WeeklyBump := true
+		BumpDays := 28
+		BumpLabel := "4-week periods"
+	}
+
+	if (WeeklyBump)
+	{
+		; Build start date in YYYYMMDD format
+		StartDate := FullYear . Format("{:02}", FirstMonth) . Format("{:02}", FirstDay)
+
+		; Count how many periods until we reach today
+		FormatTime, CurrentDay, , d
+		FormatTime, CurrentMonth, , M
+		FormatTime, CurrentYear, , yyyy
+
+		PeriodsBehind := 0
+		TempDate := StartDate
+		Loop, 200  ; max ~4 years of weeks
+		{
+			if (TempDate >= Today)
+				break
+			PeriodsBehind++
+			TempDate := DateCalc(StartDate, 0, 0, PeriodsBehind * BumpDays)
+		}
+
+		; Find next available date (must be at least today)
+		NextStartDate := DateCalc(StartDate, 0, 0, PeriodsBehind * BumpDays)
+
+		; Extract new day, month, year
+		NewDay := SubStr(NextStartDate, 7, 2) + 0
+		NewMonth := SubStr(NextStartDate, 5, 2) + 0
+		NewYear := SubStr(NextStartDate, 1, 4)
+
+		; If the new date is still in the past (same day but earlier time), bump one more period
+		if (NextStartDate < Today)
+		{
+			PeriodsBehind++
+			NextStartDate := DateCalc(StartDate, 0, 0, PeriodsBehind * BumpDays)
+			NewDay := SubStr(NextStartDate, 7, 2) + 0
+			NewMonth := SubStr(NextStartDate, 5, 2) + 0
+			NewYear := SubStr(NextStartDate, 1, 4)
+		}
+
+		; Build message showing past payments
+		PastPayments := ""
+		Loop, %PayNo%
+		{
+			LineData := StrSplit(PayPlanLine[A_Index], ",")
+			LineDate := "20" . LineData[3] . Format("{:02}", LineData[2]) . Format("{:02}", LineData[1])
+			if (LineDate < Today)
+				PastPayments .= "   • " . LineData[1] . "/" . LineData[2] . "/20" . LineData[3] . " - £" . LineData[5] . "`n"
+		}
+
+		msg := "⚠️ PAYMENT DATES IN THE PAST ⚠️`n`n"
+		msg .= "The following payment dates have already passed:`n`n" . PastPayments
+		msg .= "`nGoCardless will REJECT payments with past dates.`n`n"
+		msg .= "📅 Bump by " . PeriodsBehind . " " . BumpLabel . "`n"
+		msg .= "    From: " . FirstDay . "/" . FirstMonth . "/" . FullYear . "`n"
+		msg .= "    To: " . NewDay . "/" . NewMonth . "/" . NewYear . "`n`n"
+		msg .= "Click 'Cancel' to go back and fix the dates manually."
+
+		result := DarkMsgBox("Past Payment Dates", msg, "warning", {buttons: ["Bump Dates", "Keep Dates", "Cancel"]})
+
+		if (result = "Bump Dates")
+		{
+			PayDay := NewDay
+			PayMonth := Months[NewMonth]
+			PayYear := NewYear
+			Gosub, BuildPayPlanLines
+			ToolTip, 📅 Payment dates bumped by %PeriodsBehind% %BumpLabel%
+			SetTimer, RemovePPTooltip, -2000
+		}
+		else if (result = "Cancel")
+		{
+			UserCancelledDateCheck := true
+			return
+		}
+		; Keep Dates — fall through with unchanged dates
+	}
+	else
+	{
 	; Calculate how many months behind
 	FormatTime, CurrentMonth, , M
 	FormatTime, CurrentYear, , yyyy
@@ -764,7 +871,7 @@ if (FirstPayDate < Today)
 	msg .= "    To: " . NextMonthName . " " . NextAvailYear . "`n`n"
 	msg .= "Click 'Cancel' to go back and fix the dates manually."
 	
-	result := DarkMsgBox("Past Payment Dates", msg, "warning", {buttons: ["Bump Dates", "Cancel"]})
+	result := DarkMsgBox("Past Payment Dates", msg, "warning", {buttons: ["Bump Dates", "Keep Dates", "Cancel"]})
 	
 	if (result = "Bump Dates")
 	{
@@ -778,11 +885,14 @@ if (FirstPayDate < Today)
 		ToolTip, 📅 Payment dates bumped to start from %NextMonthName% %NextAvailYear%
 		SetTimer, RemovePPTooltip, -2000
 	}
-	else
+	else if (result = "Cancel")
 	{
 		; User cancelled - abort the save operation
+		UserCancelledDateCheck := true
 		return
 	}
+	; Keep Dates — fall through with unchanged dates
+	}  ; end monthly branch
 }
 return
 
@@ -920,6 +1030,8 @@ Gosub, BuildPayPlanLines
 
 ; Check if any payment dates are in the past and offer to bump them
 Gosub, CheckPastPaymentDates
+if (UserCancelledDateCheck)
+	return
 
 IniWrite, %PayDue%, %IniFilename%, Payments, PayDue
 Sleep 100
@@ -1088,16 +1200,13 @@ if (RegExMatch(albumData, "orderGroupCount=""(\d+)""", groupCountMatch) && group
 		while (idx < ambigParts.Length()) {
 			cid := ambigParts[idx]
 			cname := ambigParts[idx + 1]
-			ambigClients.Push({id: cid, name: cname})
-			ambigButtons.Push(cname)
-			idx += 2
-		}
-		
-		if (ambigClients.Length() > 0) {
-			msg := "This album has multiple clients with the same balance.`n`nWhich client should these payments be added to?"
-			pickResult := DarkMsgBox("Select Client", msg, "info", {buttons: ambigButtons})
-			
-			; Match the picked button text to the client
+				ctotal := (ambigParts.Length() >= idx + 2) ? ambigParts[idx + 2] : ""
+				ambigClients.Push({id: cid, name: cname})
+				btnLabel := cname
+				if (ctotal != "" && ctotal + 0 > 0)
+					btnLabel .= " (£" . ctotal . ")"
+				ambigButtons.Push(btnLabel)
+				idx += 3
 			groupFound := false
 			for i, client in ambigClients {
 				if (pickResult = client.name) {

@@ -1,16 +1,13 @@
 ﻿{
-  "version": "3.0.21",
-  "build_date": "2026-05-29",
+  "version": "3.0.23",
+  "build_date": "2026-06-21",
   "download_url": "https://github.com/GuyMayer/SideKick_PS/releases/latest/download/SideKick_PS_Setup.exe",
-  "release_notes": "GC interval detection fix; stray one-off fix; stale date fix; PSA pay period metadata; Pay 1st ASAP option",
+  "release_notes": "Multi-order picker; GC mandate pagination fix; payment progress in Mandate Active dialog; Replace PayPlan guard",
   "changelog": [
-    "FIX: GC interval detection tolerance tightened — monthly 30-31 day gaps no longer falsely detected as 4-weekly",
-    "FIX: GC stray one-off payment — rounding-adjusted first payments no longer split into standalone + truncated schedule",
-    "FIX: GC stale date check — exactly-4-day-ahead dates no longer falsely flagged",
-    "FIX: Existing PayPlan detection now only counts GoCardless DD payments (ignores credit card deposits)",
-    "NEW: PSA pay period metadata — recurring and pay_day written to sk_ps_meta table for audit trail",
-    "NEW: Pay 1st ASAP option in stale-date dialog — splits first payment as one-off, rest as normal schedule",
-    "NEW: _GetEarliestGCDate() helper — returns today + 4 days for display",
-    "IMPROVED: Meta values space-sanitised to survive shell argument splitting"
+    "NEW: DarkOrderPicker dialog for albums with multiple orders — lists all orders with balances, defaults to latest",
+    "NEW: Order totals displayed in picker and PayPlan Calculator hotkey (detect_psa_group.py AMBIGUOUS format updated)",
+    "FIX: GoCardless mandate lookup now cursor-paginates all customers — fixes 'mandate not found' for accounts beyond page 1",
+    "FIX: Replace PayPlan guard — selecting Order 2+ automatically switches to Add PayPlan to protect existing plans",
+    "IMPROVED: Mandate Active dialog now shows payment progress (e.g. 6/6 complete, 3/6 paid)"
   ]
 }
